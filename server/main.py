@@ -19,6 +19,7 @@ from models import (
     TableSeat, Team, Tier, User, VerifyLog, Withdrawal,
 )
 from seed_db import seed_all
+from settings import host_for_log, in_cloud, is_loopback, mysql_url, redis_url
 
 app = FastAPI(title="玩咖桌游酒吧 API")
 app.add_middleware(
@@ -143,7 +144,27 @@ class PatchIn(BaseModel):
 
 @app.on_event("startup")
 def on_startup():
-    seed_all(reset=False)
+    import time
+
+    db_url = mysql_url()
+    if in_cloud() and is_loopback(db_url):
+        raise RuntimeError(
+            "云托管未配置数据库：容器里没有 127.0.0.1 的 MySQL。"
+            "请在 api 服务「环境变量」填写 MYSQL_ADDRESS（内网地址，形如 10.x.x.x:3306）、"
+            "MYSQL_USERNAME、MYSQL_PASSWORD、MYSQL_DATABASE=wanka。"
+        )
+    print("MySQL ->", host_for_log(db_url))
+    print("Redis ->", host_for_log(redis_url()))
+    last = None
+    for i in range(12):
+        try:
+            seed_all(reset=False)
+            return
+        except Exception as e:
+            last = e
+            print(f"MySQL not ready ({i + 1}/12): {e}")
+            time.sleep(5)
+    raise last
 
 
 @app.post("/api/auth/login")

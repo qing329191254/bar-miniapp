@@ -1,0 +1,7 @@
+.env
+**/.env
+**/__pycache__
+**/*.pyc
+admin/node_modules
+bar-miniprogram/unpackage
+bar-miniprogram/node_modules
