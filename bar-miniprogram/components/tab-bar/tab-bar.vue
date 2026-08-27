@@ -1,5 +1,6 @@
 <script setup>
-import { savedUser } from "@/utils/api";
+import { onMounted } from "vue";
+import { savedUser, hideWxHomeButton } from "@/utils/api";
 
 const props = defineProps({ current: { type: String, default: "" } });
 const user = savedUser();
@@ -28,6 +29,10 @@ function tap(t) {
 function scan() {
   uni.navigateTo({ url: "/pages/s/scan" });
 }
+
+onMounted(() => {
+  hideWxHomeButton();
+});
 </script>
 
 <template>

@@ -11,6 +11,7 @@ button,input,select{font:inherit}
 .login-wrap{height:100%;overflow:auto;background:var(--bg)}
 .layout{display:flex;flex-direction:column;height:100%;overflow:hidden}
 .wtop{display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line);background:#FAF9F5;flex:none}
+.brand-logo{width:28px;height:28px;flex:none;display:block}
 .wdot{width:11px;height:11px;border-radius:50%;flex:none}
 .wbody{display:flex;flex:1;min-height:0;overflow:hidden}
 .side{width:186px;background:#FAF9F5;border-right:1px solid var(--line);flex:none;display:flex;flex-direction:column;min-height:0;height:100%;overflow:hidden}

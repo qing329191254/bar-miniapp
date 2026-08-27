@@ -39,8 +39,13 @@ class User(Base):
         }
         sh = {"w": w.shard_w if w else 0, "t": w.shard_t if w else 0}
         nick = self.nick or "玩咖"
+        phone = self.phone or ""
+        digits = "".join(ch for ch in phone if ch.isdigit())
+        if len(digits) == 11:
+            phone = f"{digits[:3]}****{digits[-4:]}"
         return {
-            "id": self.id, "no": self.no, "nick": self.nick, "phone": self.phone, "tail": self.tail,
+            "id": self.id, "no": self.no, "nick": self.nick,
+            "phone": phone, "tail": self.tail,
             "gender": self.gender, "role": self.role, "teamId": self.team_id, "status": self.status,
             "deact": self.deact, "av": nick.strip()[:2], "teamName": team_name,
             "coin": {**c, "total": c["p"] + c["b"]}, "point": p, "shard": sh,

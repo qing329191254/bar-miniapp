@@ -38,3 +38,26 @@ cd ../admin && npm install && npm run dev     # http://localhost:5174/
 | 老板 | 张老板 | 53 |
 
 登录后 C 端走首页/点单/卡券，员工进待办。后台请用店长或老板。
+
+## 图片上传（微信云存储 · 客户端直传）
+
+后台「店铺相册 / 商品图」等上传已改为 **浏览器直传微信云存储**，不再走后端 `/api/admin/upload`。
+
+首次使用前，在微信云托管 / 云开发控制台完成：
+
+1. **对象存储** → 存储权限：**公有读**（相册图 C 端可直接访问）
+2. **登录授权** → 开启 **匿名登录**（后台 Web 上传前会自动匿名登录云开发）
+3. **存储安全规则** 建议允许已登录用户写入，例如：
+   ```json
+   {
+     "*": {
+       "read": true,
+       "write": "auth != null"
+     }
+   }
+   ```
+4. 小程序 **downloadFile 合法域名** 添加：
+   `7072-prod-d2gc6jcwy846bd613-1476141553.cos.ap-shanghai.myqcloud.com`
+
+本地后台配置见 `admin/.env.example`（复制为 `admin/.env`）。上传后图片 URL 形如：
+`https://7072-prod-...cos.ap-shanghai.myqcloud.com/wanka/uploads/xxx.jpg`

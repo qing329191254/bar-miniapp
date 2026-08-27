@@ -81,7 +81,10 @@
 		"navigationBarTextStyle": "black",
 		"navigationBarTitleText": "玩咖桌游酒吧",
 		"navigationBarBackgroundColor": "#FFFFFF",
-		"backgroundColor": "#F5F4F0"
+		"backgroundColor": "#F5F4F0",
+		"mp-weixin": {
+			"homeButton": false
+		}
 	},
 	"easycom": {
 		"autoscan": true

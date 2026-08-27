@@ -53,11 +53,7 @@ function onKey(e: KeyboardEvent) {
 <template>
   <div class="login-page">
     <div class="login-card">
-      <div class="login-dots">
-        <span class="wdot" style="background:#E24B4A"></span>
-        <span class="wdot" style="background:#FAC775"></span>
-        <span class="wdot" style="background:#97C459"></span>
-      </div>
+      <img class="login-logo" src="/logo.png" alt="ACE HARBOR" />
       <h1 class="login-title">玩咖桌游酒吧 · 管理后台</h1>
       <p class="login-sub">店长 / 老板登录。资产负债与调账审批仅老板可见。</p>
 
@@ -109,10 +105,11 @@ function onKey(e: KeyboardEvent) {
   padding: 28px 24px 24px;
   box-shadow: 0 8px 28px rgba(28, 27, 25, 0.06);
 }
-.login-dots {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 16px;
+.login-logo {
+  width: 88px;
+  height: 88px;
+  display: block;
+  margin: 0 auto 16px;
 }
 .login-title {
   font-size: 18px;

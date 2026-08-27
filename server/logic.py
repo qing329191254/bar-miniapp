@@ -226,18 +226,55 @@ def alloc_member_no(sess: Session) -> str:
     return f"{n:06d}"
 
 
-def register_wx(sess: Session, openid: str) -> User:
+def mask_phone(full: str) -> tuple[str, str]:
+    digits = "".join(ch for ch in (full or "") if ch.isdigit())
+    if len(digits) >= 11:
+        d = digits[-11:]
+        return f"{d[:3]}****{d[-4:]}", d[-4:]
+    if len(digits) >= 4:
+        return f"1******{digits[-4:]}", digits[-4:]
+    tail = rand_digits(4)
+    return f"1******{tail}", tail
+
+
+def bind_wx_phone(sess: Session, user: User, phone_full: str) -> None:
+    masked, tail = mask_phone(phone_full)
+    user.phone = masked
+    user.tail = tail
+
+
+def register_wx(sess: Session, openid: str, phone_full: str | None = None) -> User:
     found = sess.query(User).filter(User.wx_openid == openid).first()
     if found:
+        if phone_full:
+            bind_wx_phone(sess, found, phone_full)
         return found
+    if phone_full:
+        digits = "".join(ch for ch in phone_full if ch.isdigit())
+        if len(digits) >= 11:
+            d11 = digits[-11:]
+            masked, tail = mask_phone(d11)
+            by_phone = sess.query(User).filter(
+                User.role == "CUSTOMER",
+                User.tail == tail,
+                User.phone.in_([d11, masked, f"{d11[:3]}****{d11[-4:]}"]),
+            ).first()
+            if by_phone:
+                by_phone.wx_openid = openid
+                bind_wx_phone(sess, by_phone, d11)
+                return by_phone
     agreements = setting(sess, "agreements")
     ver = int((agreements.get("terms") or {}).get("ver") or 1)
-    tail = rand_digits(4)
+    if phone_full:
+        masked, tail = mask_phone(phone_full)
+    else:
+        tail = rand_digits(4)
+        masked = f"1******{tail}"
     user = User(
         id=new_id(sess, User),
         no=alloc_member_no(sess),
         nick="玩咖用户",
-        phone=f"1******{tail}",
+        phone=masked,
         tail=tail,
         gender=0,
         role="CUSTOMER",

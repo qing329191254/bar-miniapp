@@ -94,10 +94,12 @@ class LoginIn(BaseModel):
     account: str = ""
     password: str = ""
     code: str = ""
+    phoneCode: str = ""
 
 
 class WxLoginIn(BaseModel):
     code: str = ""
+    phoneCode: str = ""
 
 
 class RegisterIn(BaseModel):
@@ -183,12 +185,15 @@ def session_payload(db: Session, user: User) -> dict:
     return {"token": token, "user": L.public_user(db, user)}
 
 
-def login_with_wx(code: str, db: Session) -> dict:
+def login_with_wx(code: str, phone_code: str, db: Session) -> dict:
+    if not (phone_code or "").strip():
+        raise HTTPException(400, "请授权手机号")
     try:
         openid = weixin.code2openid(code)
+        phone_full = weixin.phone_from_code(phone_code)
     except ValueError as e:
         raise HTTPException(401, str(e))
-    user = L.register_wx(db, openid)
+    user = L.register_wx(db, openid, phone_full)
     if user.status == "DEACTIVATED":
         raise HTTPException(401, "账号不可用")
     return session_payload(db, user)
@@ -197,7 +202,7 @@ def login_with_wx(code: str, db: Session) -> dict:
 @app.post("/api/auth/login")
 def login(body: LoginIn, db: Session = Depends(get_db)):
     if (body.code or "").strip():
-        return login_with_wx(body.code, db)
+        return login_with_wx(body.code, body.phoneCode, db)
     user = None
     if body.userId:
         user = L.u(db, body.userId)
@@ -223,7 +228,7 @@ def login(body: LoginIn, db: Session = Depends(get_db)):
 
 @app.post("/api/auth/wx")
 def wx_login(body: WxLoginIn, db: Session = Depends(get_db)):
-    return login_with_wx(body.code, db)
+    return login_with_wx(body.code, body.phoneCode, db)
 
 
 @app.get("/api/dev/accounts")

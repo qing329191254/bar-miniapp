@@ -136,9 +136,7 @@ watch(
   </div>
   <div v-else class="layout">
     <div class="wtop">
-      <div class="wdot" style="background:#E24B4A"></div>
-      <div class="wdot" style="background:#FAC775"></div>
-      <div class="wdot" style="background:#97C459"></div>
+      <img class="brand-logo" src="/logo.png" alt="" />
       <b style="margin-left:8px;font-size:14px">玩咖桌游酒吧 · 管理后台</b>
       <span class="tiny" style="margin-left:auto">{{ roleName() }} · {{ user?.nick }}{{ isBoss ? "" : " · 不含负债与毛利" }}</span>
       <div style="width:24px;height:24px;border-radius:50%;background:#EDEBE4;display:flex;align-items:center;justify-content:center;font-size:11px">{{ (user?.nick || "管").slice(-1) }}</div>

@@ -38,6 +38,10 @@ async function submit() {
 
 <template>
   <view class="login-page">
+    <view class="login-hd">
+      <image class="login-logo" src="/static/logo.png" mode="aspectFit" />
+      <view class="login-name">账号登录</view>
+    </view>
     <view class="card login-card">
       <view class="lab">账号</view>
       <input
@@ -69,6 +73,14 @@ async function submit() {
 
 <style scoped>
 .login-page { padding: 14px 14px 28px; }
+.login-hd { text-align: center; padding: 20px 16px 14px; }
+.login-logo {
+  width: 72px;
+  height: 72px;
+  display: block;
+  margin: 0 auto 10px;
+}
+.login-name { font-size: 18px; font-weight: 600; letter-spacing: 1px; }
 .login-card { padding: 16px; }
 .lab { font-size: 12px; color: #6B6A65; margin-bottom: 6px; }
 .login-inp {

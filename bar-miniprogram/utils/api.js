@@ -116,3 +116,11 @@ export function saveGameDraft(wiz) {
 export function clearGameDraft() {
   uni.removeStorageSync(DRAFT_KEY);
 }
+
+export function hideWxHomeButton() {
+  // #ifdef MP-WEIXIN
+  if (typeof uni.hideHomeButton === "function") {
+    uni.hideHomeButton();
+  }
+  // #endif
+}

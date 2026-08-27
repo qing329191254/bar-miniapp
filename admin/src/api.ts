@@ -38,17 +38,6 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
 }
 
 export async function uploadFile(file: File): Promise<string> {
-  const fd = new FormData();
-  fd.append("file", file);
-  const res = await fetch("/api/admin/upload", {
-    method: "POST",
-    headers: token() ? { Authorization: "Bearer " + token() } : {},
-    body: fd,
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const d = (data as { detail?: unknown }).detail;
-    throw new Error(typeof d === "string" ? d : "上传失败");
-  }
-  return (data as { url: string }).url;
+  const { uploadToCloud } = await import("./cloud");
+  return uploadToCloud(file);
 }
