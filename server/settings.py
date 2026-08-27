@@ -56,6 +56,14 @@ def is_loopback(url: str) -> bool:
     return host in ("127.0.0.1", "localhost", "::1")
 
 
+def wx_appid() -> str:
+    return (os.getenv("WX_APPID") or os.getenv("WECHAT_APPID") or "").strip()
+
+
+def wx_secret() -> str:
+    return (os.getenv("WX_SECRET") or os.getenv("WECHAT_SECRET") or "").strip()
+
+
 def host_for_log(url: str) -> str:
     try:
         p = urlparse(url)

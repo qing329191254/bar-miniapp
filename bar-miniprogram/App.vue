@@ -1,6 +1,15 @@
 <script>
 export default {
-	onLaunch() {},
+	onLaunch() {
+		if (typeof wx !== "undefined" && wx.cloud) {
+			wx.cloud.init({ env: "prod-d2gc6jcwy846bd613" });
+		}
+		const u = uni.getStorageSync("wanka_user");
+		if (!u || !u.role) return;
+		uni.reLaunch({
+			url: u.role === "CUSTOMER" ? "/pages/c/home" : "/pages/s/todo",
+		});
+	},
 };
 </script>
 
@@ -110,10 +119,9 @@ button::after { border: none; }
 	padding: 8px 0 16px;
 	z-index: 20;
 }
-.ptab { flex: 1; text-align: center; font-size: 11px; color: #9C9A93; }
+.ptab { flex: 1; text-align: center; font-size: 11px; color: #9C9A93; display: flex; flex-direction: column; align-items: center; }
 .ptab.on { color: #1C1B19; font-weight: 600; }
-.ptab-i { width: 20px; height: 20px; border-radius: 6px; background: rgba(28,27,25,.12); margin: 0 auto 3px; }
-.ptab.on .ptab-i { background: #1C1B19; }
+.ptab-i { width: 22px; height: 22px; margin: 0 auto 3px; display: block; }
 .fab {
 	position: fixed;
 	right: 14px;

@@ -1,49 +1,96 @@
 <script setup>
 import { onMounted, ref } from "vue";
-import { api, setSession, relaunch } from "@/utils/api";
+import { api, go, savedUser, setSession, relaunch } from "@/utils/api";
 
-const accounts = ref({ customers: [], staff: [] });
 const err = ref("");
+const wxLoading = ref(false);
 
-onMounted(async () => {
-  try {
-    accounts.value = await api("/dev/accounts");
-  } catch (e) {
-    err.value = e.message || "无法连接服务器，请确认后端已启动，并在微信开发者工具关闭域名校验。";
-  }
+onMounted(() => {
+  const u = savedUser();
+  if (u?.role) enter(u.role);
 });
 
-async function pick(id) {
+function enter(role) {
+  relaunch(role === "CUSTOMER" ? "/pages/c/home" : "/pages/s/todo");
+}
+
+function wxLogin() {
+  if (wxLoading.value) return;
   err.value = "";
-  try {
-    const r = await api("/auth/login", { method: "POST", body: { userId: id } });
-    setSession(r.token, r.user);
-    relaunch(r.user.role === "CUSTOMER" ? "/pages/c/home" : "/pages/s/todo");
-  } catch (e) {
-    err.value = e.message;
-  }
+  wxLoading.value = true;
+  uni.login({
+    provider: "weixin",
+    success: async (res) => {
+      if (!res.code) {
+        err.value = "未拿到微信登录码";
+        wxLoading.value = false;
+        return;
+      }
+      try {
+        const r = await api("/auth/login", { method: "POST", body: { code: res.code } });
+        setSession(r.token, r.user);
+        enter(r.user.role);
+      } catch (e) {
+        err.value = e.message;
+      } finally {
+        wxLoading.value = false;
+      }
+    },
+    fail: (e) => {
+      err.value = e.errMsg || "微信登录失败";
+      wxLoading.value = false;
+    },
+  });
 }
 </script>
 
 <template>
-  <view class="pbody">
-    <view class="tiny" style="margin-bottom:12px">选一个演示账号进入。会员走 C 端，店员/店长/老板进待办。</view>
+  <view class="login-page">
+    <view class="profile-hd login-hd">
+      <view class="login-mark">玩</view>
+      <view class="login-name">玩咖桌游酒吧</view>
+    </view>
+
+    <view class="card login-card">
+      <button class="btn block login-act" :disabled="wxLoading" @tap="wxLogin">
+        <text>{{ wxLoading ? "登录中…" : "一键登录" }}</text>
+      </button>
+      <button class="btn ghost block login-act" :disabled="wxLoading" @tap="go('/pages/login/account')">
+        <text>账号登录</text>
+      </button>
+    </view>
+
     <view class="err" v-if="err">{{ err }}</view>
-    <view class="h2">会员</view>
-    <button class="acct" v-for="u in accounts.customers" :key="u.id" @tap="pick(u.id)">
-      <view class="av">{{ u.av }}</view>
-      <view>
-        <view style="font-weight:600">{{ u.nick }}</view>
-        <view class="tiny">{{ u.no }} · 金币 {{ u.coin.total }}</view>
-      </view>
-    </button>
-    <view class="h2" style="margin-top:16px">员工</view>
-    <button class="acct" v-for="u in accounts.staff" :key="u.id" @tap="pick(u.id)">
-      <view class="av">{{ u.av }}</view>
-      <view>
-        <view style="font-weight:600">{{ u.nick }}</view>
-        <view class="tiny">{{ u.role }} · {{ u.no }}</view>
-      </view>
-    </button>
   </view>
 </template>
+
+<style scoped>
+.login-page { padding: 14px 14px 28px; }
+.login-hd { margin-bottom: 14px; text-align: center; padding: 28px 16px 24px; }
+.login-mark {
+  width: 54px; height: 54px; border-radius: 16px; margin: 0 auto 12px;
+  background: linear-gradient(135deg,#BA7517,#F6C96A); color: #fff;
+  font-size: 22px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+.login-name { font-size: 20px; font-weight: 600; letter-spacing: 1px; }
+.login-card { padding: 16px; }
+.login-act {
+  height: 44px;
+  padding: 0 !important;
+  margin-left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  line-height: 44px;
+  box-sizing: border-box;
+}
+.login-act text {
+  line-height: 44px;
+}
+.login-card .btn + .btn {
+  margin-left: 0;
+  margin-top: 12px;
+}
+</style>

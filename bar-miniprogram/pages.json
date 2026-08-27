@@ -5,6 +5,10 @@
 			"style": { "navigationBarTitleText": "玩咖桌游酒吧" }
 		},
 		{
+			"path": "pages/login/account",
+			"style": { "navigationBarTitleText": "账号登录" }
+		},
+		{
 			"path": "pages/c/home",
 			"style": { "navigationBarTitleText": "玩咖" }
 		},

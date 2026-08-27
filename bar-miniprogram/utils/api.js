@@ -1,4 +1,6 @@
-export const BASE = "http://127.0.0.1:8010";
+export const BASE = "https://api-303869-11-1476141553.sh.run.tcloudbase.com";
+export const CLOUD_ENV = "prod-d2gc6jcwy846bd613";
+export const CLOUD_SERVICE = "api";
 
 export function media(url) {
   if (!url) return "";
@@ -27,27 +29,52 @@ export function clearSession() {
   uni.removeStorageSync(USER_KEY);
 }
 
+function detailMsg(data) {
+  const d = data && data.detail;
+  if (typeof d === "string") return d;
+  if (Array.isArray(d) && d.length) {
+    return d.map((x) => x.msg || x.message).filter(Boolean).join("；") || "请求失败";
+  }
+  return "请求失败";
+}
+
 export function api(path, opts = {}) {
   return new Promise((resolve, reject) => {
-    uni.request({
-      url: BASE + "/api" + path,
-      method: opts.method || "GET",
+    if (typeof wx === "undefined" || !wx.cloud) {
+      reject(new Error("请在微信开发者工具中打开"));
+      return;
+    }
+    wx.cloud.init({ env: CLOUD_ENV });
+    const method = (opts.method || "GET").toUpperCase();
+    wx.cloud.callContainer({
+      config: { env: CLOUD_ENV },
+      path: "/api" + path,
+      method,
       header: {
-        "Content-Type": "application/json",
+        "content-type": "application/json",
+        "X-WX-SERVICE": CLOUD_SERVICE,
         ...(token() ? { Authorization: "Bearer " + token() } : {}),
       },
-      data: opts.body,
+      data: opts.body === undefined ? {} : opts.body,
+      timeout: 60000,
       success(res) {
-        const data = res.data || {};
+        let data = res.data;
+        if (typeof data === "string") {
+          try {
+            data = JSON.parse(data);
+          } catch (e) {
+            data = {};
+          }
+        }
+        data = data || {};
         if (res.statusCode >= 200 && res.statusCode < 300) {
           resolve(data);
           return;
         }
-        const d = data.detail;
-        reject(new Error(typeof d === "string" ? d : "请求失败"));
+        reject(new Error(detailMsg(data)));
       },
-      fail(e) {
-        reject(new Error(e.errMsg || "网络错误"));
+      fail() {
+        reject(new Error("连不上云端服务"));
       },
     });
   });

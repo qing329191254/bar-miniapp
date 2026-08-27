@@ -21,6 +21,8 @@ class User(Base):
     status: Mapped[str] = mapped_column(String(24), default="ACTIVE")
     deact: Mapped[str | None] = mapped_column(String(32), nullable=True)
     agreed_version: Mapped[int] = mapped_column(Integer, default=0)
+    pwd: Mapped[str] = mapped_column(String(128), default="")
+    wx_openid: Mapped[str] = mapped_column(String(64), default="", index=True)
 
     wallet: Mapped["Wallet"] = relationship(back_populates="user", uselist=False, cascade="all, delete-orphan")
 

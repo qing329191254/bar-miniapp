@@ -4,7 +4,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from sqlalchemy import inspect, text
+
 from database import SessionLocal, engine
+from logic import DEFAULT_PWD, hash_pwd
 from models import (
     AgreeLog, Base, Card, CardTpl, Category, Champ, CoinAdjust, DailyBiz,
     Deactivation, GameRecord, OpLog, Order, Product, Project, Recharge,
@@ -35,13 +38,30 @@ def _wallet(uid: int, seed: dict) -> Wallet:
 
 def seed_all(reset: bool = False):
     Base.metadata.create_all(engine)
+    insp = inspect(engine)
+    cols = [c["name"] for c in insp.get_columns("users")]
+    if "pwd" not in cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN pwd VARCHAR(128) NOT NULL DEFAULT ''"))
+    if "wx_openid" not in cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN wx_openid VARCHAR(64) NOT NULL DEFAULT ''"))
     db = SessionLocal()
     try:
         if reset:
             for t in reversed(Base.metadata.sorted_tables):
                 db.execute(t.delete())
             db.commit()
+        hashed = hash_pwd(DEFAULT_PWD)
         if db.query(User).count():
+            db.query(User).filter(
+                User.role != "CUSTOMER",
+                (User.pwd == None) | (User.pwd == ""),
+            ).update({User.pwd: hashed}, synchronize_session=False)
+            for u in db.query(User).all():
+                if (u.no or "").startswith("WK"):
+                    u.no = u.no[2:]
+            db.commit()
             return {"ok": True, "skipped": True}
         s = SEED
         for x in s["users"]:
@@ -50,6 +70,7 @@ def seed_all(reset: bool = False):
                 tail=x.get("tail") or "", gender=x.get("gender") or 0, role=x["role"],
                 team_id=x.get("teamId"), status=x.get("status") or "ACTIVE",
                 deact=x.get("deact"), agreed_version=x.get("agreedVersion") or 0,
+                pwd=hash_pwd(DEFAULT_PWD),
             ))
             db.add(_wallet(x["id"], s))
         for t in s["teams"]:

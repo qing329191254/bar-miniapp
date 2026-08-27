@@ -1,11 +1,12 @@
 """Business rules for 玩咖. Persistence is MySQL; Redis holds sessions / pending locks / verify codes."""
 from __future__ import annotations
 
+import hashlib
 import random
 import time
 from datetime import datetime
 
-from sqlalchemy import func
+from sqlalchemy import func, inspect, text
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -76,6 +77,22 @@ def new_id(sess: Session, model) -> int:
 
 def u(sess: Session, uid: int) -> User | None:
     return sess.get(User, uid)
+
+
+DEFAULT_PWD = "123456"
+
+
+def hash_pwd(raw: str) -> str:
+    return hashlib.sha256(("wanka:" + (raw or "")).encode("utf-8")).hexdigest()
+
+
+def check_pwd(user: User, raw: str) -> bool:
+    if not raw:
+        return False
+    stored = (user.pwd or "").strip()
+    if not stored:
+        return raw == DEFAULT_PWD
+    return stored == hash_pwd(raw) or stored == raw
 
 
 def team(sess: Session, tid) -> Team | None:
@@ -202,6 +219,45 @@ def unit_price(p: Product, spec_ids: list) -> int:
     return p.price + extra
 
 
+def alloc_member_no(sess: Session) -> str:
+    rows = [x[0] for x in sess.query(User.no).all()]
+    nums = [int(n) for n in rows if n and str(n).isdigit() and int(n) < 900000]
+    n = (max(nums) if nums else 100000) + 1
+    return f"{n:06d}"
+
+
+def register_wx(sess: Session, openid: str) -> User:
+    found = sess.query(User).filter(User.wx_openid == openid).first()
+    if found:
+        return found
+    agreements = setting(sess, "agreements")
+    ver = int((agreements.get("terms") or {}).get("ver") or 1)
+    tail = rand_digits(4)
+    user = User(
+        id=new_id(sess, User),
+        no=alloc_member_no(sess),
+        nick="玩咖用户",
+        phone=f"1******{tail}",
+        tail=tail,
+        gender=0,
+        role="CUSTOMER",
+        status="ACTIVE",
+        agreed_version=ver,
+        pwd="",
+        wx_openid=openid,
+    )
+    sess.add(user)
+    sess.flush()
+    sess.add(Wallet(user_id=user.id))
+    sess.add(AgreeLog(doc="terms", ver=ver, uid=user.id, at=fmt_hm()))
+    sess.add(AgreeLog(
+        doc="privacy",
+        ver=int((agreements.get("privacy") or {}).get("ver") or ver),
+        uid=user.id, at=fmt_hm(),
+    ))
+    return user
+
+
 def register(sess: Session, nick: str, agreed: bool) -> User:
     if not agreed:
         err("请先同意协议")
@@ -210,7 +266,7 @@ def register(sess: Session, nick: str, agreed: bool) -> User:
     tail = rand_digits(4)
     user = User(
         id=new_id(sess, User),
-        no=f"WK{1000 + int(time.time()) % 9000}",
+        no=alloc_member_no(sess),
         nick=nick or "玩咖用户",
         phone=f"1******{tail}",
         tail=tail,
@@ -218,6 +274,7 @@ def register(sess: Session, nick: str, agreed: bool) -> User:
         role="CUSTOMER",
         status="ACTIVE",
         agreed_version=ver,
+        pwd=hash_pwd(DEFAULT_PWD),
     )
     sess.add(user)
     sess.flush()

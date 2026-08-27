@@ -20,6 +20,7 @@ from models import (
 )
 from seed_db import seed_all
 from settings import host_for_log, in_cloud, is_loopback, mysql_url, redis_url
+import weixin
 
 app = FastAPI(title="玩咖桌游酒吧 API")
 app.add_middleware(
@@ -89,7 +90,14 @@ def fail(e: Exception):
 
 
 class LoginIn(BaseModel):
-    userId: int
+    userId: Optional[int] = None
+    account: str = ""
+    password: str = ""
+    code: str = ""
+
+
+class WxLoginIn(BaseModel):
+    code: str = ""
 
 
 class RegisterIn(BaseModel):
@@ -167,16 +175,55 @@ def on_startup():
     raise last
 
 
-@app.post("/api/auth/login")
-def login(body: LoginIn, db: Session = Depends(get_db)):
-    user = L.u(db, body.userId)
-    if not user:
-        raise HTTPException(404, "用户不存在")
+def session_payload(db: Session, user: User) -> dict:
     try:
         token = cache.session_create(user.id)
     except Exception:
         token = str(user.id)
     return {"token": token, "user": L.public_user(db, user)}
+
+
+def login_with_wx(code: str, db: Session) -> dict:
+    try:
+        openid = weixin.code2openid(code)
+    except ValueError as e:
+        raise HTTPException(401, str(e))
+    user = L.register_wx(db, openid)
+    if user.status == "DEACTIVATED":
+        raise HTTPException(401, "账号不可用")
+    return session_payload(db, user)
+
+
+@app.post("/api/auth/login")
+def login(body: LoginIn, db: Session = Depends(get_db)):
+    if (body.code or "").strip():
+        return login_with_wx(body.code, db)
+    user = None
+    if body.userId:
+        user = L.u(db, body.userId)
+    else:
+        raw = (body.account or "").strip()
+        digits = "".join(ch for ch in raw if ch.isdigit())
+        if not digits:
+            raise HTTPException(400, "请输入数字账号")
+        user = db.query(User).filter(User.no == digits).first()
+        if not user:
+            user = db.query(User).filter(User.no == digits.zfill(6)).first()
+    if not user:
+        raise HTTPException(404, "账号或密码错误")
+    if user.status == "DEACTIVATED":
+        raise HTTPException(401, "账号不可用")
+    if body.account or body.password:
+        if user.role == "CUSTOMER":
+            raise HTTPException(403, "会员请使用一键登录")
+        if not L.check_pwd(user, body.password):
+            raise HTTPException(401, "账号或密码错误")
+    return session_payload(db, user)
+
+
+@app.post("/api/auth/wx")
+def wx_login(body: WxLoginIn, db: Session = Depends(get_db)):
+    return login_with_wx(body.code, db)
 
 
 @app.get("/api/dev/accounts")
@@ -248,7 +295,7 @@ def home(
         "user": user,
         "gallery": content.get("gallery") or [],
         "shop": content.get("shopInfo") or {},
-        "howToPlay": content.get("howToPlay") or [],
+        "howToPlay": content.get("howToPlay") or {},
         "signed": days,
         "signPoints": (L.setting(db, "config") or {}).get("signPoints"),
         "signedToday": 25 in days,
@@ -738,6 +785,12 @@ def deact_act(did: int, action: str, body: ReasonIn, admin: dict = Depends(admin
 
 
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
+
+
+@app.api_route("/api/{full_path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+def missing_api(full_path: str):
+    raise HTTPException(404, "接口不存在")
+
 
 ADMIN_DIR = Path(__file__).resolve().parent / "admin"
 if (ADMIN_DIR / "index.html").is_file():
