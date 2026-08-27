@@ -1,0 +1,886 @@
+"""Business rules for 玩咖. Persistence is MySQL; Redis holds sessions / pending locks / verify codes."""
+from __future__ import annotations
+
+import random
+import time
+from datetime import datetime
+
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
+
+import cache
+from models import (
+    AgreeLog, Card, CardTpl, Category, Champ, CoinAdjust, DailyBiz, Deactivation,
+    GameRecord, OpLog, Order, Product, Project, Recharge, Setting, SettleLog,
+    SignRecord, SignRule, TableSeat, Team, Tier, User, VerifyLog, Wallet, Withdrawal,
+)
+
+TODAY = "2026-08-25"
+MIN_MS = 60_000
+WDR_BAN = 3
+
+
+def now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def fmt_hm(ts: float | None = None) -> str:
+    return datetime.fromtimestamp((ts or time.time())).strftime("%m-%d %H:%M")
+
+
+def clock() -> str:
+    return datetime.now().strftime("%H:%M")
+
+
+def yyMMdd() -> str:
+    return TODAY[2:4] + TODAY[5:7] + TODAY[8:10]
+
+
+def rand_digits(n: int) -> str:
+    lo = 10 ** (n - 1)
+    return str(random.randint(lo, 10**n - 1))
+
+
+def err(msg: str):
+    raise ValueError(msg)
+
+
+def setting(sess: Session, key: str, default=None):
+    row = sess.get(Setting, key)
+    if not row:
+        return {} if default is None else default
+    return row.v
+
+
+def save_setting(sess: Session, key: str, value):
+    row = sess.get(Setting, key)
+    if not row:
+        sess.add(Setting(k=key, v=value))
+        return
+    row.v = value
+    flag_modified(row, "v")
+
+
+def next_seq(sess: Session, key: str) -> int:
+    seq = dict(setting(sess, "seq") or {})
+    seq[key] = int(seq.get(key) or 100) + 1
+    save_setting(sess, "seq", seq)
+    return seq[key]
+
+
+def new_id(sess: Session, model) -> int:
+    m = sess.query(func.max(model.id)).scalar() or 0
+    return int(m) + 1
+
+
+def u(sess: Session, uid: int) -> User | None:
+    return sess.get(User, uid)
+
+
+def team(sess: Session, tid) -> Team | None:
+    return sess.get(Team, tid) if tid else None
+
+
+def wallet_of(sess: Session, uid: int) -> Wallet:
+    w = sess.get(Wallet, uid)
+    if not w:
+        w = Wallet(user_id=uid)
+        sess.add(w)
+        sess.flush()
+    return w
+
+
+def coin_of(sess: Session, uid: int) -> dict:
+    w = wallet_of(sess, uid)
+    return {"p" : w.coin_p, "b": w.coin_b}
+
+
+def point_of(sess: Session, uid: int) -> dict:
+    w = wallet_of(sess, uid)
+    return {"av": w.point_av, "wg": w.point_wg, "mg": w.point_mg, "pd": w.point_pd, "wd": w.point_wd, "fz": w.point_fz}
+
+
+def shard_of(sess: Session, uid: int) -> dict:
+    w = wallet_of(sess, uid)
+    return {"w": w.shard_w, "t": w.shard_t}
+
+
+def custs(sess: Session) -> list[User]:
+    return sess.query(User).filter(User.role == "CUSTOMER", User.status == "ACTIVE").all()
+
+
+def tpl(sess: Session, tid: int) -> CardTpl | None:
+    return sess.get(CardTpl, tid)
+
+
+def prod(sess: Session, pid: int) -> Product | None:
+    return sess.get(Product, pid)
+
+
+def public_user(sess: Session, user: User | dict | None) -> dict | None:
+    if user is None:
+        return None
+    if isinstance(user, dict):
+        user = sess.get(User, user["id"])
+        if not user:
+            return None
+    tm = team(sess, user.team_id)
+    return user.to_public(user.wallet, tm.name if tm else None)
+
+
+def log(sess: Session, action: str, detail: str, uid=None, op=None):
+    staff = op or {"nick": "系统", "role": "—"}
+    nick = staff.get("nick") if isinstance(staff, dict) else str(staff)
+    role = staff.get("role") if isinstance(staff, dict) else ""
+    sess.add(OpLog(
+        t=fmt_hm(), op=nick,
+        role={"STAFF": "店员", "MANAGER": "店长", "BOSS": "老板"}.get(role, "—"),
+        action=action, detail=detail, uid=uid,
+    ))
+
+
+def remain(expire_at) -> str | None:
+    if not expire_at:
+        return None
+    ms = int(expire_at) - now_ms()
+    if ms <= 0:
+        return None
+    m, s = divmod(ms // 1000, 60)
+    return f"{m} 分 {s} 秒"
+
+
+def expire_timeouts(sess: Session):
+    now = now_ms()
+    for r in sess.query(Recharge).filter(Recharge.status == "PENDING_PAY").all():
+        if r.expire_at and int(r.expire_at) <= now:
+            r.status = "CLOSED"
+            r.close_reason = "TIMEOUT"
+            r.pending_uid = None
+            try:
+                cache.unlock_pending("recharge", r.uid)
+            except Exception:
+                pass
+    for o in sess.query(Order).filter(Order.status == "PENDING_PAY").all():
+        if o.expire_at and int(o.expire_at) <= now:
+            o.status = "CLOSED"
+            o.cancel_reason = "TIMEOUT"
+    for w in sess.query(Withdrawal).filter(Withdrawal.status == "PENDING_CONFIRM").all():
+        if w.expire_at and int(w.expire_at) <= now:
+            w.status = "CLOSED_TIMEOUT"
+            w.closed_at = f"{TODAY} {clock()}"
+            w.pending_uid = None
+            pt = wallet_of(sess, w.uid)
+            pt.point_fz = max(0, pt.point_fz - w.pts)
+            pt.point_av += w.pts
+            pt.point_pd = 0 if pt.point_av >= 0 else -pt.point_av
+            try:
+                cache.unlock_pending("withdraw", w.uid)
+            except Exception:
+                pass
+    try:
+        live = cache.live_verify_card_ids()
+    except Exception:
+        live = set()
+    for c in sess.query(Card).filter(Card.status == "LOCKED").all():
+        if c.id not in live:
+            c.status = "UNUSED"
+
+
+def spec_name(p: Product | None, sid) -> str:
+    if not p:
+        return ""
+    sp = next((x for x in (p.specs or []) if x["id"] == sid), None)
+    return sp["name"] if sp else ""
+
+
+def unit_price(p: Product, spec_ids: list) -> int:
+    extra = 0
+    for sid in spec_ids or []:
+        sp = next((x for x in (p.specs or []) if x["id"] == sid), None)
+        extra += sp["diff"] if sp else 0
+    return p.price + extra
+
+
+def register(sess: Session, nick: str, agreed: bool) -> User:
+    if not agreed:
+        err("请先同意协议")
+    agreements = setting(sess, "agreements")
+    ver = int((agreements.get("terms") or {}).get("ver") or 1)
+    tail = rand_digits(4)
+    user = User(
+        id=new_id(sess, User),
+        no=f"WK{1000 + int(time.time()) % 9000}",
+        nick=nick or "玩咖用户",
+        phone=f"1******{tail}",
+        tail=tail,
+        gender=0,
+        role="CUSTOMER",
+        status="ACTIVE",
+        agreed_version=ver,
+    )
+    sess.add(user)
+    sess.flush()
+    sess.add(Wallet(user_id=user.id))
+    sess.add(AgreeLog(doc="terms", ver=ver, uid=user.id, at=fmt_hm()))
+    sess.add(AgreeLog(doc="privacy", ver=int((agreements.get("privacy") or {}).get("ver") or ver), uid=user.id, at=fmt_hm()))
+    return user
+
+
+def do_sign(sess: Session, uid: int) -> dict:
+    today = 25
+    if sess.query(SignRecord).filter_by(uid=uid, day=today).first():
+        err("今日已签到")
+    cfg = setting(sess, "config")
+    sp = int(cfg.get("signPoints") or 0)
+    w = wallet_of(sess, uid)
+    w.point_av += sp
+    w.point_wg += sp
+    w.point_mg += sp
+    w.point_pd = 0 if w.point_av >= 0 else -w.point_av
+    w.sign_streak = int(w.sign_streak or 0) + 1
+    extra_pts, names = 0, []
+    for r in sess.query(SignRule).all():
+        if r.enabled is False or r.days != w.sign_streak:
+            continue
+        if r.pts:
+            w.point_av += r.pts
+            w.point_wg += r.pts
+            w.point_mg += r.pts
+            extra_pts += r.pts
+        for c in r.cards or []:
+            tm = tpl(sess, c["tpl"])
+            if not tm:
+                continue
+            for _ in range(c["qty"]):
+                issue_card(sess, uid, tm, "SIGN_IN_REWARD", f"连续签到 {r.days} 天奖励")
+            names.append(f"{tm.name}×{c['qty']}")
+    sess.add(SignRecord(uid=uid, day=today, month="2026-08"))
+    return {"points": sp, "extraPts": extra_pts, "cards": names, "streak": w.sign_streak}
+
+
+def issue_card(sess: Session, uid: int, tm: CardTpl, src: str, src_desc: str) -> Card:
+    card = Card(
+        id=next_seq(sess, "card"),
+        uid=uid,
+        tpl=tm.id,
+        no="KQ" + rand_digits(12),
+        src=src,
+        src_desc=src_desc,
+        status="UNUSED",
+        days_left=tm.days or 30,
+        expire="",
+    )
+    sess.add(card)
+    return card
+
+
+def create_order(sess: Session, uid: int, items: list, pay_type: str, table_id, remark: str) -> dict:
+    user = u(sess, uid)
+    if not user or user.role != "CUSTOMER":
+        err("请先注册会员")
+    if not items:
+        err("购物车为空")
+    lines = []
+    total = 0
+    for it in items:
+        p = prod(sess, int(it["pid"]))
+        if not p or p.offline or p.sold_out:
+            err("商品不可售")
+        qty = int(it.get("qty") or 1)
+        spec_ids = it.get("specIds") or []
+        price = unit_price(p, spec_ids)
+        total += price * qty
+        lines.append({
+            "pid": p.id, "name": p.name,
+            "spec": "、".join(spec_name(p, s) for s in spec_ids if spec_name(p, s)),
+            "qty": qty, "price": price,
+        })
+    cfg = setting(sess, "config")
+    timeout = int(cfg.get("offlineTimeout") or 30)
+    tbl = sess.get(TableSeat, table_id) if table_id else None
+    order = Order(
+        id=new_id(sess, Order),
+        no="DD" + yyMMdd() + rand_digits(6),
+        uid=uid, nick=user.nick,
+        table_id=table_id, table_name=tbl.name if tbl else "",
+        total=total, pay_type=pay_type,
+        status="PENDING_ACCEPT" if pay_type == "COIN" else "PENDING_PAY",
+        remark=(remark or "")[:50], ago="刚刚", at=f"{TODAY} {clock()}",
+        items=lines,
+        expire_at=now_ms() + timeout * MIN_MS if pay_type == "OFFLINE" else None,
+    )
+    sess.add(order)
+    sess.flush()
+    return order.to_dict()
+
+
+def create_recharge(sess: Session, uid: int, tier_id: int) -> dict:
+    if sess.query(Recharge).filter_by(uid=uid, status="PENDING_PAY").first():
+        err("你有一张待付充值单，请先付款或取消")
+    t = sess.get(Tier, tier_id)
+    if not t:
+        err("充值档位不存在")
+    cfg = setting(sess, "config")
+    lim = int(cfg.get("singleLimit") or 0)
+    if lim and t.amount > lim:
+        err(f"超出单笔充值上限 ¥{lim}")
+    timeout = int(cfg.get("rechargeTimeout") or 30)
+    try:
+        if not cache.lock_pending("recharge", uid, timeout * 60):
+            err("你有一张待付充值单，请先付款或取消")
+    except Exception:
+        pass
+    ro = Recharge(
+        id=new_id(sess, Recharge),
+        no="CZ" + yyMMdd() + rand_digits(4),
+        uid=uid, amount=t.amount, bonus=t.bonus,
+        status="PENDING_PAY",
+        expire_at=now_ms() + timeout * MIN_MS,
+        created=fmt_hm(), at=f"{TODAY} {clock()}",
+        pending_uid=uid,
+    )
+    sess.add(ro)
+    sess.flush()
+    return ro.to_dict()
+
+
+def cancel_recharge(sess: Session, uid: int, rid: int) -> dict:
+    r = sess.get(Recharge, rid)
+    if not r or r.uid != uid or r.status != "PENDING_PAY":
+        err("无法取消")
+    r.status = "CLOSED"
+    r.close_reason = "USER_CANCEL"
+    r.pending_uid = None
+    try:
+        cache.unlock_pending("recharge", uid)
+    except Exception:
+        pass
+    return r.to_dict()
+
+
+def create_withdraw(sess: Session, uid: int, pts: int) -> dict:
+    wlt = wallet_of(sess, uid)
+    if pts <= 0:
+        err("请输入有效数量")
+    if wlt.point_av < 0:
+        err("当前积分为负，暂不可提分")
+    if pts > wlt.point_av:
+        err("提分失败，可用积分不足")
+    if sess.query(Withdrawal).filter_by(uid=uid, status="PENDING_CONFIRM").first():
+        err("你有一张待确认提分单")
+    toc = sess.query(Withdrawal).filter_by(uid=uid, status="CLOSED_TIMEOUT").count()  # demo: count all timeouts
+    if toc >= WDR_BAN:
+        err(f"近 24 小时内已有 {toc} 张提分单超时未确认，暂停提交")
+    try:
+        if not cache.lock_pending("withdraw", uid, 30 * 60):
+            err("你有一张待确认提分单")
+    except Exception:
+        pass
+    wlt.point_av -= pts
+    wlt.point_fz += pts
+    wo = Withdrawal(
+        id=next_seq(sess, "wdr"),
+        no="TF" + yyMMdd() + rand_digits(4),
+        uid=uid, pts=pts, status="PENDING_CONFIRM",
+        created=fmt_hm(), at=f"{TODAY} {clock()}",
+        expire_at=now_ms() + 30 * MIN_MS,
+        pending_uid=uid,
+    )
+    sess.add(wo)
+    sess.flush()
+    return wo.to_dict()
+
+
+def cancel_withdraw(sess: Session, uid: int) -> dict:
+    w = sess.query(Withdrawal).filter_by(uid=uid, status="PENDING_CONFIRM").first()
+    if not w:
+        err("无待确认提分单")
+    pt = wallet_of(sess, uid)
+    w.status = "CANCELLED"
+    w.closed_at = f"{TODAY} {clock()}"
+    w.pending_uid = None
+    pt.point_fz = max(0, pt.point_fz - w.pts)
+    pt.point_av += w.pts
+    pt.point_pd = 0 if pt.point_av >= 0 else -pt.point_av
+    try:
+        cache.unlock_pending("withdraw", uid)
+    except Exception:
+        pass
+    return w.to_dict()
+
+
+def do_exchange(sess: Session, uid: int, tid: int, qty: int) -> bool:
+    t = tpl(sess, tid)
+    w = wallet_of(sess, uid)
+    qty = max(1, int(qty))
+    if not t or t.exch is False or not t.cost:
+        err("卡券不可兑换")
+    if w.point_av < t.cost * qty:
+        err("兑换失败，积分不足")
+    per = t.per_limit
+    if per >= 0:
+        got = sess.query(Card).filter_by(uid=uid, tpl=t.id, src="EXCHANGE").count()
+        if got + qty > per:
+            err("兑换失败，已达每人上限")
+    stk = t.stock
+    if stk >= 0 and stk < qty:
+        err("兑换失败，库存不足")
+    w.point_av -= t.cost * qty
+    if stk >= 0:
+        t.stock = stk - qty
+    for _ in range(qty):
+        issue_card(sess, uid, t, "EXCHANGE", "积分兑换")
+    return True
+
+
+def gen_verify(sess: Session, uid: int, card_ids: list[int]) -> dict:
+    cards = []
+    for cid in card_ids:
+        c = sess.get(Card, cid)
+        if not c or c.uid != uid or c.status != "UNUSED" or (c.days_left or 0) <= 0:
+            err("卡券状态已变化")
+        cards.append(c)
+    if not cards:
+        err("请选择卡券")
+    code = rand_digits(12)
+    for c in cards:
+        c.status = "LOCKED"
+    cfg = setting(sess, "config")
+    ttl = int(cfg.get("verifyTtl") or 5)
+    vc = {"code": code, "cardIds": [c.id for c in cards], "status": "VALID", "expireAt": now_ms() + ttl * MIN_MS, "uid": uid}
+    cache.verify_put(code, vc, ttl * 60)
+    return vc
+
+
+def grant_combo(sess: Session, order: Order) -> int:
+    n = 0
+    for it in order.items or []:
+        p = prod(sess, it["pid"]) if it.get("pid") is not None else sess.query(Product).filter_by(name=it["name"]).first()
+        if p and p.type == "COMBO" and p.combo:
+            for c in p.combo:
+                tm = tpl(sess, c["tpl"])
+                if not tm:
+                    continue
+                for _ in range(c["qty"]):
+                    issue_card(sess, order.uid, tm, "ORDER_COMBO", f"套餐自动发放 · {order.no}")
+                    n += 1
+    return n
+
+
+def accept_order(sess: Session, oid: int, staff: dict) -> dict:
+    o = sess.get(Order, oid)
+    if not o or o.status != "PENDING_ACCEPT":
+        err("订单状态已变更")
+    if o.pay_type == "COIN":
+        c = wallet_of(sess, o.uid)
+        if c.coin_p + c.coin_b < o.total:
+            err(f"余额不足，差 {o.total - c.coin_p - c.coin_b} 金币")
+        dp = min(c.coin_p, o.total)
+        bonus = o.total - dp
+        c.coin_p -= dp
+        c.coin_b -= bonus
+        o.paid_principal = dp
+        o.paid_bonus = bonus
+    o.status = "MAKING"
+    o.accepted_by = staff["id"]
+    o.op_uid = staff["id"]
+    o.at = o.at or f"{TODAY} {clock()}"
+    n = grant_combo(sess, o)
+    log(sess, "ORDER_ACCEPT", f"{o.no} · {o.total} 金币", o.uid, staff)
+    return {"order": o.to_dict(), "combo": n}
+
+
+def reject_order(sess: Session, oid: int, reason: str, staff: dict) -> dict:
+    o = sess.get(Order, oid)
+    if not o or o.status != "PENDING_ACCEPT":
+        err("订单状态已变更")
+    if o.pay_type == "COIN" and (o.paid_principal or o.paid_bonus):
+        c = wallet_of(sess, o.uid)
+        c.coin_p += o.paid_principal or 0
+        c.coin_b += o.paid_bonus or 0
+    o.status = "CANCELLED"
+    o.cancel_reason = reason
+    log(sess, "ORDER_REJECT", f"{o.no} · {reason}", o.uid, staff)
+    return o.to_dict()
+
+
+def confirm_pay_order(sess: Session, oid: int, staff: dict) -> dict:
+    o = sess.get(Order, oid)
+    if not o or o.status != "PENDING_PAY":
+        err("订单状态已变更")
+    o.status = "PENDING_ACCEPT"
+    o.op_uid = staff["id"]
+    log(sess, "ORDER_PAY_CONFIRM", o.no, o.uid, staff)
+    return o.to_dict()
+
+
+def finish_order(sess: Session, oid: int) -> dict:
+    o = sess.get(Order, oid)
+    if not o or o.status != "MAKING":
+        err("订单状态已变更")
+    o.status = "FINISHED"
+    return o.to_dict()
+
+
+def confirm_recharge(sess: Session, rid: int, staff: dict) -> dict:
+    r = sess.get(Recharge, rid)
+    if not r or r.status != "PENDING_PAY":
+        err("该充值单已处理")
+    c = wallet_of(sess, r.uid)
+    r.status = "PAID"
+    c.coin_p += r.amount
+    c.coin_b += r.bonus
+    r.op_uid = staff["id"]
+    r.at = r.at or f"{TODAY} {clock()}"
+    r.pending_uid = None
+    try:
+        cache.unlock_pending("recharge", r.uid)
+    except Exception:
+        pass
+    log(sess, "RECHARGE_CONFIRM", f"{r.no} · ¥{r.amount}", r.uid, staff)
+    return r.to_dict()
+
+
+def reject_recharge(sess: Session, rid: int, reason: str, staff: dict) -> dict:
+    r = sess.get(Recharge, rid)
+    if not r or r.status != "PENDING_PAY":
+        err("该充值单已处理")
+    r.status = "CLOSED"
+    r.close_reason = "STAFF_REJECT"
+    r.reject_remark = reason
+    r.pending_uid = None
+    try:
+        cache.unlock_pending("recharge", r.uid)
+    except Exception:
+        pass
+    log(sess, "RECHARGE_REJECT", reason, r.uid, staff)
+    return r.to_dict()
+
+
+def confirm_withdraw(sess: Session, wid: int, staff: dict) -> dict:
+    w = sess.get(Withdrawal, wid)
+    if not w or w.status != "PENDING_CONFIRM":
+        err("该提分单已处理")
+    pt = wallet_of(sess, w.uid)
+    w.status = "GRANTED"
+    w.grant_by = staff["id"]
+    w.grant_at = f"{TODAY} {clock()}"
+    w.pending_uid = None
+    pt.point_fz = max(0, pt.point_fz - w.pts)
+    pt.point_wd += w.pts
+    try:
+        cache.unlock_pending("withdraw", w.uid)
+    except Exception:
+        pass
+    log(sess, "WITHDRAW_GRANT", f"{w.no} · {w.pts} 分", w.uid, staff)
+    return w.to_dict()
+
+
+def reject_withdraw(sess: Session, wid: int, reason: str, staff: dict) -> dict:
+    w = sess.get(Withdrawal, wid)
+    if not w or w.status != "PENDING_CONFIRM":
+        err("该提分单已处理")
+    pt = wallet_of(sess, w.uid)
+    w.status = "REJECTED"
+    w.reject_by = staff["id"]
+    w.reject_remark = reason
+    w.closed_at = f"{TODAY} {clock()}"
+    w.pending_uid = None
+    pt.point_fz = max(0, pt.point_fz - w.pts)
+    pt.point_av += w.pts
+    pt.point_pd = 0 if pt.point_av >= 0 else -pt.point_av
+    try:
+        cache.unlock_pending("withdraw", w.uid)
+    except Exception:
+        pass
+    log(sess, "WITHDRAW_REJECT", reason, w.uid, staff)
+    return w.to_dict()
+
+
+def verify_preview(sess: Session, code: str) -> dict:
+    full, vc = cache.verify_find(code)
+    if not vc or vc.get("status") != "VALID":
+        err("无法识别的核销码")
+    cards = []
+    for cid in vc["cardIds"]:
+        c = sess.get(Card, cid)
+        tm = tpl(sess, c.tpl) if c else None
+        cards.append({"card": c.to_dict() if c else None, "tpl": tm.to_dict() if tm else None})
+    return {"code": full or vc["code"], "uid": vc["uid"], "user": public_user(sess, u(sess, vc["uid"])), "cards": cards}
+
+
+def verify_confirm(sess: Session, code: str, staff: dict) -> dict:
+    full, vc = cache.verify_find(code)
+    if not vc or vc.get("status") != "VALID":
+        err("核销码已失效")
+    for cid in vc["cardIds"]:
+        c = sess.get(Card, cid)
+        if c and c.status == "LOCKED":
+            c.status = "USED"
+            tm = tpl(sess, c.tpl)
+            sess.add(VerifyLog(
+                card_no=c.no, tpl_name=tm.name if tm else "卡券",
+                uid=vc["uid"], op_uid=staff["id"], at=f"{TODAY} {clock()}",
+            ))
+    cache.verify_delete(full or vc["code"])
+    log(sess, "CARD_VERIFY", f"核销 {len(vc['cardIds'])} 张", vc["uid"], staff)
+    return vc
+
+
+def submit_game(sess: Session, staff: dict, pid: int, table_id, players: list, winners: list, event: str) -> dict:
+    if not players:
+        err("请至少选择 1 位玩家")
+    cf = setting(sess, "config")
+    if cf.get("pointLimit"):
+        lim = int(cf.get("pointVal") or 0)
+        bad = next((p for p in players if int(p.get("pts") or 0) > lim), None)
+        if bad:
+            err(f"超出单笔积分上限 {lim}")
+    if cf.get("shardLimit"):
+        lim = int(cf.get("shardVal") or 0)
+        bad = next((p for p in players if int(p.get("sh") or 0) > lim), None)
+        if bad:
+            err(f"超出单笔碎片上限 {lim}")
+    pj = sess.get(Project, pid)
+    tbl = sess.get(TableSeat, table_id) if table_id else None
+    rec_players = []
+    for p in players:
+        usr = u(sess, int(p["uid"]))
+        rec_players.append({"uid": usr.id, "nick": usr.nick, "pts": int(p.get("pts") or 0), "sh": int(p.get("sh") or 0)})
+        wlt = wallet_of(sess, usr.id)
+        if rec_players[-1]["pts"]:
+            wlt.point_av += rec_players[-1]["pts"]
+            wlt.point_wg += rec_players[-1]["pts"]
+            wlt.point_mg += rec_players[-1]["pts"]
+            wlt.point_pd = 0 if wlt.point_av >= 0 else -wlt.point_av
+        if rec_players[-1]["sh"]:
+            wlt.shard_w += rec_players[-1]["sh"]
+            wlt.shard_t += rec_players[-1]["sh"]
+    rec = GameRecord(
+        id=next_seq(sess, "rec"), pid=pid, pname=pj.name if pj else "",
+        table=tbl.name if tbl else "", round="", time=f"{TODAY} {clock()}",
+        op=staff["nick"], op_uid=staff["id"], players=rec_players,
+    )
+    sess.add(rec)
+    win_uids = [int(x) for x in (winners or [])]
+    ev = (event or "").strip()
+    if ev and win_uids:
+        for uid in win_uids:
+            x = u(sess, uid)
+            tm = team(sess, x.team_id) if x else None
+            sess.add(Champ(
+                uid=uid, event=ev, date=TODAY, n=len(players),
+                team_id=x.team_id if x else None,
+                team_name=tm.name if tm else "无战队", op=staff["nick"],
+            ))
+    log(sess, "GAME_INPUT", rec.pname, None, staff)
+    sess.flush()
+    return rec.to_dict()
+
+
+def in_range(time_str: str, preset: str) -> bool:
+    d = str(time_str or "")[:10]
+    if preset in ("", "all"):
+        return True
+    if preset == "today":
+        return d == TODAY
+    if preset == "7d":
+        return d >= "2026-08-19"
+    if preset == "30d":
+        return d >= "2026-07-26"
+    if preset == "month":
+        return d.startswith("2026-08")
+    return True
+
+
+def job_stat(sess: Session, uid: int, preset="today") -> dict:
+    ods = [o.to_dict() for o in sess.query(Order).filter(Order.op_uid == uid).all() if in_range(o.at or "", preset)]
+    rcs = [r.to_dict() for r in sess.query(Recharge).filter(Recharge.op_uid == uid, Recharge.status == "PAID").all() if in_range(r.at or "", preset)]
+    vfs = [v.to_dict() for v in sess.query(VerifyLog).filter(VerifyLog.op_uid == uid).all() if in_range(v.at or "", preset)]
+    gms = [g.to_dict() for g in sess.query(GameRecord).filter(GameRecord.op_uid == uid).all() if g.status != "VOID" and in_range(g.time or "", preset)]
+    paid = [o for o in ods if o["status"] in ("MAKING", "FINISHED")]
+    rc_amt = sum(r["amount"] for r in rcs)
+    od_amt = sum(o["total"] for o in paid)
+    wds = sess.query(Withdrawal).filter(Withdrawal.status == "GRANTED", Withdrawal.grant_by == uid).count()
+    wds = sum(1 for w in sess.query(Withdrawal).filter(Withdrawal.status == "GRANTED", Withdrawal.grant_by == uid) if in_range(w.grant_at or "", preset))
+    return {
+        "amount": rc_amt + od_amt, "rcAmt": rc_amt, "odAmt": od_amt,
+        "orders": len(ods), "verifies": len(vfs), "games": len(gms), "wds": wds,
+        "rcs": rcs, "ods": ods, "vfs": vfs, "gms": gms,
+    }
+
+
+def champ_count(sess: Session, uid, month=False) -> int:
+    q = sess.query(Champ).filter(Champ.uid == uid)
+    if month:
+        q = q.filter(Champ.date.startswith("2026-08"))
+    return q.count()
+
+
+def rank_rows(sess: Session, kind: str, dim: str, subject: str):
+    people = custs(sess)
+    teams = sess.query(Team).all()
+    if kind == "SHARD":
+        def val(x: User):
+            w = wallet_of(sess, x.id)
+            return w.shard_w if dim == "WEEK" else w.shard_t
+        if subject == "USER":
+            rows = [{"x": x, "v": val(x)} for x in people]
+        else:
+            rows = [{"t": t, "v": sum(val(x) for x in people if x.team_id == t.id),
+                     "ms": [x for x in people if x.team_id == t.id]} for t in teams]
+    elif kind == "POINT":
+        key = "wg" if dim == "WEEK" else "mg"
+        def pval(x: User):
+            w = wallet_of(sess, x.id)
+            return getattr(w, "point_wg" if key == "wg" else "point_mg")
+        if subject == "USER":
+            rows = [{"x": x, "v": pval(x)} for x in people]
+        else:
+            rows = [{"t": t, "v": sum(pval(x) for x in people if x.team_id == t.id),
+                     "ms": [x for x in people if x.team_id == t.id]} for t in teams]
+    else:
+        month = dim == "MONTH"
+        if subject == "USER":
+            rows = [{"x": x, "v": champ_count(sess, x.id, month)} for x in people]
+        else:
+            rows = [{"t": t, "v": sum(champ_count(sess, x.id, month) for x in people if x.team_id == t.id),
+                     "ms": [x for x in people if x.team_id == t.id]} for t in teams]
+    rows = [r for r in rows if r["v"] > 0]
+    rows.sort(key=lambda r: -r["v"])
+    prev = None
+    for i, r in enumerate(rows):
+        r["rank"] = 1 if i == 0 else (prev["rank"] if r["v"] == prev["v"] else i + 1)
+        prev = r
+        if "x" in r:
+            r["user"] = public_user(sess, r["x"])
+            del r["x"]
+        if "t" in r:
+            r["team"] = {"id": r["t"].id, "name": r["t"].name}
+            r["members"] = len(r.get("ms") or [])
+            del r["t"]
+            r.pop("ms", None)
+    return rows
+
+
+def dashboard(sess: Session, role: str) -> dict:
+    today = sess.get(DailyBiz, TODAY)
+    today_d = today.to_dict() if today else {"coin": 0, "offline": 0, "recharge": 0, "orders": 0, "guests": 0, "d": TODAY}
+    pa = sess.query(Order).filter_by(status="PENDING_ACCEPT").count()
+    pay_od = sess.query(Order).filter_by(status="PENDING_PAY").count()
+    rc_pending = sess.query(Recharge).filter_by(status="PENDING_PAY").count()
+    soldout = sess.query(Product).filter_by(sold_out=True).count()
+    coin_liab = 0
+    point_liab = 0
+    for x in custs(sess):
+        w = wallet_of(sess, x.id)
+        coin_liab += w.coin_p + w.coin_b
+        point_liab += w.point_av
+    card_liab = sess.query(Card).filter(Card.status.in_(("UNUSED", "LOCKED"))).count()
+    content = setting(sess, "content")
+    shop = (content or {}).get("shopInfo") or {}
+    block = not (shop.get("name") and shop.get("addr") and shop.get("tel"))
+    week = [x.to_dict() for x in sess.query(DailyBiz).order_by(DailyBiz.d.desc()).limit(7).all()]
+    out = {
+        "today": today_d,
+        "shopAmt": today_d["coin"] + today_d["offline"],
+        "todo": {"accept": pa, "pay": pay_od, "recharge": rc_pending, "soldout": soldout},
+        "week": week,
+        "shop": shop,
+        "block": block,
+        "alerts": {
+            "coinAdjust": [a.to_dict() for a in sess.query(CoinAdjust).filter_by(status="PENDING")],
+            "deact": sess.query(Deactivation).filter_by(status="PENDING").count(),
+        },
+        "members": len(custs(sess)),
+        "orderCount": sess.query(Order).count(),
+    }
+    if role == "BOSS":
+        out["liability"] = {"coin": coin_liab, "point": point_liab, "cards": card_liab}
+    return out
+
+
+def signed_days(sess: Session, uid: int) -> list[int]:
+    return [r.day for r in sess.query(SignRecord).filter_by(uid=uid).all()]
+
+
+def cancel_order(sess: Session, uid: int, oid: int) -> dict:
+    o = sess.get(Order, oid)
+    if not o or o.uid != uid or o.status != "PENDING_PAY":
+        err("无法取消")
+    o.status = "CLOSED"
+    o.cancel_reason = "USER_CANCEL"
+    return o.to_dict()
+
+
+def deactivate(sess: Session, uid: int, reason: str) -> dict:
+    user = u(sess, uid)
+    if not user:
+        err("用户不存在")
+    if user.deact == "DEACTIVATE_PENDING":
+        err("已有注销申请")
+    w = wallet_of(sess, uid)
+    cards = sess.query(Card).filter_by(uid=uid, status="UNUSED").count()
+    rec = Deactivation(
+        id=next_seq(sess, "deact"),
+        no="ZX" + yyMMdd() + rand_digits(4),
+        uid=uid, status="PENDING",
+        created=f"{TODAY} {clock()}", reason=reason or "",
+        snap={"coinP": w.coin_p, "coinB": w.coin_b, "point": w.point_av,
+              "pointFz": w.point_fz, "shardW": w.shard_w, "cards": cards},
+    )
+    sess.add(rec)
+    user.deact = "DEACTIVATE_PENDING"
+    sess.flush()
+    return rec.to_dict()
+
+
+def exec_deactivation(sess: Session, did: int, action: str, reason: str, admin: dict) -> dict:
+    d = sess.get(Deactivation, did)
+    if not d or d.status != "PENDING":
+        err("已处理")
+    usr = u(sess, d.uid)
+    if action == "reject":
+        d.status = "REJECTED"
+        d.audit_remark = reason
+        d.audit_by = admin["id"]
+        d.audit_at = f"{TODAY} {clock()}"
+        if usr:
+            usr.deact = None
+    else:
+        d.status = "DONE"
+        d.audit_by = admin["id"]
+        d.audit_at = f"{TODAY} {clock()}"
+        if usr:
+            usr.status = "DEACTIVATED"
+            usr.deact = None
+            w = wallet_of(sess, usr.id)
+            d.refunded = w.coin_p
+            d.refund_ok = True
+            void_n = 0
+            w.coin_p = 0
+            w.coin_b = 0
+            w.point_av = 0
+            for card in sess.query(Card).filter_by(uid=usr.id, status="UNUSED"):
+                card.status = "VOID"
+                card.void_reason = "账号注销作废"
+                void_n += 1
+            d.void_cards = void_n
+    return d.to_dict()
+
+
+def approve_coin_adjust(sess: Session, aid: int, action: str) -> dict:
+    a = sess.get(CoinAdjust, aid)
+    if not a or a.status != "PENDING":
+        err("已处理")
+    if action == "approve":
+        w = wallet_of(sess, a.uid)
+        if a.type == "PRINCIPAL":
+            w.coin_p += a.delta
+        else:
+            w.coin_b += a.delta
+        a.status = "APPROVED"
+    else:
+        a.status = "REJECTED"
+    return a.to_dict()

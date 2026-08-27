@@ -1,0 +1,73 @@
+{
+	"pages": [
+		{
+			"path": "pages/login/login",
+			"style": { "navigationBarTitleText": "玩咖桌游酒吧" }
+		},
+		{
+			"path": "pages/c/home",
+			"style": { "navigationBarTitleText": "玩咖" }
+		},
+		{
+			"path": "pages/c/order",
+			"style": { "navigationBarTitleText": "点单" }
+		},
+		{
+			"path": "pages/c/rank",
+			"style": { "navigationBarTitleText": "榜单" }
+		},
+		{
+			"path": "pages/c/cards",
+			"style": { "navigationBarTitleText": "用卡" }
+		},
+		{
+			"path": "pages/c/mine",
+			"style": { "navigationBarTitleText": "我的" }
+		},
+		{
+			"path": "pages/c/recharge",
+			"style": { "navigationBarTitleText": "充值有奖" }
+		},
+		{
+			"path": "pages/c/points",
+			"style": { "navigationBarTitleText": "积分" }
+		},
+		{
+			"path": "pages/c/orders",
+			"style": { "navigationBarTitleText": "我的订单" }
+		},
+		{
+			"path": "pages/c/content",
+			"style": { "navigationBarTitleText": "店铺信息" }
+		},
+		{
+			"path": "pages/c/shard",
+			"style": { "navigationBarTitleText": "碎片" }
+		},
+		{
+			"path": "pages/s/todo",
+			"style": { "navigationBarTitleText": "待办" }
+		},
+		{
+			"path": "pages/s/game",
+			"style": { "navigationBarTitleText": "录对局" }
+		},
+		{
+			"path": "pages/s/scan",
+			"style": { "navigationBarTitleText": "扫码核销" }
+		},
+		{
+			"path": "pages/s/mine",
+			"style": { "navigationBarTitleText": "我的" }
+		}
+	],
+	"globalStyle": {
+		"navigationBarTextStyle": "black",
+		"navigationBarTitleText": "玩咖桌游酒吧",
+		"navigationBarBackgroundColor": "#FFFFFF",
+		"backgroundColor": "#F5F4F0"
+	},
+	"easycom": {
+		"autoscan": true
+	}
+}
