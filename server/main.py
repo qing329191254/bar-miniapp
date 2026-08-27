@@ -718,6 +718,10 @@ def deact_act(did: int, action: str, body: ReasonIn, admin: dict = Depends(admin
 
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
+ADMIN_DIR = Path(__file__).resolve().parent / "admin"
+if (ADMIN_DIR / "index.html").is_file():
+    app.mount("/", StaticFiles(directory=str(ADMIN_DIR), html=True), name="admin")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8010, reload=True)

@@ -1,8 +1,26 @@
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 
+const adminDir = dirname(fileURLToPath(import.meta.url));
+const serverAdminDir = resolve(adminDir, "../server/admin");
+
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [
+    vue(),
+    {
+      name: "log-server-outdir",
+      closeBundle() {
+        console.log(`\n后台已输出到 ${serverAdminDir}`);
+        console.log("git add / commit / push 即可，不用再拷文件。\n");
+      },
+    },
+  ],
+  build: {
+    outDir: serverAdminDir,
+    emptyOutDir: true,
+  },
   server: {
     port: 5174,
     proxy: {
