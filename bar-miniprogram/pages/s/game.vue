@@ -240,7 +240,7 @@ function hasDraft() {
         <view class="ring">✓</view>
         <view style="font-size:17px;font-weight:600">提交成功，已立即入账</view>
         <view class="tiny" style="margin-top:4px">{{ wiz.last.n }} 人 · 积分 {{ fmt(wiz.last.tp) }} · 碎片 {{ fmt(wiz.last.ts) }}</view>
-        <view class="tiny">C 端用户立即可见{{ wiz.last.champ ? " · 冠军已记入荣誉" : "" }}</view>
+        <view class="tiny" v-if="wiz.last.champ">冠军已记入荣誉</view>
       </view>
       <button class="btn block" style="margin-top:14px" @tap="reuse">再录一局（沿用项目与桌台）</button>
       <button class="btn ghost block" style="margin-top:8px" @tap="go('/pages/s/todo', true)">返回待办</button>

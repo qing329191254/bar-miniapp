@@ -110,7 +110,10 @@ function logout() {
   router.replace("/");
 }
 function roleName() {
-  return user.value?.role === "BOSS" ? "老板" : "店长";
+  const r = user.value?.role;
+  if (r === "BOSS") return "老板";
+  if (r === "MANAGER") return "店长";
+  return "员工";
 }
 
 watch(

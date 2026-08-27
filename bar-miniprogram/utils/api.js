@@ -29,6 +29,16 @@ export function clearSession() {
   uni.removeStorageSync(USER_KEY);
 }
 
+const CART_KEY = "wanka_cart";
+
+export function loadCart() {
+  return uni.getStorageSync(CART_KEY) || [];
+}
+
+export function saveCart(lines) {
+  uni.setStorageSync(CART_KEY, lines || []);
+}
+
 function detailMsg(data) {
   const d = data && data.detail;
   if (typeof d === "string") return d;

@@ -6,15 +6,20 @@ const user = savedUser();
 const isStaff = user && user.role !== "CUSTOMER";
 const tabs = isStaff
   ? [
-      { key: "todo", url: "/pages/s/todo", label: "待办" },
-      { key: "game", url: "/pages/s/game", label: "录对局" },
-      { key: "mine", url: "/pages/s/mine", label: "我的" },
+      { key: "todo", url: "/pages/s/todo", label: "待办", icon: "todo" },
+      { key: "game", url: "/pages/s/game", label: "录对局", icon: "game" },
+      { key: "mine", url: "/pages/s/mine", label: "我的", icon: "mine" },
     ]
   : [
-      { key: "home", url: "/pages/c/home", label: "首页" },
-      { key: "rank", url: "/pages/c/rank", label: "榜单" },
-      { key: "mine", url: "/pages/c/mine", label: "我的" },
+      { key: "home", url: "/pages/c/home", label: "首页", icon: "home" },
+      { key: "rank", url: "/pages/c/rank", label: "榜单", icon: "rank" },
+      { key: "mine", url: "/pages/c/mine", label: "我的", icon: "mine" },
     ];
+
+function iconSrc(t) {
+  const on = t.key === props.current;
+  return `/static/tab/${t.icon}${on ? "-on" : ""}.png`;
+}
 
 function tap(t) {
   if (t.key === props.current) return;
@@ -36,7 +41,7 @@ function scan() {
         :class="{ on: current === t.key }"
         @tap="tap(t)"
       >
-        <view class="ptab-i" />
+        <image class="ptab-i" :src="iconSrc(t)" mode="aspectFit" />
         {{ t.label }}
       </view>
     </view>

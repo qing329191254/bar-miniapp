@@ -255,7 +255,68 @@ def register_wx(sess: Session, openid: str) -> User:
         ver=int((agreements.get("privacy") or {}).get("ver") or ver),
         uid=user.id, at=fmt_hm(),
     ))
+    grant_demo_points(sess, user.id)
+    grant_demo_coins(sess, user.id)
+    grant_demo_cards(sess, user.id)
+    grant_demo_sign(sess, user.id)
     return user
+
+
+STARTER_POINTS = {"av": 8600, "wg": 3200, "mg": 17300, "pd": 0, "wd": 0, "fz": 0}
+STARTER_COINS = {"p": 1100, "b": 140}
+
+
+def grant_demo_points(sess: Session, uid: int):
+    w = wallet_of(sess, uid)
+    if w.point_av or w.point_mg or w.point_wg:
+        return
+    w.point_av = STARTER_POINTS["av"]
+    w.point_wg = STARTER_POINTS["wg"]
+    w.point_mg = STARTER_POINTS["mg"]
+    w.point_pd = STARTER_POINTS["pd"]
+    w.point_wd = STARTER_POINTS["wd"]
+    w.point_fz = STARTER_POINTS["fz"]
+
+
+def grant_demo_coins(sess: Session, uid: int):
+    w = wallet_of(sess, uid)
+    if w.coin_p or w.coin_b:
+        return
+    w.coin_p = STARTER_COINS["p"]
+    w.coin_b = STARTER_COINS["b"]
+
+
+STARTER_CARDS = [
+    (1, "UNUSED", 28, "09-23", "EXCHANGE", "积分兑换 · 08-24"),
+    (2, "UNUSED", 2, "08-27", "EXCHANGE", "积分兑换 · 08-24"),
+    (3, "UNUSED", 30, "09-24", "EXCHANGE", "积分兑换 · 08-25"),
+    (4, "UNUSED", 1, "08-26", "EXCHANGE", "积分兑换 · 08-25"),
+    (5, "UNUSED", 7, "08-31", "SETTLE_REWARD", "周冠军奖励 · 08-24 发放"),
+    (7, "UNUSED", 7, "08-31", "SETTLE_REWARD", "周结算碎片榜第 3 名 · 08-24 发放"),
+    (1, "USED", 0, "08-20", "EXCHANGE", "积分兑换 · 08-10"),
+    (3, "EXPIRED", 0, "08-19", "EXCHANGE", "积分兑换 · 07-20"),
+    (6, "VOID", 0, "08-18", "EXCHANGE", "积分兑换 · 08-01"),
+]
+
+
+def grant_demo_cards(sess: Session, uid: int):
+    if sess.query(Card).filter_by(uid=uid).count():
+        return
+    for tpl_id, status, days, expire, src, desc in STARTER_CARDS:
+        tm = sess.get(CardTpl, tpl_id)
+        if not tm:
+            continue
+        sess.add(Card(
+            id=next_seq(sess, "card"),
+            uid=uid,
+            tpl=tpl_id,
+            no="KQ" + rand_digits(12),
+            src=src,
+            src_desc=desc,
+            status=status,
+            days_left=days,
+            expire=expire,
+        ))
 
 
 def register(sess: Session, nick: str, agreed: bool) -> User:
@@ -860,6 +921,37 @@ def dashboard(sess: Session, role: str) -> dict:
 
 def signed_days(sess: Session, uid: int) -> list[int]:
     return [r.day for r in sess.query(SignRecord).filter_by(uid=uid).all()]
+
+
+DEMO_SIGNED_DAYS = [1, 2, 4, 6, 7, 8, 12, 15, 16, 18, 19, 20, 22, 23, 25]
+DEMO_SIGN_STREAK = 6
+
+
+def grant_demo_sign(sess: Session, uid: int):
+    if sess.query(SignRecord).filter_by(uid=uid).count():
+        return
+    for day in DEMO_SIGNED_DAYS:
+        sess.add(SignRecord(uid=uid, day=day, month="2026-08"))
+    w = wallet_of(sess, uid)
+    if not w.sign_streak:
+        w.sign_streak = DEMO_SIGN_STREAK
+
+
+def sign_rules_view(sess: Session) -> list:
+    out = []
+    for r in sess.query(SignRule).order_by(SignRule.days):
+        if r.enabled is False:
+            continue
+        cards = []
+        for c in r.cards or []:
+            tm = tpl(sess, c.get("tpl"))
+            cards.append({
+                "tpl": c.get("tpl"),
+                "qty": c.get("qty") or 1,
+                "name": tm.name if tm else "卡券",
+            })
+        out.append({"id": r.id, "days": r.days, "pts": r.pts or 0, "cards": cards})
+    return out
 
 
 def cancel_order(sess: Session, uid: int, oid: int) -> dict:

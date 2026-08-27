@@ -32,11 +32,15 @@ const router = createRouter({
     { path: "/:coll", component: Collection },
   ],
 });
-const BOSS_ONLY = new Set(["/tiers", "/staff", "/logs", "/cfg", "/settlecfg"]);
+const BOSS_ONLY = new Set(["/tiers", "/staff", "/logs", "/cfg", "/settlecfg", "/coinAdjusts"]);
 router.beforeEach((to) => {
   if (to.path === "/") return true;
   if (!token()) return "/";
-  if (BOSS_ONLY.has(to.path) && savedUser()?.role !== "BOSS") return "/dash";
+  const role = savedUser()?.role;
+  if (role === "CUSTOMER" || role === "STAFF") {
+    return "/";
+  }
+  if (BOSS_ONLY.has(to.path) && role !== "BOSS") return "/dash";
   return true;
 });
 createApp(App).use(router).mount("#app");

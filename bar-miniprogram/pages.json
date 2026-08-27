@@ -17,12 +17,16 @@
 			"style": { "navigationBarTitleText": "点单" }
 		},
 		{
+			"path": "pages/c/checkout",
+			"style": { "navigationBarTitleText": "结算" }
+		},
+		{
 			"path": "pages/c/rank",
 			"style": { "navigationBarTitleText": "榜单" }
 		},
 		{
 			"path": "pages/c/cards",
-			"style": { "navigationBarTitleText": "用卡" }
+			"style": { "navigationBarTitleText": "我的卡包" }
 		},
 		{
 			"path": "pages/c/mine",
@@ -34,7 +38,15 @@
 		},
 		{
 			"path": "pages/c/points",
-			"style": { "navigationBarTitleText": "积分" }
+			"style": { "navigationBarTitleText": "我的积分" }
+		},
+		{
+			"path": "pages/c/exchange",
+			"style": { "navigationBarTitleText": "积分兑换" }
+		},
+		{
+			"path": "pages/c/withdraw",
+			"style": { "navigationBarTitleText": "积分提取" }
 		},
 		{
 			"path": "pages/c/orders",

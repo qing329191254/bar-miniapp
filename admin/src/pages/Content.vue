@@ -219,7 +219,7 @@ watch(
             <div class="tiny" style="text-align:center;margin-top:8px">点击画面切换下一张</div>
           </div>
         </div>
-        <div class="note">入口：C 端首页顶部 banner，一张图一屏。清空后显示「商家尚未上传相册」。图片保存在本机 uploads，保存相册后同步 C 端。</div>
+        <div class="note">入口：C 端首页顶部 banner，一张图一屏。清空后显示「商家尚未上传相册」。</div>
       </div>
     </div>
 

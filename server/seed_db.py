@@ -7,7 +7,7 @@ from pathlib import Path
 from sqlalchemy import inspect, text
 
 from database import SessionLocal, engine
-from logic import DEFAULT_PWD, hash_pwd
+from logic import DEFAULT_PWD, grant_demo_coins, grant_demo_points, grant_demo_sign, hash_pwd
 from models import (
     AgreeLog, Base, Card, CardTpl, Category, Champ, CoinAdjust, DailyBiz,
     Deactivation, GameRecord, OpLog, Order, Product, Project, Recharge,
@@ -61,6 +61,19 @@ def seed_all(reset: bool = False):
             for u in db.query(User).all():
                 if (u.no or "").startswith("WK"):
                     u.no = u.no[2:]
+            have = {c.id for c in db.query(Card).all()}
+            for c in SEED.get("cards") or []:
+                if c["id"] in have:
+                    continue
+                db.add(Card(
+                    id=c["id"], uid=c["uid"], tpl=c["tpl"], no=c["no"], src=c.get("src") or "",
+                    src_desc=c.get("srcDesc") or "", status=c["status"], days_left=c.get("daysLeft") or 30,
+                    expire=c.get("expire") or "", void_reason=c.get("voidReason"),
+                ))
+            for w in db.query(Wallet).all():
+                grant_demo_points(db, w.user_id)
+                grant_demo_coins(db, w.user_id)
+                grant_demo_sign(db, w.user_id)
             db.commit()
             return {"ok": True, "skipped": True}
         s = SEED

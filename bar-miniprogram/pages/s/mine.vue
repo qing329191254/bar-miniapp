@@ -75,12 +75,7 @@ function on(v) {
       </view>
     </view>
 
-    <view class="card" style="background:#FAF9F5">
-      <view class="h2">只读信息</view>
-      <view class="tiny">一个微信号只能一个角色，不可切换到顾客模式。退款 / 作废 / 调金币 / 补发卡券需店长以上在 Web 端操作。</view>
-    </view>
-
-    <button class="btn ghost block" @tap="logout">切换演示账号</button>
+    <button class="btn ghost block" @tap="logout">切换账号</button>
     <tab-bar current="mine" />
   </view>
 </template>

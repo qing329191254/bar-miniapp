@@ -16,7 +16,7 @@ from database import get_db
 from models import (
     AgreeLog, Card, CardTpl, Category, Champ, CoinAdjust, DailyBiz, Deactivation,
     GameRecord, OpLog, Order, Product, Project, Recharge, SettleLog, SignRule,
-    TableSeat, Team, Tier, User, VerifyLog, Withdrawal,
+    TableSeat, Team, Tier, User, VerifyLog, Wallet, Withdrawal,
 )
 from seed_db import seed_all
 from settings import host_for_log, in_cloud, is_loopback, mysql_url, redis_url
@@ -291,6 +291,10 @@ def home(
     user = L.public_user(db, L.u(db, uid)) if uid else None
     content = L.setting(db, "content") or {}
     days = L.signed_days(db, uid) if uid else []
+    streak = 0
+    if uid:
+        w = db.get(Wallet, uid)
+        streak = int(w.sign_streak or 0) if w else 0
     return {
         "user": user,
         "gallery": content.get("gallery") or [],
@@ -299,6 +303,10 @@ def home(
         "signed": days,
         "signPoints": (L.setting(db, "config") or {}).get("signPoints"),
         "signedToday": 25 in days,
+        "streak": streak,
+        "signRules": L.sign_rules_view(db),
+        "signMonth": "2026-08",
+        "signToday": 25,
     }
 
 
@@ -342,11 +350,14 @@ def list_recharges(user: dict = Depends(current_user), db: Session = Depends(get
     L.expire_timeouts(db)
     pending = db.query(Recharge).filter_by(uid=user["id"], status="PENDING_PAY").first()
     latest = db.query(Recharge).filter_by(uid=user["id"]).order_by(Recharge.id.desc()).first()
+    cfg = L.setting(db, "config") or {}
     return {
         "tiers": [t.to_dict() for t in db.query(Tier).all()],
         "pending": pending.to_dict() if pending else None,
         "latest": latest.to_dict() if latest else None,
         "remain": L.remain(pending.expire_at) if pending else None,
+        "coin": L.coin_of(db, user["id"]),
+        "singleLimit": int(cfg.get("singleLimit") or 0),
     }
 
 
