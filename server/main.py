@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import cache
 import logic as L
@@ -40,6 +41,19 @@ ALLOWED_IMG = {
     "image/webp": ".webp",
     "image/gif": ".gif",
 }
+
+
+class SPAStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope):
+        try:
+            response = await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code != 404:
+                raise
+            return await super().get_response("index.html", scope)
+        if response.status_code == 404:
+            return await super().get_response("index.html", scope)
+        return response
 
 
 def uid_from_headers(authorization: Optional[str]) -> int | None:
@@ -794,7 +808,7 @@ def missing_api(full_path: str):
 
 ADMIN_DIR = Path(__file__).resolve().parent / "admin"
 if (ADMIN_DIR / "index.html").is_file():
-    app.mount("/", StaticFiles(directory=str(ADMIN_DIR), html=True), name="admin")
+    app.mount("/", SPAStaticFiles(directory=str(ADMIN_DIR), html=True), name="admin")
 
 if __name__ == "__main__":
     import uvicorn
