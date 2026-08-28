@@ -702,6 +702,7 @@ COLL_MAP = {
     "dailyBiz": (DailyBiz, "to_dict"),
     "signRules": (SignRule, "to_dict"),
     "verifyLogs": (VerifyLog, "to_dict"),
+    "agreeLogs": (AgreeLog, "to_dict"),
 }
 
 
@@ -752,7 +753,7 @@ def admin_list(coll: str, admin: dict = Depends(admin_user), db: Session = Depen
 def admin_put(coll: str, body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
     if coll in ("tiers", "cfg", "staff", "config") and admin["role"] != "BOSS":
         raise HTTPException(403, "仅老板可改")
-    if coll in ("config", "cfg", "content", "push"):
+    if coll in ("config", "cfg", "content", "push", "agreements"):
         cur = dict(L.setting(db, coll) or {})
         cur.update(body.data)
         L.save_setting(db, coll, cur)

@@ -38,7 +38,7 @@ const groups = computed(() => {
     { g: "商品", items: [{ k: "products", n: "商品管理" }] },
     { g: "营销", items: [{ k: "cardTpls", n: "卡券配置" }, { k: "tiers", n: "充值档位配置" }] },
     { g: "会员", items: [{ k: "members", n: "会员列表" }, { k: "deactivations", n: "注销申请处理" }, { k: "teams", n: "战队管理" }] },
-    { g: "内容", items: [{ k: "content", n: "店铺相册与玩法" }] },
+    { g: "内容", items: [{ k: "content", n: "店铺相册与玩法" }, { k: "agreement", n: "协议与政策" }] },
     { g: "设置", items: [
       { k: "config", n: "风控参数" },
       { k: "staff", n: "员工与权限" },

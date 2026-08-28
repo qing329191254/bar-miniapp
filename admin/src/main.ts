@@ -12,6 +12,7 @@ import Members from "./pages/Members.vue";
 import Products from "./pages/Products.vue";
 import GameInput from "./pages/GameInput.vue";
 import Content from "./pages/Content.vue";
+import Agreement from "./pages/Agreement.vue";
 import Config from "./pages/Config.vue";
 
 const router = createRouter({
@@ -28,6 +29,7 @@ const router = createRouter({
     { path: "/products", component: Products },
     { path: "/gameinput", component: GameInput },
     { path: "/content", component: Content },
+    { path: "/agreement", component: Agreement },
     { path: "/config", component: Config },
     { path: "/:coll", component: Collection },
   ],

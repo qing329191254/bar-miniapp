@@ -158,7 +158,7 @@ watch(
       <div class="card">
         <div class="row" style="margin-bottom:11px">
           <b>相册图片</b>
-          <span class="tiny" style="margin-left:8px">C 端首页 banner 按此顺序轮播</span>
+          <span class="tiny" style="margin-left:8px">C 端相册弹层按此顺序展示</span>
           <button class="btn gold" style="margin-left:auto" @click="addPhoto">＋ 上传图片</button>
           <input ref="addInp" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden @change="onAddFiles" />
         </div>
@@ -189,34 +189,17 @@ watch(
       </div>
       <div class="preview-col">
         <div class="card">
-          <div class="st">C 端预览 <em>首页轮播 · 一张图一屏</em></div>
-          <div class="pv-phone">
-            <div class="pv-status"><span>玩咖</span><span>21:40 · 5G</span></div>
-            <div
-              v-if="g.items?.length"
-              class="pv-banner"
-              :style="bannerStyle()"
-              @click="nextBanner"
-            >
-              <div class="pv-in">
-                <b>{{ cur?.name }}</b>
-                <i>{{ cur?.desc }}</i>
-              </div>
-              <div class="pv-dots" v-if="g.items.length > 1">
-                <i
-                  v-for="(_,i) in g.items"
-                  :key="i"
-                  :class="{ on: i === (previewIdx % g.items.length) }"
-                  @click.stop="selBanner(i)"
-                />
-              </div>
-              <span class="pv-page">{{ (previewIdx % g.items.length) + 1 }} / {{ g.items.length }}</span>
+          <div class="st">C 端预览 <em>相册弹层</em></div>
+          <div v-if="g.items?.length" class="gallery-sheet">
+            <div v-for="(it, i) in g.items" :key="it.id || i" class="gallery-tile">
+              <img v-if="validPic(it.url)" :src="it.url" alt="" />
+              <div class="gallery-tile-shade"></div>
+              <span>{{ it.name || `现场 ${i + 1}` }}<small v-if="it.desc">{{ it.desc }}</small></span>
             </div>
-            <div v-else class="pv-banner empty">
-              <b>商家尚未上传相册</b>
-              <span>保存后 C 端首页即时展示</span>
-            </div>
-            <div class="tiny" style="text-align:center;margin-top:8px">点击画面切换下一张</div>
+          </div>
+          <div v-else class="gallery-sheet-empty">
+            <b>商家尚未上传相册</b>
+            <span>保存后 C 端相册弹层即时展示</span>
           </div>
         </div>
       </div>
@@ -339,6 +322,40 @@ watch(
 .gallery-table td:nth-child(5) { width: 148px; }
 .gallery-table td { vertical-align: middle; }
 .gallery-table .inp { width: 100%; min-width: 0; box-sizing: border-box; }
+.gallery-sheet {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding-top: 2px;
+}
+.gallery-tile {
+  position: relative;
+  height: 128px;
+  overflow: hidden;
+  border-radius: 14px;
+  background: #E2E0D9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.gallery-tile img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.gallery-tile-shade { position: absolute; inset: 0; background: rgba(28,27,25,.08); }
+.gallery-tile:has(img) .gallery-tile-shade { background: linear-gradient(180deg, transparent 38%, rgba(0,0,0,.48)); }
+.gallery-tile span { position: relative; z-index: 1; color: #A5A29A; font-size: 13px; text-align: center; padding: 10px; }
+.gallery-tile:has(img) span { color: #fff; align-self: flex-end; width: 100%; text-shadow: 0 1px 3px rgba(0,0,0,.35); }
+.gallery-tile small { display: block; font-size: 10px; margin-top: 3px; opacity: .82; }
+.gallery-sheet-empty {
+  height: 268px;
+  border-radius: 14px;
+  background: #F5F4F0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: var(--ink2);
+}
+.gallery-sheet-empty span { color: var(--ink3); font-size: 11px; }
 .pv-phone {
   background: #F5F4F0;
   border-radius: 16px;
