@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import BigInteger, Boolean, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -403,7 +404,7 @@ class SignRecord(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     uid: Mapped[int] = mapped_column(Integer, index=True)
     day: Mapped[int] = mapped_column(Integer)
-    month: Mapped[str] = mapped_column(String(7), default=lambda: date.today().strftime("%Y-%m"))
+    month: Mapped[str] = mapped_column(String(7), default=lambda: datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m"))
 
 
 class GameRecord(Base):

@@ -58,9 +58,9 @@ onMounted(load);
       </section>
       <section class="card edit-card">
         <div class="st">{{ isEditing ? `编辑 · ${form.name}` : "新增卡券" }} <button v-if="isEditing" class="close" @click="closeForm">×</button></div>
-        <div class="form-grid"><label>名称 *<input v-model="form.name" class="inp" /></label><label>分类 *<select v-model="form.cat" class="inp"><option value="GAME">游戏卡</option><option value="FOOD">酒水卡</option><option value="OTHER">其他卡</option></select></label>
-          <label>积分价 <span class="red">（0 = 仅奖励发放，不进兑换页）</span><input v-model.number="form.cost" type="number" min="0" class="inp" /></label><label>有效期（天）<input v-model.number="form.days" type="number" min="1" class="inp" /></label>
-          <label>每人兑换上限（-1 不限）<input v-model.number="form.perLimit" type="number" class="inp" /></label><label>库存（-1 不限）<input v-model.number="form.stock" type="number" class="inp" /></label>
+        <div class="form-grid"><label><span>名称 *</span><input v-model="form.name" class="inp" /></label><label><span>分类 *</span><select v-model="form.cat" class="inp"><option value="GAME">游戏卡</option><option value="FOOD">酒水卡</option><option value="OTHER">其他卡</option></select></label>
+          <label><span>积分价 <i class="red">（0 = 仅奖励发放，不进兑换页）</i></span><input v-model.number="form.cost" type="number" min="0" class="inp" /></label><label><span>有效期（天）</span><input v-model.number="form.days" type="number" min="1" class="inp" /></label>
+          <label><span>每人兑换上限（-1 不限）</span><input v-model.number="form.perLimit" type="number" class="inp" /></label><label><span>库存（-1 不限）</span><input v-model.number="form.stock" type="number" class="inp" /></label>
         </div>
         <label class="check"><input v-model="form.exch" :disabled="Number(form.cost) <= 0" type="checkbox" /> 出现在兑换页（积分可兑换）</label>
         <label>使用限制<input v-model="form.use" class="inp" placeholder="如 仅限周一至周四" /></label>
@@ -80,6 +80,7 @@ onMounted(load);
 .list-title { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; font-size:14px; }
 .mini { padding:5px 10px; font-size:12px; }
 .edit-card label { display:block; color:var(--ink2); font-size:12px; margin-bottom:9px; }
+.form-grid > label > span { display:block; min-height:38px; }
 .edit-card .inp { margin:5px 0 0; }
 .form-grid { display:grid; grid-template-columns:1fr 1fr; gap:0 10px; }
 .check { display:flex !important; align-items:center; gap:6px; }
@@ -90,7 +91,7 @@ onMounted(load);
 .day.on { border-color:var(--blue); background:#E6F1FB; color:var(--blue); }
 .submit { width:100%; margin-top:3px; }
 .close { margin-left:auto; border:0; background:transparent; color:var(--ink3); font-size:20px; cursor:pointer; }
-.red { color:var(--red); }
+.red { color:var(--red); font-style:normal; }
 .rule-card { max-width:calc(100% - 372px); }
 .tips { max-width:calc(100% - 372px); color:var(--red); background:var(--redbg); border:1px solid #E24B4A; padding:12px; }
 .notice { margin-bottom:10px; color:var(--green); font-size:12px; }

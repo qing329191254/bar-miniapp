@@ -5,6 +5,7 @@ import hashlib
 import random
 import time
 from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, inspect, text
 from sqlalchemy.orm import Session
@@ -19,22 +20,32 @@ from models import (
 
 MIN_MS = 60_000
 WDR_BAN = 3
+BUSINESS_TZ = ZoneInfo("Asia/Shanghai")
+
+
+def business_now() -> datetime:
+    """All customer-facing dates use the shop's business timezone, not the container's UTC clock."""
+    return datetime.now(BUSINESS_TZ)
+
+
+def business_today() -> date:
+    return business_now().date()
 
 
 def today_str() -> str:
-    return date.today().isoformat()
+    return business_today().isoformat()
 
 
 def current_month() -> str:
-    return date.today().strftime("%Y-%m")
+    return business_today().strftime("%Y-%m")
 
 
 def today_day() -> int:
-    return date.today().day
+    return business_today().day
 
 
 def point_period() -> dict:
-    today = date.today()
+    today = business_today()
     next_month = (today.replace(day=28) + timedelta(days=4)).replace(day=1)
     month_end = next_month - timedelta(days=1)
     return {
@@ -48,15 +59,15 @@ def now_ms() -> int:
 
 
 def fmt_hm(ts: float | None = None) -> str:
-    return datetime.fromtimestamp((ts or time.time())).strftime("%m-%d %H:%M")
+    return datetime.fromtimestamp((ts or time.time()), BUSINESS_TZ).strftime("%m-%d %H:%M")
 
 
 def clock() -> str:
-    return datetime.now().strftime("%H:%M")
+    return business_now().strftime("%H:%M")
 
 
 def yyMMdd() -> str:
-    return date.today().strftime("%y%m%d")
+    return business_today().strftime("%y%m%d")
 
 
 def rand_digits(n: int) -> str:
@@ -412,7 +423,7 @@ def register(sess: Session, nick: str, agreed: bool) -> User:
 
 
 def do_sign(sess: Session, uid: int) -> dict:
-    today = date.today().day
+    today = today_day()
     month = current_month()
     if sess.query(SignRecord).filter_by(uid=uid, day=today, month=month).first():
         err("今日已签到")
@@ -649,7 +660,7 @@ def gen_verify(sess: Session, uid: int, card_ids: list[int]) -> dict:
         tm = tpl(sess, c.tpl)
         weekdays = (tm.rules or {}).get("weekdays") if tm else []
         allowed = {int(day) for day in weekdays or [] if str(day).isdigit() and 1 <= int(day) <= 7}
-        if allowed and date.today().isoweekday() not in allowed:
+        if allowed and business_today().isoweekday() not in allowed:
             err(f"{tm.name} 当前不可核销，请按卡券使用限制到店使用")
         cards.append(c)
     code = rand_digits(12)
@@ -963,9 +974,9 @@ def in_range(time_str: str, preset: str) -> bool:
     if preset == "today":
         return d == today_str()
     if preset == "7d":
-        return d >= (date.today() - timedelta(days=6)).isoformat()
+        return d >= (business_today() - timedelta(days=6)).isoformat()
     if preset == "30d":
-        return d >= (date.today() - timedelta(days=29)).isoformat()
+        return d >= (business_today() - timedelta(days=29)).isoformat()
     if preset == "month":
         return d.startswith(current_month())
     return True

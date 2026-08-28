@@ -804,6 +804,85 @@ def create_card_template(body: PatchIn, admin: dict = Depends(admin_user), db: S
     return card_tpl.to_dict()
 
 
+def _sign_rule_item(item: dict, db: Session, ignore_id: int | None = None) -> tuple[int, int, list, bool]:
+    try:
+        days = int(item.get("days") or 0)
+        pts = max(0, int(item.get("pts") or 0))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "签到天数和积分必须是数字")
+    if days <= 0:
+        raise HTTPException(400, "连续签到天数必须大于 0")
+    dup = db.query(SignRule).filter(SignRule.days == days)
+    if ignore_id is not None:
+        dup = dup.filter(SignRule.id != ignore_id)
+    if dup.first():
+        raise HTTPException(400, f"已存在连续 {days} 天的奖励档位")
+    cards = []
+    for card in item.get("cards") or []:
+        try:
+            tid, qty = int(card.get("tpl")), int(card.get("qty") or 1)
+        except (AttributeError, TypeError, ValueError):
+            raise HTTPException(400, "卡券奖励格式不正确")
+        if qty < 1 or not db.get(CardTpl, tid):
+            raise HTTPException(400, "奖励卡券不存在或数量无效")
+        cards.append({"tpl": tid, "qty": qty})
+    if not pts and not cards:
+        raise HTTPException(400, "至少配置积分或卡券中的一项奖励")
+    return days, pts, cards, bool(item.get("enabled", True))
+
+
+@app.get("/api/admin/signin-overview")
+def signin_overview(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    config = L.setting(db, "config") or {}
+    members = []
+    for user in db.query(User).filter(User.role == "CUSTOMER").all():
+        wallet = L.wallet_of(db, user.id)
+        members.append({"id": user.id, "nick": user.nick, "streak": wallet.sign_streak or 0})
+    return {"signPoints": int(config.get("signPoints") or 0), "rules": [r.to_dict() for r in db.query(SignRule).order_by(SignRule.days)], "members": members}
+
+
+@app.post("/api/admin/sign-rules")
+def create_sign_rule(body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    days, pts, cards, enabled = _sign_rule_item(body.data or {}, db)
+    rule = SignRule(id=L.new_id(db, SignRule), days=days, pts=pts, cards=cards, enabled=enabled)
+    db.add(rule)
+    db.flush()
+    L.log(db, "SIGN_RULE_CREATE", f"新增连续签到 {days} 天奖励", None, admin)
+    return rule.to_dict()
+
+
+@app.put("/api/admin/sign-rules/{rid}")
+def update_sign_rule(rid: int, body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    rule = db.get(SignRule, rid)
+    if not rule:
+        raise HTTPException(404, "签到奖励档位不存在")
+    days, pts, cards, enabled = _sign_rule_item(body.data or {}, db, rid)
+    rule.days, rule.pts, rule.cards, rule.enabled = days, pts, cards, enabled
+    L.log(db, "SIGN_RULE_UPDATE", f"更新连续签到 {days} 天奖励", None, admin)
+    return rule.to_dict()
+
+
+@app.post("/api/admin/sign-rules/{rid}/toggle")
+def toggle_sign_rule(rid: int, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    rule = db.get(SignRule, rid)
+    if not rule:
+        raise HTTPException(404, "签到奖励档位不存在")
+    rule.enabled = not rule.enabled
+    L.log(db, "SIGN_RULE_TOGGLE", f"连续签到 {rule.days} 天奖励{'启用' if rule.enabled else '停用'}", None, admin)
+    return rule.to_dict()
+
+
+@app.delete("/api/admin/sign-rules/{rid}")
+def delete_sign_rule(rid: int, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    rule = db.get(SignRule, rid)
+    if not rule:
+        raise HTTPException(404, "签到奖励档位不存在")
+    detail = f"删除连续签到 {rule.days} 天奖励"
+    db.delete(rule)
+    L.log(db, "SIGN_RULE_DELETE", detail, None, admin)
+    return {"ok": True}
+
+
 @app.put("/api/admin/{coll}")
 def admin_put(coll: str, body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
     if coll in ("tiers", "cfg", "staff", "config") and admin["role"] != "BOSS":
