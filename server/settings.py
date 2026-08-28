@@ -76,7 +76,7 @@ def cloud_env_id() -> str:
 def cos_public_base() -> str:
     return (
         os.getenv("COS_PUBLIC_BASE")
-        or "https://7072-prod-d2gc6jcwy846bd613-1476141553.cos.ap-shanghai.myqcloud.com"
+        or "https://7072-prod-d2gc6jcwy846bd613-1476141553.tcb.qcloud.la"
     ).strip().rstrip("/")
 
 
