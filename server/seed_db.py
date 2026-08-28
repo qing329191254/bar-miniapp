@@ -46,6 +46,15 @@ def seed_all(reset: bool = False):
     if "wx_openid" not in cols:
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE users ADD COLUMN wx_openid VARCHAR(64) NOT NULL DEFAULT ''"))
+    product_cols = {c["name"]: c for c in insp.get_columns("products")}
+    img_type = product_cols.get("img", {}).get("type")
+    if (
+        engine.dialect.name == "mysql"
+        and img_type is not None
+        and int(getattr(img_type, "length", 0) or 0) < 512
+    ):
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE products MODIFY COLUMN img VARCHAR(512) NULL"))
     unique_names = {x.get("name") for x in insp.get_unique_constraints("sign_records")}
     if "uk_sign_uid_day" in unique_names or "uk_sign_uid_month_day" not in unique_names:
         with engine.begin() as conn:

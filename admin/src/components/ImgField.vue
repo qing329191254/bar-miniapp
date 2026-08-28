@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { uploadFile } from "../api";
 
 const props = withDefaults(
@@ -11,6 +11,7 @@ const emit = defineEmits<{ "update:modelValue": [v: string] }>();
 const inp = ref<HTMLInputElement | null>(null);
 const busy = ref(false);
 const err = ref("");
+const displayUrl = computed(() => /^(https?:\/\/|data:|\/uploads\/)/.test(props.modelValue || "") ? props.modelValue : "");
 
 function pick() {
   if (busy.value) return;
@@ -35,8 +36,8 @@ async function onFile(e: Event) {
 
 <template>
   <div class="imgf-wrap">
-    <div class="imgf" :class="size" :title="modelValue ? '点击更换图片' : '点击上传图片'" @click="pick">
-      <img v-if="modelValue && !busy" :src="modelValue" alt="" />
+    <div class="imgf" :class="size" :title="displayUrl ? '点击更换图片' : '点击上传图片'" @click="pick">
+      <img v-if="displayUrl && !busy" :src="displayUrl" alt="" />
       <span v-else class="ph">{{ busy ? "上传中…" : "+" }}</span>
       <input ref="inp" type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden @change="onFile" />
     </div>

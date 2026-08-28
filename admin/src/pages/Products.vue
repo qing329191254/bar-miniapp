@@ -20,6 +20,10 @@ onMounted(load);
 function catName(id: number) {
   return cats.value.find((c) => c.id === id)?.name || "—";
 }
+function imageUrl(value: unknown) {
+  const url = String(value || "");
+  return /^(https?:\/\/|data:|\/uploads\/)/.test(url) ? url : "";
+}
 const online = computed(() => products.value.filter((p) => !p.offline));
 const offline = computed(() => products.value.filter((p) => p.offline));
 const catOpts = computed(() => cats.value.map((c) => ({ value: c.id, label: c.name })));
@@ -67,7 +71,7 @@ async function save() {
             <tr v-for="p in online" :key="p.id">
               <td>
                 <div class="row" style="gap:8px">
-                  <img v-if="p.img" class="pimg" :src="p.img" alt="" />
+                  <img v-if="imageUrl(p.img)" class="pimg" :src="imageUrl(p.img)" alt="" />
                   <div v-else class="pimg empty">{{ (p.name || "商").slice(0,1) }}</div>
                   <div>
                     <b>{{ p.name }}</b>

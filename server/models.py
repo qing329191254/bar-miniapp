@@ -132,7 +132,7 @@ class Product(Base):
     spec_multi: Mapped[bool] = mapped_column(Boolean, default=False)
     specs: Mapped[list | None] = mapped_column(JSON, nullable=True)
     sold_out: Mapped[bool] = mapped_column(Boolean, default=False)
-    img: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    img: Mapped[str | None] = mapped_column(String(512), nullable=True)
     type: Mapped[str | None] = mapped_column(String(16), nullable=True)
     combo: Mapped[list | None] = mapped_column(JSON, nullable=True)
     offline: Mapped[bool] = mapped_column(Boolean, default=False)

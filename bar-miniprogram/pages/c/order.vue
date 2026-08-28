@@ -125,8 +125,8 @@ function checkout() {
       <scroll-view scroll-y class="ord-list">
         <view v-if="!shown.length" class="tiny" style="text-align:center;padding:40px 0">该分类暂无商品</view>
         <view v-for="p in shown" :key="p.id" class="ord-item" :class="{ dim: p.soldOut }">
-          <image v-if="p.img" class="pth" :src="media(p.img)" mode="aspectFill" />
-          <view v-else class="pth ph">{{ p.img ? "图" : (p.name || "商").slice(0, 1) }}</view>
+          <image v-if="media(p.img)" class="pth" :src="media(p.img)" mode="aspectFill" />
+          <view v-else class="pth ph">{{ (p.name || "商").slice(0, 1) }}</view>
           <view class="ord-info">
             <view class="ord-name">
               {{ p.name }}

@@ -4,8 +4,11 @@ export const CLOUD_SERVICE = "api";
 
 export function media(url) {
   if (!url) return "";
-  if (/^https?:\/\//.test(url) || String(url).startsWith("data:")) return url;
-  return BASE + url;
+  const value = String(url).trim();
+  if (/^https?:\/\//.test(value) || value.startsWith("data:")) return value;
+  if (value.startsWith("/")) return BASE.replace(/\/$/, "") + value;
+  // Legacy seed values such as "ipa.jpg" were never real deployed files.
+  return "";
 }
 
 const TOKEN_KEY = "wanka_token";
