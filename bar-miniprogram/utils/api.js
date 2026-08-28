@@ -30,9 +30,16 @@ export function clearSession() {
 }
 
 const CART_KEY = "wanka_cart";
+let redirectingToLogin = false;
 
 export function loadCart() {
-  return uni.getStorageSync(CART_KEY) || [];
+  const raw = uni.getStorageSync(CART_KEY);
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((x) => x && Number(x.pid) > 0 && Number(x.qty) > 0).map((x) => ({
+    pid: Number(x.pid),
+    qty: Math.min(99, Math.floor(Number(x.qty))),
+    specIds: Array.isArray(x.specIds) ? x.specIds.map(Number).filter(Number.isFinite) : [],
+  }));
 }
 
 export function saveCart(lines) {
@@ -81,10 +88,30 @@ export function api(path, opts = {}) {
           resolve(data);
           return;
         }
-        reject(new Error(detailMsg(data)));
+        if (res.statusCode === 401 && token()) {
+          clearSession();
+          if (!redirectingToLogin) {
+            redirectingToLogin = true;
+            uni.reLaunch({
+              url: "/pages/login/login",
+              complete: () => { redirectingToLogin = false; },
+            });
+          }
+          reject(new Error("登录已过期，请重新登录"));
+          return;
+        }
+        const error = new Error(detailMsg(data));
+        if (method === "GET" && opts.silent !== true) {
+          uni.showToast({ title: error.message, icon: "none" });
+        }
+        reject(error);
       },
-      fail() {
-        reject(new Error("连不上云端服务"));
+      fail(err) {
+        const message = err?.errMsg?.includes("timeout") ? "请求超时，请稍后重试" : "连不上云端服务";
+        if (method === "GET" && opts.silent !== true) {
+          uni.showToast({ title: message, icon: "none" });
+        }
+        reject(new Error(message));
       },
     });
   });

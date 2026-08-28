@@ -1,5 +1,6 @@
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, ref } from "vue";
+import { onShow } from "@dcloudio/uni-app";
 import { api, go, loadCart, saveCart, savedUser } from "@/utils/api";
 
 const products = ref([]);
@@ -14,10 +15,21 @@ const showTable = ref(false);
 const timeout = ref(30);
 const meUser = ref(savedUser() || {});
 
-onMounted(async () => {
+onShow(async () => {
   const r = await api("/products");
   products.value = r.products || [];
   tables.value = r.tables || [];
+  cart.value = loadCart();
+  const valid = cart.value.filter((line) => {
+    const p = products.value.find((x) => x.id === line.pid);
+    if (!p || p.soldOut) return false;
+    return (line.specIds || []).every((sid) => (p.specs || []).some((s) => s.id === sid));
+  });
+  if (valid.length !== cart.value.length) {
+    cart.value = valid;
+    saveCart(valid);
+    uni.showToast({ title: "购物车有失效商品，已自动移除", icon: "none" });
+  }
   try {
     const me = await api("/me");
     timeout.value = me.config?.offlineTimeout || 30;
@@ -134,7 +146,7 @@ async function submit() {
     </view>
     <view class="card">
       <view class="h2">备注</view>
-      <input class="field" v-model="remark" maxlength="50" placeholder="如「少冰」（50 字内）" />
+      <input class="field remark-field" v-model="remark" maxlength="50" placeholder="如「少冰」（50 字内）" />
     </view>
     <view class="err" v-if="msg">{{ msg }}</view>
     <button class="btn block gold" :disabled="total <= 0 || loading" @tap="submit">
@@ -166,6 +178,12 @@ async function submit() {
 
 <style scoped>
 .ord-sum { font-size: 21px; font-weight: 700; color: #1C1B19; }
+.remark-field {
+  height: 42px;
+  padding: 0 12px;
+  line-height: 42px;
+  margin-bottom: 0;
+}
 .pay {
   display: flex;
   align-items: center;

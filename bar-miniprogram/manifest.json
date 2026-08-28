@@ -51,7 +51,6 @@
     /* 小程序特有相关 */
     "mp-weixin" : {
         "appid" : "wx5c0ae1aa67a69d6e",
-        "requiredPrivateInfos" : [ "getPhoneNumber" ],
         "setting" : {
             "urlCheck" : false,
             "es6" : true,

@@ -1,5 +1,6 @@
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, ref } from "vue";
+import { onShow } from "@dcloudio/uni-app";
 import { api, savedUser } from "@/utils/api";
 
 const WDST = {
@@ -33,7 +34,7 @@ function stLabel(s) {
 async function load() {
   data.value = await api("/points");
 }
-onMounted(load);
+onShow(load);
 
 function setAmt(v) {
   pts.value = String(v);
@@ -83,7 +84,7 @@ async function cancel() {
           <view class="between row-line">
             <text class="tiny">单号</text>
             <text style="font-weight:600;font-size:15px;letter-spacing:1px">
-              TF 2508 <text style="color:#e24b4a;font-size:18px">{{ pw.no.slice(-4) }}</text>
+              <text style="color:#e24b4a;font-size:18px">{{ pw.no }}</text>
             </text>
           </view>
           <view class="between row-line">

@@ -1,5 +1,6 @@
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, ref } from "vue";
+import { onShow } from "@dcloudio/uni-app";
 import { api, go, loadCart, media, saveCart, savedUser } from "@/utils/api";
 
 const cats = ref([]);
@@ -11,10 +12,21 @@ const specPid = ref(0);
 const specBase = ref(null);
 const specQty = ref(1);
 
-onMounted(async () => {
+onShow(async () => {
+  cart.value = loadCart();
   const r = await api("/products");
   cats.value = r.cats || [];
   products.value = r.products || [];
+  const valid = cart.value.filter((line) => {
+    const p = products.value.find((x) => x.id === line.pid);
+    if (!p || p.soldOut) return false;
+    return (line.specIds || []).every((sid) => (p.specs || []).some((s) => s.id === sid));
+  });
+  if (valid.length !== cart.value.length) {
+    cart.value = valid;
+    saveCart(valid);
+    uni.showToast({ title: "已移除下架、售罄或失效规格商品", icon: "none" });
+  }
   cid.value = cats.value[0]?.id || 0;
 });
 

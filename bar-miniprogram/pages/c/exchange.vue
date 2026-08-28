@@ -1,5 +1,6 @@
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, ref } from "vue";
+import { onShow } from "@dcloudio/uni-app";
 import { api, go } from "@/utils/api";
 
 const GROUPS = [
@@ -42,6 +43,16 @@ function disabled(t) {
   return av.value < t.cost || (tip && tip.bad);
 }
 
+const maxQty = computed(() => {
+  if (!dlg.value) return 1;
+  const byPoints = Math.floor(Math.max(0, av.value) / Math.max(1, dlg.value.cost));
+  const stock = dlg.value.stock == null || Number(dlg.value.stock) < 0 ? Infinity : Number(dlg.value.stock);
+  const per = dlg.value.perLimit == null || Number(dlg.value.perLimit) < 0
+    ? Infinity
+    : Math.max(0, Number(dlg.value.perLimit) - gotCount(dlg.value.id));
+  return Math.max(0, Math.min(byPoints, stock, per));
+});
+
 function openDlg(t) {
   dlg.value = t;
   qty.value = 1;
@@ -59,7 +70,7 @@ async function load() {
 }
 
 async function confirm() {
-  if (!dlg.value) return;
+  if (!dlg.value || qty.value > maxQty.value) return;
   msg.value = "";
   try {
     await api("/exchange", { method: "POST", body: { tplId: dlg.value.id, qty: qty.value } });
@@ -72,7 +83,7 @@ async function confirm() {
   }
 }
 
-onMounted(load);
+onShow(load);
 </script>
 
 <template>
@@ -103,13 +114,13 @@ onMounted(load);
         <view class="qty-row">
           <button class="btn ghost" @tap="qty = Math.max(1, qty - 1)">−</button>
           <text class="qty-num">{{ qty }}</text>
-          <button class="btn ghost" @tap="qty++">+</button>
+          <button class="btn ghost" :disabled="qty >= maxQty" @tap="qty = Math.min(maxQty, qty + 1)">+</button>
         </view>
         <view class="tiny" style="text-align:center;margin-top:9px">
           需积分 <text style="font-weight:600;color:#185FA5">{{ fmt(dlg.cost * qty) }}</text>
           · 可用 {{ fmt(av) }}
         </view>
-        <button class="btn block gold" style="margin-top:14px" @tap="confirm">确认兑换</button>
+        <button class="btn block gold" style="margin-top:14px" :disabled="qty > maxQty" @tap="confirm">确认兑换</button>
       </view>
     </view>
   </view>

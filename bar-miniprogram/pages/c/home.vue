@@ -1,11 +1,9 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from "vue";
+import { onShow } from "@dcloudio/uni-app";
 import { api, go, media } from "@/utils/api";
 
-const TODAY = 25;
-const MONTH_LABEL = "2026 年 8 月";
 const WEEK_HEAD = ["一", "二", "三", "四", "五", "六", "日"];
-const CAL_OFFSET = 5;
 
 const data = ref(null);
 const bannerIdx = ref(0);
@@ -26,8 +24,12 @@ function fmt(n) {
   return Number(n || 0).toLocaleString("zh-CN");
 }
 
-onMounted(async () => {
+async function load() {
   data.value = await api("/home");
+}
+
+onShow(load);
+onMounted(() => {
   timer = setInterval(() => {
     const n = gallery.value.length;
     if (n > 1) bannerIdx.value = (bannerIdx.value + 1) % n;
@@ -132,15 +134,28 @@ const signPoints = computed(() => Number(data.value?.signPoints || 0));
 const streak = computed(() => Number(data.value?.streak || 0));
 const signRules = computed(() => data.value?.signRules || []);
 const signedToday = computed(() => !!data.value?.signedToday);
+const signDate = computed(() => {
+  const [year, month] = String(data.value?.signMonth || "").split("-").map(Number);
+  const now = new Date();
+  return {
+    year: year || now.getFullYear(),
+    month: month || now.getMonth() + 1,
+    today: Number(data.value?.signToday || now.getDate()),
+  };
+});
+const monthLabel = computed(() => `${signDate.value.year} 年 ${signDate.value.month} 月`);
 
 const calCells = computed(() => {
+  const { year, month, today } = signDate.value;
+  const offset = (new Date(year, month - 1, 1).getDay() + 6) % 7;
+  const daysInMonth = new Date(year, month, 0).getDate();
   const cells = [];
-  for (let i = 0; i < CAL_OFFSET; i++) cells.push({ kind: "nil" });
-  for (let d = 1; d <= 31; d++) {
+  for (let i = 0; i < offset; i++) cells.push({ kind: "nil" });
+  for (let d = 1; d <= daysInMonth; d++) {
     let kind = "fut";
     if (signedSet.value.has(d)) kind = "ok";
-    else if (d < TODAY) kind = "no";
-    else if (d === TODAY) kind = "now";
+    else if (d < today) kind = "no";
+    else if (d === today) kind = "now";
     cells.push({ kind, day: d });
   }
   return cells;
@@ -269,7 +284,7 @@ async function doSign() {
     <view v-if="showSign" class="sign-sheet" @touchmove.stop>
       <scroll-view scroll-y class="sign-body">
         <view class="sign-hd">
-          <text>{{ MONTH_LABEL }}</text>
+          <text>{{ monthLabel }}</text>
           <text class="sign-sub">本月已签 {{ (data.signed || []).length }} 天</text>
         </view>
         <view class="cal">

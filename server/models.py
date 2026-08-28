@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 from sqlalchemy import BigInteger, Boolean, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -375,11 +377,11 @@ class SignRule(Base):
 
 class SignRecord(Base):
     __tablename__ = "sign_records"
-    __table_args__ = (UniqueConstraint("uid", "day", name="uk_sign_uid_day"),)
+    __table_args__ = (UniqueConstraint("uid", "month", "day", name="uk_sign_uid_month_day"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     uid: Mapped[int] = mapped_column(Integer, index=True)
     day: Mapped[int] = mapped_column(Integer)
-    month: Mapped[str] = mapped_column(String(7), default="2026-08")
+    month: Mapped[str] = mapped_column(String(7), default=lambda: date.today().strftime("%Y-%m"))
 
 
 class GameRecord(Base):

@@ -46,6 +46,15 @@ def seed_all(reset: bool = False):
     if "wx_openid" not in cols:
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE users ADD COLUMN wx_openid VARCHAR(64) NOT NULL DEFAULT ''"))
+    unique_names = {x.get("name") for x in insp.get_unique_constraints("sign_records")}
+    if "uk_sign_uid_day" in unique_names or "uk_sign_uid_month_day" not in unique_names:
+        with engine.begin() as conn:
+            if "uk_sign_uid_day" in unique_names:
+                conn.execute(text("ALTER TABLE sign_records DROP INDEX uk_sign_uid_day"))
+            if "uk_sign_uid_month_day" not in unique_names:
+                conn.execute(text(
+                    "ALTER TABLE sign_records ADD CONSTRAINT uk_sign_uid_month_day UNIQUE (uid, month, day)"
+                ))
     db = SessionLocal()
     try:
         if reset:

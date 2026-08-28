@@ -1,10 +1,9 @@
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, ref } from "vue";
+import { onShow } from "@dcloudio/uni-app";
 import { api, go } from "@/utils/api";
 
 const data = ref(null);
-const CLEAR_LABEL = "8 月 31 日 24:00 清零";
-const DAYS_LEFT = 7;
 
 function fmt(n) {
   return Number(n || 0).toLocaleString("zh-CN");
@@ -13,12 +12,14 @@ function fmt(n) {
 const negative = computed(() => (data.value?.point?.av || 0) < 0);
 const av = computed(() => data.value?.point?.av || 0);
 const exchCount = computed(() => Math.floor(Math.max(0, av.value) / 3000));
-const showUrgency = computed(() => DAYS_LEFT <= 7 && !negative.value && av.value > 0);
+const daysLeft = computed(() => Number(data.value?.daysLeft ?? 0));
+const clearLabel = computed(() => data.value?.clearLabel || "本月最后一日 24:00 清零");
+const showUrgency = computed(() => daysLeft.value <= 7 && !negative.value && av.value > 0);
 
 async function load() {
   data.value = await api("/points");
 }
-onMounted(load);
+onShow(load);
 </script>
 
 <template>
@@ -33,14 +34,14 @@ onMounted(load);
         <text class="pill pt-pill-gold">冻结中 {{ fmt(data.point.fz) }} 分 · 提分单待店员确认</text>
       </view>
       <view class="row pt-foot">
-        <text class="pill pt-pill-warn">{{ CLEAR_LABEL }}</text>
+        <text class="pill pt-pill-warn">{{ clearLabel }}</text>
         <text class="tiny pt-month">本月已获 {{ fmt(data.point.mg) }}</text>
       </view>
     </view>
 
     <view v-if="showUrgency" class="card urg">
       <view style="font-size:13px;font-weight:600;color:#E24B4A">
-        还有 {{ DAYS_LEFT }} 天清零，{{ fmt(av) }} 分可兑 {{ exchCount }} 张游戏卡
+        还有 {{ daysLeft }} 天清零，{{ fmt(av) }} 分可兑 {{ exchCount }} 张游戏卡
       </view>
       <button class="btn urg-btn" @tap="go('/pages/c/exchange')">立即兑换</button>
     </view>

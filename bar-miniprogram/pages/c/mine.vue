@@ -1,5 +1,6 @@
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, ref } from "vue";
+import { onShow } from "@dcloudio/uni-app";
 import { api, clearSession, go, relaunch } from "@/utils/api";
 
 const me = ref(null);
@@ -68,7 +69,7 @@ const FAQ_DEFAULT = {
   ],
 };
 
-onMounted(async () => {
+onShow(async () => {
   me.value = await api("/me");
   try {
     champs.value = await api("/champions");

@@ -1,5 +1,6 @@
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
+import { onShow } from "@dcloudio/uni-app";
 import { api, savedUser } from "@/utils/api";
 
 const kind = ref("SHARD");
@@ -11,7 +12,7 @@ const me = savedUser();
 async function load() {
   data.value = await api(`/rank?kind=${kind.value}&dim=${dim.value}&subject=${subject.value}`);
 }
-onMounted(load);
+onShow(load);
 watch([kind, subject, dim], load);
 
 function fmt(n) {

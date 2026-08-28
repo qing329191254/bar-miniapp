@@ -1,9 +1,10 @@
 <script setup>
-import { onMounted, ref } from "vue";
+import { ref } from "vue";
+import { onShow } from "@dcloudio/uni-app";
 import { api } from "@/utils/api";
 
 const data = ref(null);
-onMounted(async () => {
+onShow(async () => {
   data.value = await api("/shards");
 });
 </script>

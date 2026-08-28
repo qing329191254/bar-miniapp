@@ -1,5 +1,6 @@
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, ref } from "vue";
+import { onShow } from "@dcloudio/uni-app";
 import { api, go } from "@/utils/api";
 
 const TABS = [
@@ -16,7 +17,7 @@ const sel = ref([]);
 const code = ref(null);
 const msg = ref("");
 
-onMounted(async () => {
+onShow(async () => {
   list.value = await api("/cards");
 });
 

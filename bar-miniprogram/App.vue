@@ -5,7 +5,8 @@ export default {
 			wx.cloud.init({ env: "prod-d2gc6jcwy846bd613" });
 		}
 		const u = uni.getStorageSync("wanka_user");
-		if (!u || !u.role) return;
+		const t = uni.getStorageSync("wanka_token");
+		if (!u || !u.role || !t) return;
 		uni.reLaunch({
 			url: u.role === "CUSTOMER" ? "/pages/c/home" : "/pages/s/todo",
 		});

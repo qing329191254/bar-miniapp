@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import random
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import func, inspect, text
 from sqlalchemy.orm import Session
@@ -17,9 +17,30 @@ from models import (
     SignRecord, SignRule, TableSeat, Team, Tier, User, VerifyLog, Wallet, Withdrawal,
 )
 
-TODAY = "2026-08-25"
 MIN_MS = 60_000
 WDR_BAN = 3
+
+
+def today_str() -> str:
+    return date.today().isoformat()
+
+
+def current_month() -> str:
+    return date.today().strftime("%Y-%m")
+
+
+def today_day() -> int:
+    return date.today().day
+
+
+def point_period() -> dict:
+    today = date.today()
+    next_month = (today.replace(day=28) + timedelta(days=4)).replace(day=1)
+    month_end = next_month - timedelta(days=1)
+    return {
+        "clearLabel": f"{month_end.month} 月 {month_end.day} 日 24:00 清零",
+        "daysLeft": (month_end - today).days,
+    }
 
 
 def now_ms() -> int:
@@ -35,7 +56,7 @@ def clock() -> str:
 
 
 def yyMMdd() -> str:
-    return TODAY[2:4] + TODAY[5:7] + TODAY[8:10]
+    return date.today().strftime("%y%m%d")
 
 
 def rand_digits(n: int) -> str:
@@ -185,7 +206,7 @@ def expire_timeouts(sess: Session):
     for w in sess.query(Withdrawal).filter(Withdrawal.status == "PENDING_CONFIRM").all():
         if w.expire_at and int(w.expire_at) <= now:
             w.status = "CLOSED_TIMEOUT"
-            w.closed_at = f"{TODAY} {clock()}"
+            w.closed_at = f"{today_str()} {clock()}"
             w.pending_uid = None
             pt = wallet_of(sess, w.uid)
             pt.point_fz = max(0, pt.point_fz - w.pts)
@@ -383,8 +404,9 @@ def register(sess: Session, nick: str, agreed: bool) -> User:
 
 
 def do_sign(sess: Session, uid: int) -> dict:
-    today = 25
-    if sess.query(SignRecord).filter_by(uid=uid, day=today).first():
+    today = date.today().day
+    month = current_month()
+    if sess.query(SignRecord).filter_by(uid=uid, day=today, month=month).first():
         err("今日已签到")
     cfg = setting(sess, "config")
     sp = int(cfg.get("signPoints") or 0)
@@ -410,7 +432,7 @@ def do_sign(sess: Session, uid: int) -> dict:
             for _ in range(c["qty"]):
                 issue_card(sess, uid, tm, "SIGN_IN_REWARD", f"连续签到 {r.days} 天奖励")
             names.append(f"{tm.name}×{c['qty']}")
-    sess.add(SignRecord(uid=uid, day=today, month="2026-08"))
+    sess.add(SignRecord(uid=uid, day=today, month=month))
     return {"points": sp, "extraPts": extra_pts, "cards": names, "streak": w.sign_streak}
 
 
@@ -436,14 +458,27 @@ def create_order(sess: Session, uid: int, items: list, pay_type: str, table_id, 
         err("请先注册会员")
     if not items:
         err("购物车为空")
+    if pay_type not in ("COIN", "OFFLINE"):
+        err("支付方式无效")
+    if len(items) > 50:
+        err("购物车商品过多")
     lines = []
     total = 0
     for it in items:
         p = prod(sess, int(it["pid"]))
         if not p or p.offline or p.sold_out:
             err("商品不可售")
-        qty = int(it.get("qty") or 1)
-        spec_ids = it.get("specIds") or []
+        qty = int(it.get("qty") or 0)
+        if qty < 1 or qty > 99:
+            err("商品数量无效")
+        spec_ids = list(dict.fromkeys(it.get("specIds") or []))
+        valid_spec_ids = {int(x["id"]) for x in (p.specs or [])}
+        if any(int(sid) not in valid_spec_ids for sid in spec_ids):
+            err("商品规格已失效")
+        if p.has_spec and not spec_ids:
+            err("请选择商品规格")
+        if not p.spec_multi and len(spec_ids) > 1:
+            err("该商品只能选择一个规格")
         price = unit_price(p, spec_ids)
         total += price * qty
         lines.append({
@@ -454,6 +489,8 @@ def create_order(sess: Session, uid: int, items: list, pay_type: str, table_id, 
     cfg = setting(sess, "config")
     timeout = int(cfg.get("offlineTimeout") or 30)
     tbl = sess.get(TableSeat, table_id) if table_id else None
+    if table_id and not tbl:
+        err("所选桌台不存在")
     order = Order(
         id=new_id(sess, Order),
         no="DD" + yyMMdd() + rand_digits(6),
@@ -461,7 +498,7 @@ def create_order(sess: Session, uid: int, items: list, pay_type: str, table_id, 
         table_id=table_id, table_name=tbl.name if tbl else "",
         total=total, pay_type=pay_type,
         status="PENDING_ACCEPT" if pay_type == "COIN" else "PENDING_PAY",
-        remark=(remark or "")[:50], ago="刚刚", at=f"{TODAY} {clock()}",
+        remark=(remark or "")[:50], ago="刚刚", at=f"{today_str()} {clock()}",
         items=lines,
         expire_at=now_ms() + timeout * MIN_MS if pay_type == "OFFLINE" else None,
     )
@@ -492,7 +529,7 @@ def create_recharge(sess: Session, uid: int, tier_id: int) -> dict:
         uid=uid, amount=t.amount, bonus=t.bonus,
         status="PENDING_PAY",
         expire_at=now_ms() + timeout * MIN_MS,
-        created=fmt_hm(), at=f"{TODAY} {clock()}",
+        created=fmt_hm(), at=f"{today_str()} {clock()}",
         pending_uid=uid,
     )
     sess.add(ro)
@@ -538,7 +575,7 @@ def create_withdraw(sess: Session, uid: int, pts: int) -> dict:
         id=next_seq(sess, "wdr"),
         no="TF" + yyMMdd() + rand_digits(4),
         uid=uid, pts=pts, status="PENDING_CONFIRM",
-        created=fmt_hm(), at=f"{TODAY} {clock()}",
+        created=fmt_hm(), at=f"{today_str()} {clock()}",
         expire_at=now_ms() + 30 * MIN_MS,
         pending_uid=uid,
     )
@@ -553,7 +590,7 @@ def cancel_withdraw(sess: Session, uid: int) -> dict:
         err("无待确认提分单")
     pt = wallet_of(sess, uid)
     w.status = "CANCELLED"
-    w.closed_at = f"{TODAY} {clock()}"
+    w.closed_at = f"{today_str()} {clock()}"
     w.pending_uid = None
     pt.point_fz = max(0, pt.point_fz - w.pts)
     pt.point_av += w.pts
@@ -568,7 +605,9 @@ def cancel_withdraw(sess: Session, uid: int) -> dict:
 def do_exchange(sess: Session, uid: int, tid: int, qty: int) -> bool:
     t = tpl(sess, tid)
     w = wallet_of(sess, uid)
-    qty = max(1, int(qty))
+    qty = int(qty)
+    if qty < 1 or qty > 99:
+        err("兑换数量无效")
     if not t or t.exch is False or not t.cost:
         err("卡券不可兑换")
     if w.point_av < t.cost * qty:
@@ -590,14 +629,15 @@ def do_exchange(sess: Session, uid: int, tid: int, qty: int) -> bool:
 
 
 def gen_verify(sess: Session, uid: int, card_ids: list[int]) -> dict:
+    card_ids = list(dict.fromkeys(int(x) for x in card_ids))
+    if not card_ids or len(card_ids) > 50:
+        err("请选择 1–50 张卡券")
     cards = []
     for cid in card_ids:
         c = sess.get(Card, cid)
         if not c or c.uid != uid or c.status != "UNUSED" or (c.days_left or 0) <= 0:
             err("卡券状态已变化")
         cards.append(c)
-    if not cards:
-        err("请选择卡券")
     code = rand_digits(12)
     for c in cards:
         c.status = "LOCKED"
@@ -640,7 +680,7 @@ def accept_order(sess: Session, oid: int, staff: dict) -> dict:
     o.status = "MAKING"
     o.accepted_by = staff["id"]
     o.op_uid = staff["id"]
-    o.at = o.at or f"{TODAY} {clock()}"
+    o.at = o.at or f"{today_str()} {clock()}"
     n = grant_combo(sess, o)
     log(sess, "ORDER_ACCEPT", f"{o.no} · {o.total} 金币", o.uid, staff)
     return {"order": o.to_dict(), "combo": n}
@@ -687,7 +727,7 @@ def confirm_recharge(sess: Session, rid: int, staff: dict) -> dict:
     c.coin_p += r.amount
     c.coin_b += r.bonus
     r.op_uid = staff["id"]
-    r.at = r.at or f"{TODAY} {clock()}"
+    r.at = r.at or f"{today_str()} {clock()}"
     r.pending_uid = None
     try:
         cache.unlock_pending("recharge", r.uid)
@@ -720,7 +760,7 @@ def confirm_withdraw(sess: Session, wid: int, staff: dict) -> dict:
     pt = wallet_of(sess, w.uid)
     w.status = "GRANTED"
     w.grant_by = staff["id"]
-    w.grant_at = f"{TODAY} {clock()}"
+    w.grant_at = f"{today_str()} {clock()}"
     w.pending_uid = None
     pt.point_fz = max(0, pt.point_fz - w.pts)
     pt.point_wd += w.pts
@@ -740,7 +780,7 @@ def reject_withdraw(sess: Session, wid: int, reason: str, staff: dict) -> dict:
     w.status = "REJECTED"
     w.reject_by = staff["id"]
     w.reject_remark = reason
-    w.closed_at = f"{TODAY} {clock()}"
+    w.closed_at = f"{today_str()} {clock()}"
     w.pending_uid = None
     pt.point_fz = max(0, pt.point_fz - w.pts)
     pt.point_av += w.pts
@@ -776,7 +816,7 @@ def verify_confirm(sess: Session, code: str, staff: dict) -> dict:
             tm = tpl(sess, c.tpl)
             sess.add(VerifyLog(
                 card_no=c.no, tpl_name=tm.name if tm else "卡券",
-                uid=vc["uid"], op_uid=staff["id"], at=f"{TODAY} {clock()}",
+                uid=vc["uid"], op_uid=staff["id"], at=f"{today_str()} {clock()}",
             ))
     cache.verify_delete(full or vc["code"])
     log(sess, "CARD_VERIFY", f"核销 {len(vc['cardIds'])} 张", vc["uid"], staff)
@@ -814,7 +854,7 @@ def submit_game(sess: Session, staff: dict, pid: int, table_id, players: list, w
             wlt.shard_t += rec_players[-1]["sh"]
     rec = GameRecord(
         id=next_seq(sess, "rec"), pid=pid, pname=pj.name if pj else "",
-        table=tbl.name if tbl else "", round="", time=f"{TODAY} {clock()}",
+        table=tbl.name if tbl else "", round="", time=f"{today_str()} {clock()}",
         op=staff["nick"], op_uid=staff["id"], players=rec_players,
     )
     sess.add(rec)
@@ -825,7 +865,7 @@ def submit_game(sess: Session, staff: dict, pid: int, table_id, players: list, w
             x = u(sess, uid)
             tm = team(sess, x.team_id) if x else None
             sess.add(Champ(
-                uid=uid, event=ev, date=TODAY, n=len(players),
+                uid=uid, event=ev, date=today_str(), n=len(players),
                 team_id=x.team_id if x else None,
                 team_name=tm.name if tm else "无战队", op=staff["nick"],
             ))
@@ -839,13 +879,13 @@ def in_range(time_str: str, preset: str) -> bool:
     if preset in ("", "all"):
         return True
     if preset == "today":
-        return d == TODAY
+        return d == today_str()
     if preset == "7d":
-        return d >= "2026-08-19"
+        return d >= (date.today() - timedelta(days=6)).isoformat()
     if preset == "30d":
-        return d >= "2026-07-26"
+        return d >= (date.today() - timedelta(days=29)).isoformat()
     if preset == "month":
-        return d.startswith("2026-08")
+        return d.startswith(current_month())
     return True
 
 
@@ -869,7 +909,7 @@ def job_stat(sess: Session, uid: int, preset="today") -> dict:
 def champ_count(sess: Session, uid, month=False) -> int:
     q = sess.query(Champ).filter(Champ.uid == uid)
     if month:
-        q = q.filter(Champ.date.startswith("2026-08"))
+        q = q.filter(Champ.date.startswith(current_month()))
     return q.count()
 
 
@@ -920,8 +960,9 @@ def rank_rows(sess: Session, kind: str, dim: str, subject: str):
 
 
 def dashboard(sess: Session, role: str) -> dict:
-    today = sess.get(DailyBiz, TODAY)
-    today_d = today.to_dict() if today else {"coin": 0, "offline": 0, "recharge": 0, "orders": 0, "guests": 0, "d": TODAY}
+    today_key = today_str()
+    today = sess.get(DailyBiz, today_key)
+    today_d = today.to_dict() if today else {"coin": 0, "offline": 0, "recharge": 0, "orders": 0, "guests": 0, "d": today_key}
     pa = sess.query(Order).filter_by(status="PENDING_ACCEPT").count()
     pay_od = sess.query(Order).filter_by(status="PENDING_PAY").count()
     rc_pending = sess.query(Recharge).filter_by(status="PENDING_PAY").count()
@@ -957,7 +998,7 @@ def dashboard(sess: Session, role: str) -> dict:
 
 
 def signed_days(sess: Session, uid: int) -> list[int]:
-    return [r.day for r in sess.query(SignRecord).filter_by(uid=uid).all()]
+    return [r.day for r in sess.query(SignRecord).filter_by(uid=uid, month=current_month()).all()]
 
 
 DEMO_SIGNED_DAYS = [1, 2, 4, 6, 7, 8, 12, 15, 16, 18, 19, 20, 22, 23, 25]
@@ -968,7 +1009,7 @@ def grant_demo_sign(sess: Session, uid: int):
     if sess.query(SignRecord).filter_by(uid=uid).count():
         return
     for day in DEMO_SIGNED_DAYS:
-        sess.add(SignRecord(uid=uid, day=day, month="2026-08"))
+        sess.add(SignRecord(uid=uid, day=day, month=current_month()))
     w = wallet_of(sess, uid)
     if not w.sign_streak:
         w.sign_streak = DEMO_SIGN_STREAK
@@ -1012,7 +1053,7 @@ def deactivate(sess: Session, uid: int, reason: str) -> dict:
         id=next_seq(sess, "deact"),
         no="ZX" + yyMMdd() + rand_digits(4),
         uid=uid, status="PENDING",
-        created=f"{TODAY} {clock()}", reason=reason or "",
+        created=f"{today_str()} {clock()}", reason=reason or "",
         snap={"coinP": w.coin_p, "coinB": w.coin_b, "point": w.point_av,
               "pointFz": w.point_fz, "shardW": w.shard_w, "cards": cards},
     )
@@ -1031,13 +1072,13 @@ def exec_deactivation(sess: Session, did: int, action: str, reason: str, admin: 
         d.status = "REJECTED"
         d.audit_remark = reason
         d.audit_by = admin["id"]
-        d.audit_at = f"{TODAY} {clock()}"
+        d.audit_at = f"{today_str()} {clock()}"
         if usr:
             usr.deact = None
     else:
         d.status = "DONE"
         d.audit_by = admin["id"]
-        d.audit_at = f"{TODAY} {clock()}"
+        d.audit_at = f"{today_str()} {clock()}"
         if usr:
             usr.status = "DEACTIVATED"
             usr.deact = None

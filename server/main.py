@@ -42,7 +42,7 @@ ALLOWED_IMG = {
 }
 
 
-def uid_from_headers(authorization: Optional[str], x_user_id: Optional[int]) -> int | None:
+def uid_from_headers(authorization: Optional[str]) -> int | None:
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization.split(" ", 1)[1].strip()
         try:
@@ -50,20 +50,15 @@ def uid_from_headers(authorization: Optional[str], x_user_id: Optional[int]) -> 
             if found:
                 return found
         except Exception:
-            pass
-        if token.isdigit():
-            return int(token)
-    if x_user_id:
-        return int(x_user_id)
+            return None
     return None
 
 
 def current_user(
     db: Session = Depends(get_db),
     authorization: Optional[str] = Header(default=None),
-    x_user_id: Optional[int] = Header(default=None),
 ):
-    uid = uid_from_headers(authorization, x_user_id)
+    uid = uid_from_headers(authorization)
     if not uid:
         raise HTTPException(401, "未登录")
     L.expire_timeouts(db)
@@ -90,7 +85,6 @@ def fail(e: Exception):
 
 
 class LoginIn(BaseModel):
-    userId: Optional[int] = None
     account: str = ""
     password: str = ""
     code: str = ""
@@ -180,8 +174,8 @@ def on_startup():
 def session_payload(db: Session, user: User) -> dict:
     try:
         token = cache.session_create(user.id)
-    except Exception:
-        token = str(user.id)
+    except Exception as exc:
+        raise HTTPException(503, "登录服务暂不可用，请稍后重试") from exc
     return {"token": token, "user": L.public_user(db, user)}
 
 
@@ -203,26 +197,21 @@ def login_with_wx(code: str, phone_code: str, db: Session) -> dict:
 def login(body: LoginIn, db: Session = Depends(get_db)):
     if (body.code or "").strip():
         return login_with_wx(body.code, body.phoneCode, db)
-    user = None
-    if body.userId:
-        user = L.u(db, body.userId)
-    else:
-        raw = (body.account or "").strip()
-        digits = "".join(ch for ch in raw if ch.isdigit())
-        if not digits:
-            raise HTTPException(400, "请输入数字账号")
-        user = db.query(User).filter(User.no == digits).first()
-        if not user:
-            user = db.query(User).filter(User.no == digits.zfill(6)).first()
+    raw = (body.account or "").strip()
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if not digits:
+        raise HTTPException(400, "请输入数字账号")
+    user = db.query(User).filter(User.no == digits).first()
+    if not user:
+        user = db.query(User).filter(User.no == digits.zfill(6)).first()
     if not user:
         raise HTTPException(404, "账号或密码错误")
     if user.status == "DEACTIVATED":
         raise HTTPException(401, "账号不可用")
-    if body.account or body.password:
-        if user.role == "CUSTOMER":
-            raise HTTPException(403, "会员请使用一键登录")
-        if not L.check_pwd(user, body.password):
-            raise HTTPException(401, "账号或密码错误")
+    if user.role == "CUSTOMER":
+        raise HTTPException(403, "会员请使用一键登录")
+    if not L.check_pwd(user, body.password):
+        raise HTTPException(401, "账号或密码错误")
     return session_payload(db, user)
 
 
@@ -233,6 +222,8 @@ def wx_login(body: WxLoginIn, db: Session = Depends(get_db)):
 
 @app.get("/api/dev/accounts")
 def accounts(db: Session = Depends(get_db)):
+    if in_cloud():
+        raise HTTPException(404, "Not found")
     customers = [L.public_user(db, x) for x in db.query(User).filter_by(role="CUSTOMER", status="ACTIVE").limit(8)]
     staff = [L.public_user(db, x) for x in db.query(User).filter(User.role != "CUSTOMER")]
     return {"customers": customers, "staff": staff}
@@ -240,6 +231,8 @@ def accounts(db: Session = Depends(get_db)):
 
 @app.post("/api/dev/reset")
 def dev_reset():
+    if in_cloud():
+        raise HTTPException(404, "Not found")
     seed_all(reset=True)
     return {"ok": True}
 
@@ -250,7 +243,7 @@ def me(user: dict = Depends(current_user), db: Session = Depends(get_db)):
     days = L.signed_days(db, user["id"])
     return {
         "user": user,
-        "signedToday": 25 in days,
+        "signedToday": L.today_day() in days,
         "signDays": len(days),
         "streak": user.get("signStreak") or 0,
         "usableCards": len(cards),
@@ -269,11 +262,7 @@ def me(user: dict = Depends(current_user), db: Session = Depends(get_db)):
 def register(body: RegisterIn, db: Session = Depends(get_db)):
     try:
         user = L.register(db, body.nick, body.agreed)
-        try:
-            token = cache.session_create(user.id)
-        except Exception:
-            token = str(user.id)
-        return {"token": token, "user": L.public_user(db, user)}
+        return session_payload(db, user)
     except ValueError as e:
         fail(e)
 
@@ -290,9 +279,8 @@ def signin(user: dict = Depends(current_user), db: Session = Depends(get_db)):
 def home(
     db: Session = Depends(get_db),
     authorization: Optional[str] = Header(default=None),
-    x_user_id: Optional[int] = Header(default=None),
 ):
-    uid = uid_from_headers(authorization, x_user_id)
+    uid = uid_from_headers(authorization)
     user = L.public_user(db, L.u(db, uid)) if uid else None
     content = L.setting(db, "content") or {}
     days = L.signed_days(db, uid) if uid else []
@@ -307,11 +295,11 @@ def home(
         "howToPlay": content.get("howToPlay") or {},
         "signed": days,
         "signPoints": (L.setting(db, "config") or {}).get("signPoints"),
-        "signedToday": 25 in days,
+        "signedToday": L.today_day() in days,
         "streak": streak,
         "signRules": L.sign_rules_view(db),
-        "signMonth": "2026-08",
-        "signToday": 25,
+        "signMonth": L.current_month(),
+        "signToday": L.today_day(),
     }
 
 
@@ -389,7 +377,7 @@ def points(user: dict = Depends(current_user), db: Session = Depends(get_db)):
     his = [w.to_dict() for w in db.query(Withdrawal).filter_by(uid=user["id"]).order_by(Withdrawal.id.desc()).limit(8)]
     tpls = [t.to_dict() for t in db.query(CardTpl).all() if t.exch is not False and (t.cost or 0) > 0]
     return {"point": p, "pending": pw.to_dict() if pw else None, "history": his, "tpls": tpls,
-            "remain": L.remain(pw.expire_at) if pw else None}
+            "remain": L.remain(pw.expire_at) if pw else None, **L.point_period()}
 
 
 @app.post("/api/withdrawals")
@@ -451,9 +439,8 @@ def get_code(code: str, user: dict = Depends(current_user), db: Session = Depend
 @app.get("/api/rank")
 def rank(kind: str = "SHARD", dim: str = "WEEK", subject: str = "TEAM",
          db: Session = Depends(get_db),
-         authorization: Optional[str] = Header(default=None),
-         x_user_id: Optional[int] = Header(default=None)):
-    uid = uid_from_headers(authorization, x_user_id)
+         authorization: Optional[str] = Header(default=None)):
+    uid = uid_from_headers(authorization)
     me = L.u(db, uid) if uid else None
     rows = L.rank_rows(db, kind, dim, subject)
     mine = None
@@ -468,7 +455,7 @@ def rank(kind: str = "SHARD", dim: str = "WEEK", subject: str = "TEAM",
 @app.get("/api/champions")
 def champions(user: dict = Depends(current_user), db: Session = Depends(get_db)):
     list_ = [c.to_dict() for c in db.query(Champ).filter_by(uid=user["id"]).all()]
-    return {"list": list_, "total": len(list_), "month": sum(1 for c in list_ if str(c.get("date")).startswith("2026-08"))}
+    return {"list": list_, "total": len(list_), "month": sum(1 for c in list_ if str(c.get("date")).startswith(L.current_month()))}
 
 
 @app.get("/api/shards")
@@ -518,7 +505,7 @@ def enrich_order(db: Session, o: Order) -> dict:
 
 
 def today_amt(db: Session) -> int:
-    t = db.get(DailyBiz, L.TODAY)
+    t = db.get(DailyBiz, L.today_str())
     return (t.coin + t.offline) if t else 0
 
 

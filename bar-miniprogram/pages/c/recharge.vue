@@ -1,5 +1,6 @@
 <script setup>
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
+import { onShow } from "@dcloudio/uni-app";
 import { api } from "@/utils/api";
 
 const data = ref(null);
@@ -27,7 +28,7 @@ async function load() {
     selId.value = rec ? rec.id : data.value.tiers[0].id;
   }
 }
-onMounted(load);
+onShow(load);
 
 watch(pending, (v) => {
   if (v) showPending.value = true;
@@ -100,7 +101,7 @@ async function cancel() {
         <view class="between row-line">
           <text class="tiny">单号</text>
           <text style="font-weight:600;font-size:15px;letter-spacing:1px">
-            CZ 2508 <text class="red-t" style="font-size:18px">{{ pending.no.slice(-4) }}</text>
+            <text class="red-t" style="font-size:18px">{{ pending.no }}</text>
           </text>
         </view>
         <view class="between row-line">
