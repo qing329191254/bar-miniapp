@@ -60,10 +60,10 @@ async function onFile(e: Event) {
   color: var(--ink3);
 }
 .imgf:hover { border-color: rgba(186, 117, 23, 0.5); }
-.imgf.sm { width: 48px; height: 36px; border-radius: 6px; }
+.imgf.sm { width: 52px; height: 42px; border-radius: 7px; }
 .imgf.md { width: 82px; height: 82px; border-radius: 9px; font-size: 22px; }
 .imgf img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.ph { font-size: 14px; line-height: 1; }
+.ph { font-size: 10px; line-height: 1; white-space: nowrap; }
 .imgf.md .ph { font-size: 22px; }
 .imgf-error {
   max-width: 280px;

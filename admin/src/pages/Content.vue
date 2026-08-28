@@ -164,7 +164,7 @@ watch(
         </div>
         <div class="tiny">相册标题</div>
         <input class="inp" style="max-width:280px" v-model="g.title" />
-        <table class="tb2">
+        <table class="tb2 gallery-table">
           <thead>
             <tr><th>序号</th><th>预览</th><th>图片名称</th><th>说明</th><th>操作</th></tr>
           </thead>
@@ -187,7 +187,7 @@ watch(
         </table>
         <button class="btn" style="margin-top:10px" @click="save('gallery')">保存相册</button>
       </div>
-      <div>
+      <div class="preview-col">
         <div class="card">
           <div class="st">C 端预览 <em>首页轮播 · 一张图一屏</em></div>
           <div class="pv-phone">
@@ -219,7 +219,6 @@ watch(
             <div class="tiny" style="text-align:center;margin-top:8px">点击画面切换下一张</div>
           </div>
         </div>
-        <div class="note">入口：C 端首页顶部 banner，一张图一屏。清空后显示「商家尚未上传相册」。</div>
       </div>
     </div>
 
@@ -323,10 +322,23 @@ watch(
 <style scoped>
 .content-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  gap: 12px;
+  grid-template-columns: minmax(680px, 1fr) minmax(300px, 340px);
+  gap: 16px;
   align-items: start;
 }
+.content-grid > .card,
+.preview-col,
+.preview-col > .card { min-width: 0; }
+.preview-col > .card { margin: 0; }
+.gallery-table { table-layout: fixed; }
+.gallery-table th:nth-child(1),
+.gallery-table td:nth-child(1) { width: 54px; }
+.gallery-table th:nth-child(2),
+.gallery-table td:nth-child(2) { width: 82px; }
+.gallery-table th:nth-child(5),
+.gallery-table td:nth-child(5) { width: 148px; }
+.gallery-table td { vertical-align: middle; }
+.gallery-table .inp { width: 100%; min-width: 0; box-sizing: border-box; }
 .pv-phone {
   background: #F5F4F0;
   border-radius: 16px;
