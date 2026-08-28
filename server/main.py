@@ -20,7 +20,7 @@ from models import (
     TableSeat, Team, Tier, User, VerifyLog, Wallet, Withdrawal,
 )
 from seed_db import seed_all
-from settings import host_for_log, in_cloud, is_loopback, mysql_url, redis_url
+from settings import cloud_env_id, cos_public_base, host_for_log, in_cloud, is_loopback, mysql_url, redis_url
 import weixin
 
 app = FastAPI(title="玩咖桌游酒吧 API")
@@ -720,9 +720,15 @@ async def admin_upload(admin: dict = Depends(admin_user), file: UploadFile = Fil
     raw = await file.read()
     if len(raw) > 2 * 1024 * 1024:
         raise HTTPException(400, "图片需 ≤ 2MB")
+    if not raw:
+        raise HTTPException(400, "图片内容为空")
     name = uuid4().hex + ext
-    (UPLOAD_DIR / name).write_bytes(raw)
-    return {"url": f"/uploads/{name}"}
+    cloud_path = f"wanka/uploads/{name}"
+    try:
+        weixin.upload_cloud_file(cloud_env_id(), cloud_path, raw, ctype or "application/octet-stream")
+    except ValueError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {"url": f"{cos_public_base()}/{cloud_path}"}
 
 
 @app.get("/api/admin/{coll}")

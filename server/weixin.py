@@ -5,6 +5,9 @@ import json
 import time
 import urllib.parse
 import urllib.request
+from pathlib import Path
+
+import requests
 
 from cache import r
 from settings import wx_appid, wx_secret
@@ -143,3 +146,44 @@ def phone_from_code(code: str) -> str:
     if not phone:
         raise ValueError("未获取到手机号")
     return phone
+
+
+def upload_cloud_file(env_id: str, cloud_path: str, raw: bytes, content_type: str) -> None:
+    """Upload bytes to the object storage attached to the WeChat Cloud Hosting env."""
+    if not env_id:
+        raise ValueError("未获取到微信云托管环境 ID")
+
+    def ticket() -> dict:
+        token = access_token()
+        return _wx_json(
+            "https://api.weixin.qq.com/tcb/uploadfile?access_token="
+            + urllib.parse.quote(token),
+            {"env": env_id, "path": cloud_path},
+        )
+
+    data = ticket()
+    errcode = int(data.get("errcode") or 0)
+    if errcode == 40001:
+        _clear_access_token()
+        data = ticket()
+        errcode = int(data.get("errcode") or 0)
+    if errcode:
+        raise ValueError(data.get("errmsg") or f"微信对象存储上传授权失败（{errcode}）")
+
+    required = ("url", "token", "authorization", "cos_file_id")
+    if any(not data.get(key) for key in required):
+        raise ValueError("微信对象存储未返回完整上传凭证")
+
+    # COS requires the file field to be the final multipart field.
+    parts = [
+        ("key", (None, cloud_path)),
+        ("Signature", (None, data["authorization"])),
+        ("x-cos-security-token", (None, data["token"])),
+        ("x-cos-meta-fileid", (None, data["cos_file_id"])),
+        ("file", (Path(cloud_path).name, raw, content_type)),
+    ]
+    try:
+        response = requests.post(data["url"], files=parts, timeout=30)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        raise ValueError("图片上传到微信对象存储失败，请稍后重试") from exc

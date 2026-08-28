@@ -64,6 +64,22 @@ def wx_secret() -> str:
     return (os.getenv("WX_SECRET") or os.getenv("WECHAT_SECRET") or "").strip()
 
 
+def cloud_env_id() -> str:
+    return (
+        os.getenv("CBR_ENV_ID")
+        or os.getenv("TCB_ENV_ID")
+        or os.getenv("CLOUD_ENV_ID")
+        or "prod-d2gc6jcwy846bd613"
+    ).strip()
+
+
+def cos_public_base() -> str:
+    return (
+        os.getenv("COS_PUBLIC_BASE")
+        or "https://7072-prod-d2gc6jcwy846bd613-1476141553.cos.ap-shanghai.myqcloud.com"
+    ).strip().rstrip("/")
+
+
 def session_secret() -> str:
     value = (
         os.getenv("SESSION_SECRET")

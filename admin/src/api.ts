@@ -38,6 +38,19 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
 }
 
 export async function uploadFile(file: File): Promise<string> {
-  const { uploadToCloud } = await import("./cloud");
-  return uploadToCloud(file);
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch("/api/admin/upload", {
+    method: "POST",
+    headers: token() ? { Authorization: "Bearer " + token() } : {},
+    body: form,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail = (data as { detail?: unknown }).detail;
+    throw new Error(typeof detail === "string" ? detail : "图片上传失败");
+  }
+  const url = (data as { url?: unknown }).url;
+  if (typeof url !== "string" || !url) throw new Error("服务端未返回图片地址");
+  return url;
 }
