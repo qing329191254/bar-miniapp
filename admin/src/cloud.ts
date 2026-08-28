@@ -13,6 +13,13 @@ const MAX_BYTES = 2 * 1024 * 1024;
 let app: ReturnType<typeof cloudbase.init> | null = null;
 let authReady: Promise<void> | null = null;
 
+function errorText(error: any, fallback: string) {
+  if (!error) return fallback;
+  if (typeof error === "string") return error;
+  const raw = error.message || error.error_description || error.msg || error.code || fallback;
+  return String(raw).replace(/^Error:\s*/i, "");
+}
+
 function tcb() {
   if (!app) app = cloudbase.init({ env: ENV_ID });
   return app;
@@ -23,16 +30,17 @@ async function ensureAuth() {
     authReady = (async () => {
       const auth = tcb().auth({ persistence: "local" });
       if (!(await auth.getLoginState())) {
-        await auth.signInAnonymously();
+        const result: any = await auth.signInAnonymously();
+        if (result?.error) throw result.error;
       }
     })();
   }
   try {
     await authReady;
-  } catch {
+  } catch (error: any) {
     authReady = null;
     throw new Error(
-      "云存储登录失败：请在微信云开发控制台 → 登录授权 中开启「匿名登录」，并允许上传 wanka/uploads/",
+      `云存储登录失败：${errorText(error, "请开启匿名登录")}`,
     );
   }
 }
@@ -57,10 +65,15 @@ export async function uploadToCloud(file: File): Promise<string> {
   const name = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}${ext}`;
   const cloudPath = `${COS_PREFIX}${name}`;
 
-  const res = await tcb().uploadFile({
-    cloudPath,
-    filePath: file,
-  });
+  let res: any;
+  try {
+    res = await tcb().uploadFile({ cloudPath, filePath: file });
+  } catch (error: any) {
+    const detail = errorText(error, "对象存储拒绝上传");
+    throw new Error(
+      `上传失败：${detail}。请检查对象存储安全域名是否包含当前后台域名 ${location.host}`,
+    );
+  }
   if (!res?.fileID) throw new Error("上传失败，未返回 fileID");
   return publicUrl(cloudPath);
 }

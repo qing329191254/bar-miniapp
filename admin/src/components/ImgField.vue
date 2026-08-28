@@ -34,14 +34,18 @@ async function onFile(e: Event) {
 </script>
 
 <template>
-  <div class="imgf" :class="size" :title="err || (modelValue ? '点击更换图片' : '点击上传图片')" @click="pick">
-    <img v-if="modelValue && !busy" :src="modelValue" alt="" />
-    <span v-else class="ph">{{ busy ? "…" : "+" }}</span>
-    <input ref="inp" type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden @change="onFile" />
+  <div class="imgf-wrap">
+    <div class="imgf" :class="size" :title="modelValue ? '点击更换图片' : '点击上传图片'" @click="pick">
+      <img v-if="modelValue && !busy" :src="modelValue" alt="" />
+      <span v-else class="ph">{{ busy ? "上传中…" : "+" }}</span>
+      <input ref="inp" type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden @change="onFile" />
+    </div>
+    <div v-if="err" class="imgf-error">{{ err }}</div>
   </div>
 </template>
 
 <style scoped>
+.imgf-wrap { display: inline-flex; flex-direction: column; align-items: flex-start; max-width: 100%; }
 .imgf {
   position: relative;
   background: #EDEBE4;
@@ -60,4 +64,12 @@ async function onFile(e: Event) {
 .imgf img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .ph { font-size: 14px; line-height: 1; }
 .imgf.md .ph { font-size: 22px; }
+.imgf-error {
+  max-width: 280px;
+  margin-top: 5px;
+  color: #a32d2d;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
 </style>
