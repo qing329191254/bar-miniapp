@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import time
 import urllib.parse
 import urllib.request
 
@@ -16,6 +17,42 @@ WX_ERR = {
     40001: "微信 access_token 无效，请重试",
     47001: "手机号授权码格式错误",
 }
+
+_memory_access_token = ""
+_memory_access_token_expires = 0
+
+
+def _cached_access_token() -> str:
+    global _memory_access_token, _memory_access_token_expires
+    try:
+        cached = r.get("wx:access_token")
+        if cached:
+            return cached
+    except Exception:
+        pass
+    if _memory_access_token and _memory_access_token_expires > time.time():
+        return _memory_access_token
+    return ""
+
+
+def _save_access_token(token: str, ttl: int) -> None:
+    global _memory_access_token, _memory_access_token_expires
+    _memory_access_token = token
+    _memory_access_token_expires = time.time() + ttl
+    try:
+        r.setex("wx:access_token", ttl, token)
+    except Exception:
+        pass
+
+
+def _clear_access_token() -> None:
+    global _memory_access_token, _memory_access_token_expires
+    _memory_access_token = ""
+    _memory_access_token_expires = 0
+    try:
+        r.delete("wx:access_token")
+    except Exception:
+        pass
 
 
 def _wx_json(url: str, payload: dict | None = None, timeout: int = 8) -> dict:
@@ -33,7 +70,7 @@ def _wx_json(url: str, payload: dict | None = None, timeout: int = 8) -> dict:
 
 
 def access_token() -> str:
-    cached = r.get("wx:access_token")
+    cached = _cached_access_token()
     if cached:
         return cached
     appid = wx_appid()
@@ -53,7 +90,7 @@ def access_token() -> str:
     if not token:
         raise ValueError("微信 access_token 获取失败")
     ttl = max(int(data.get("expires_in") or 7200) - 120, 60)
-    r.setex("wx:access_token", ttl, token)
+    _save_access_token(token, ttl)
     return token
 
 
@@ -92,7 +129,7 @@ def phone_from_code(code: str) -> str:
     )
     errcode = int(data.get("errcode") or 0)
     if errcode == 40001:
-        r.delete("wx:access_token")
+        _clear_access_token()
         token = access_token()
         data = _wx_json(
             f"https://api.weixin.qq.com/wxa/business/getuserphonenumber?access_token={urllib.parse.quote(token)}",
