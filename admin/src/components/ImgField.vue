@@ -38,7 +38,7 @@ async function onFile(e: Event) {
   <div class="imgf-wrap">
     <div class="imgf" :class="size" :title="displayUrl ? '点击更换图片' : '点击上传图片'" @click="pick">
       <img v-if="displayUrl && !busy" :src="displayUrl" alt="" />
-      <span v-else class="ph">{{ busy ? "上传中…" : "+" }}</span>
+      <span v-else class="ph" :class="{ busy }">{{ busy ? "上传中…" : "+" }}</span>
       <input ref="inp" type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden @change="onFile" />
     </div>
     <div v-if="err" class="imgf-error">{{ err }}</div>
@@ -65,6 +65,8 @@ async function onFile(e: Event) {
 .imgf img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .ph { font-size: 10px; line-height: 1; white-space: nowrap; }
 .imgf.md .ph { font-size: 22px; }
+.imgf .ph.busy,
+.imgf.md .ph.busy { font-size: 10px; font-weight: 400; letter-spacing: 0; }
 .imgf-error {
   max-width: 280px;
   margin-top: 5px;

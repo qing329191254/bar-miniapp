@@ -34,6 +34,37 @@ export function clearSession() {
 
 const CART_KEY = "wanka_cart";
 let redirectingToLogin = false;
+const pendingRequests = new Map();
+let loadingCount = 0;
+let loadingTimer = null;
+let loadingShown = false;
+
+function beginLoading() {
+  loadingCount += 1;
+  if (loadingCount !== 1) return;
+  loadingTimer = setTimeout(() => {
+    if (!loadingCount) return;
+    loadingShown = true;
+    uni.showLoading({ title: "加载中", mask: true });
+  }, 180);
+}
+
+function finishLoading() {
+  loadingCount = Math.max(0, loadingCount - 1);
+  if (loadingCount) return;
+  if (loadingTimer) {
+    clearTimeout(loadingTimer);
+    loadingTimer = null;
+  }
+  if (loadingShown) {
+    uni.hideLoading();
+    loadingShown = false;
+  }
+}
+
+function requestKey(path, opts) {
+  return `${(opts.method || "GET").toUpperCase()} ${path} ${JSON.stringify(opts.body || {})}`;
+}
 
 export function loadCart() {
   const raw = uni.getStorageSync(CART_KEY);
@@ -59,8 +90,20 @@ function detailMsg(data) {
 }
 
 export function api(path, opts = {}) {
-  return new Promise((resolve, reject) => {
+  const key = requestKey(path, opts);
+  if (pendingRequests.has(key)) return pendingRequests.get(key);
+
+  const withLoading = opts.loading !== false;
+  if (withLoading) beginLoading();
+  const request = new Promise((resolve, reject) => {
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      if (withLoading) finishLoading();
+    };
     if (typeof wx === "undefined" || !wx.cloud) {
+      finish();
       reject(new Error("请在微信开发者工具中打开"));
       return;
     }
@@ -88,6 +131,7 @@ export function api(path, opts = {}) {
         }
         data = data || {};
         if (res.statusCode >= 200 && res.statusCode < 300) {
+          finish();
           resolve(data);
           return;
         }
@@ -100,6 +144,7 @@ export function api(path, opts = {}) {
               complete: () => { redirectingToLogin = false; },
             });
           }
+          finish();
           reject(new Error("登录已过期，请重新登录"));
           return;
         }
@@ -107,6 +152,7 @@ export function api(path, opts = {}) {
         if (method === "GET" && opts.silent !== true) {
           uni.showToast({ title: error.message, icon: "none" });
         }
+        finish();
         reject(error);
       },
       fail(err) {
@@ -114,10 +160,17 @@ export function api(path, opts = {}) {
         if (method === "GET" && opts.silent !== true) {
           uni.showToast({ title: message, icon: "none" });
         }
+        finish();
         reject(new Error(message));
       },
     });
   });
+  pendingRequests.set(key, request);
+  request.then(
+    () => pendingRequests.delete(key),
+    () => pendingRequests.delete(key),
+  );
+  return request;
 }
 
 export function go(url, replace) {

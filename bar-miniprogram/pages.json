@@ -29,12 +29,20 @@
 			"style": { "navigationBarTitleText": "我的卡包" }
 		},
 		{
+			"path": "pages/c/verify-code",
+			"style": { "navigationBarTitleText": "核销码" }
+		},
+		{
 			"path": "pages/c/mine",
 			"style": { "navigationBarTitleText": "我的" }
 		},
 		{
 			"path": "pages/c/recharge",
 			"style": { "navigationBarTitleText": "充值有奖" }
+		},
+		{
+			"path": "pages/c/recharge-detail",
+			"style": { "navigationBarTitleText": "充值单" }
 		},
 		{
 			"path": "pages/c/points",

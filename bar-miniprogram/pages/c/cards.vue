@@ -14,7 +14,6 @@ const VOID_ST = ["USED", "EXPIRED", "VOID"];
 const list = ref([]);
 const tab = ref("GAME");
 const sel = ref([]);
-const code = ref(null);
 const msg = ref("");
 
 onShow(async () => {
@@ -39,7 +38,6 @@ function selected(id) {
 function switchTab(k) {
   tab.value = k;
   sel.value = [];
-  code.value = null;
 }
 function toggle(c) {
   if (!voidable.value || c.status !== "UNUSED") return;
@@ -53,8 +51,9 @@ async function gen() {
   if (!sel.value.length) return;
   msg.value = "";
   try {
-    code.value = await api("/cards/verify-code", { method: "POST", body: { cardIds: sel.value } });
+    const result = await api("/cards/verify-code", { method: "POST", body: { cardIds: sel.value } });
     sel.value = [];
+    uni.navigateTo({ url: `/pages/c/verify-code?code=${encodeURIComponent(result.code)}` });
   } catch (e) {
     msg.value = e.message;
   }
@@ -112,11 +111,6 @@ async function gen() {
 
     <view v-if="voidable" class="pack-bar">
       <button class="btn block gold" :disabled="!sel.length" @tap="gen">生成核销码（{{ sel.length }} 张）</button>
-    </view>
-    <view class="card" v-if="code" style="text-align:center;margin-top:12px">
-      <view class="tiny">请向店员出示</view>
-      <view style="font-size:22px;letter-spacing:2px;font-weight:700">{{ code.code }}</view>
-      <view class="tiny">{{ code.remain }} 内有效</view>
     </view>
     <view class="err" v-if="msg">{{ msg }}</view>
   </view>

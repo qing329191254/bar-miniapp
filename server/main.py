@@ -437,14 +437,14 @@ def gen_code(body: VerifyIn, user: dict = Depends(current_user), db: Session = D
 @app.get("/api/cards/verify-code/{code}")
 def get_code(code: str, user: dict = Depends(current_user), db: Session = Depends(get_db)):
     L.expire_timeouts(db)
-    full, vc = cache.verify_find(code)
-    if not vc or vc.get("uid") != user["id"]:
+    vc = L.find_verify(db, code)
+    if not vc or vc.uid != user["id"]:
         raise HTTPException(404, "核销码不存在")
     cards = []
-    for cid in vc["cardIds"]:
+    for cid in vc.card_ids or []:
         c = db.get(Card, cid)
         cards.append({**c.to_dict(), "tplInfo": L.tpl(db, c.tpl).to_dict()} if c else None)
-    return {**vc, "code": full or vc["code"], "cards": cards, "remain": L.remain(vc.get("expireAt"))}
+    return {**L.verify_code_dict(vc), "cards": cards, "remain": L.remain(vc.expire_at)}
 
 
 @app.get("/api/rank")
@@ -793,6 +793,14 @@ def coin_adjust(aid: int, action: str, admin: dict = Depends(admin_user), db: Se
         raise HTTPException(403, "仅老板审批")
     try:
         return L.approve_coin_adjust(db, aid, action)
+    except ValueError as e:
+        fail(e)
+
+
+@app.post("/api/admin/orders/{oid}/refund")
+def admin_refund_order(oid: int, body: ReasonIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    try:
+        return L.refund_order(db, oid, body.reason, admin)
     except ValueError as e:
         fail(e)
 

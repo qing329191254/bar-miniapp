@@ -16,9 +16,11 @@ python -m pip install -r requirements.txt
 python seed_db.py
 python -m uvicorn main:app --host 0.0.0.0 --port 8010 --reload
 
-# 3. 运营后台（浏览器）
+# 3. 运营后台（浏览器，本地页面默认连接云托管接口和云端数据）
 cd ../admin && npm install && npm run dev     # http://localhost:5174/
 ```
+
+本地后台通过 `admin/.env` 的 `VITE_API_PROXY_TARGET` 连接云托管服务，因此无需启动本机后端即可使用云端接口、数据库和云存储。此模式下保存、删除、发布等操作会直接修改线上数据。如需使用本机后端与本地数据库，将该配置改为 `http://127.0.0.1:8010` 后重启 Vite。
 
 小程序：用 **HBuilderX** 打开 `bar-miniprogram/`，运行 → 微信开发者工具。
 

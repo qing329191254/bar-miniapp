@@ -212,6 +212,15 @@ class Card(Base):
         return d
 
 
+class VerifyCode(Base):
+    __tablename__ = "verify_codes"
+    code: Mapped[str] = mapped_column(String(32), primary_key=True)
+    uid: Mapped[int] = mapped_column(Integer, index=True)
+    card_ids: Mapped[list] = mapped_column(JSON, default=list)
+    status: Mapped[str] = mapped_column(String(16), default="VALID", index=True)
+    expire_at: Mapped[int] = mapped_column(BigInteger, index=True)
+
+
 class Order(Base):
     __tablename__ = "orders"
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)

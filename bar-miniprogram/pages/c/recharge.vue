@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
 import { api } from "@/utils/api";
 
@@ -7,10 +7,10 @@ const data = ref(null);
 const selId = ref(null);
 const msg = ref("");
 const creating = ref(false);
-const showPending = ref(false);
+const showTierDialog = ref(false);
 
 function fmt(n) {
-  return Number(n || 0).toLocaleString("zh-CN");
+  return Number(n || 0).toLocaleString("en-US");
 }
 
 const coin = computed(() => data.value?.coin || { p: 0, b: 0 });
@@ -30,29 +30,39 @@ async function load() {
 }
 onShow(load);
 
-watch(pending, (v) => {
-  if (v) showPending.value = true;
-});
-
 function pick(id) {
   selId.value = id;
   msg.value = "";
 }
 
+function openTierDialog() {
+  if (pending.value) {
+    goRechargeDetail();
+    return;
+  }
+  showTierDialog.value = true;
+}
+
+function goRechargeDetail() {
+  uni.navigateTo({ url: "/pages/c/recharge-detail" });
+}
+
+function closeTierDialog() {
+  if (!creating.value) showTierDialog.value = false;
+}
+
 async function create() {
   if (!selected.value || creating.value) return;
   if (pending.value) {
-    showPending.value = true;
-    msg.value = "你有一张待付充值单，请先付款或取消";
+    goRechargeDetail();
     return;
   }
   creating.value = true;
   msg.value = "";
   try {
-    await api("/recharges", { method: "POST", body: { tierId: selected.value.id } });
-    uni.showToast({ title: "充值单已生成", icon: "success" });
-    await load();
-    showPending.value = true;
+    const order = await api("/recharges", { method: "POST", body: { tierId: selected.value.id } });
+    showTierDialog.value = false;
+    uni.navigateTo({ url: "/pages/c/recharge-detail?created=" + encodeURIComponent(order.no || "") });
   } catch (e) {
     msg.value = e.message;
   } finally {
@@ -60,17 +70,6 @@ async function create() {
   }
 }
 
-async function cancel() {
-  if (!pending.value) return;
-  try {
-    await api(`/recharges/${pending.value.id}/cancel`, { method: "POST" });
-    uni.showToast({ title: "充值单已取消", icon: "success" });
-    showPending.value = false;
-    await load();
-  } catch (e) {
-    msg.value = e.message;
-  }
-}
 </script>
 
 <template>
@@ -83,33 +82,6 @@ async function cancel() {
         <text class="tiny gold-t">赠送 {{ fmt(coin.b) }}</text>
         <text class="pill warn-pill">赠送金币不可退</text>
       </view>
-    </view>
-
-    <view v-if="pending && showPending" class="card pend-card">
-      <view class="between" style="margin-bottom:9px">
-        <text class="pill gold-pill">待付款</text>
-        <text class="tiny red-t">剩余 {{ data.remain || "—" }}</text>
-      </view>
-      <view class="pend-center">
-        <view class="tiny gold-t">充值金额</view>
-        <view class="pend-amt">¥{{ pending.amount }}</view>
-        <view class="tiny green-t">
-          到账 {{ fmt(pending.amount + pending.bonus) }} 金币（含赠送 {{ pending.bonus }}）
-        </view>
-      </view>
-      <view class="pend-box">
-        <view class="between row-line">
-          <text class="tiny">单号</text>
-          <text style="font-weight:600;font-size:15px;letter-spacing:1px">
-            <text class="red-t" style="font-size:18px">{{ pending.no }}</text>
-          </text>
-        </view>
-        <view class="between row-line">
-          <text class="tiny">提交时间</text>
-          <text class="tiny">{{ pending.created }}</text>
-        </view>
-      </view>
-      <button class="btn ghost block" style="margin-top:10px" @tap="cancel">取消此单</button>
     </view>
 
     <view class="st-row">
@@ -125,9 +97,9 @@ async function cancel() {
         :class="{ on: selId === t.id, rec: t.rec }"
         @tap="pick(t.id)"
       >
-        <view class="tier-amt">{{ t.amount }}</view>
+        <view class="tier-amt">{{ fmt(t.amount) }}</view>
         <view class="tiny tier-sub" :class="{ gift: t.bonus > 0 }">
-          {{ t.bonus > 0 ? "赠 " + t.bonus + (t.rec ? " · 最划算" : "") : "无赠送" }}
+          {{ t.bonus > 0 ? "赠 " + fmt(t.bonus) + (t.rec ? " · 最划算" : "") : "无赠送" }}
         </view>
       </view>
     </view>
@@ -146,13 +118,13 @@ async function cancel() {
       <button
         v-if="pending"
         class="btn block"
-        @tap="showPending = true"
+        @tap="goRechargeDetail"
       >查看待付单（{{ pending.no.slice(-4) }}）</button>
       <button
         v-else
         class="btn block"
         :disabled="!selected || creating"
-        @tap="create"
+        @tap="openTierDialog"
       >生成充值单</button>
       <view class="tiny rc-tip">
         {{ pending ? "你有一张待付充值单，请先付款或取消" : "生成后请到吧台向店员出示单号" }}
@@ -161,6 +133,34 @@ async function cancel() {
 
     <view class="err" v-if="msg">{{ msg }}</view>
     <view style="height:88px"></view>
+
+    <view v-if="showTierDialog" class="tier-mask" @tap="closeTierDialog" @touchmove.stop.prevent></view>
+    <view v-if="showTierDialog" class="tier-dialog" @touchmove.stop>
+      <view class="tier-dialog-title">选择充值档位</view>
+      <view class="tier-dialog-list">
+        <view
+          v-for="t in tiers"
+          :key="t.id"
+          class="tier-dialog-item"
+          :class="{ on: selId === t.id }"
+          @tap="pick(t.id)"
+        >
+          <view class="tier-dialog-copy">
+            <view class="tier-dialog-amount">¥{{ fmt(t.amount) }}</view>
+            <view class="tier-dialog-sub">
+              到账 {{ fmt(t.amount + t.bonus) }} 金币{{ t.bonus > 0 ? "（含赠送 " + fmt(t.bonus) + "）" : "" }}
+            </view>
+          </view>
+          <text v-if="t.rec" class="tier-best">最划算</text>
+        </view>
+      </view>
+      <view class="tier-dialog-actions">
+        <button class="btn ghost tier-dialog-btn" :disabled="creating" @tap="closeTierDialog">取消</button>
+        <button class="btn tier-dialog-btn confirm" :disabled="!selected || creating" @tap="create">
+          {{ creating ? "生成中…" : "生成充值单" }}
+        </button>
+      </view>
+    </view>
   </view>
 </template>
 
@@ -204,12 +204,44 @@ async function cancel() {
   z-index: 5;
 }
 .rc-tip { text-align: center; margin-top: 7px; color: #9c9a93; }
-.pend-card { border: 2px solid #ba7517; background: #fdf4e3; margin-bottom: 12px; }
-.gold-pill { background: #ba7517; color: #fff; }
-.red-t { color: #e24b4a; }
-.green-t { color: #3b6d11; }
-.pend-center { text-align: center; padding: 6px 0 10px; }
-.pend-amt { font-size: 33px; font-weight: 600; color: #633806; }
-.pend-box { background: #fff; border-radius: 9px; padding: 11px 12px; }
-.row-line { padding: 3px 0; }
+.tier-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(28,27,25,.38);
+}
+.tier-dialog {
+  position: fixed;
+  left: 28px;
+  right: 28px;
+  top: 50%;
+  z-index: 21;
+  transform: translateY(-50%);
+  padding: 20px 16px 16px;
+  border-radius: 16px;
+  background: #fff;
+  box-sizing: border-box;
+  box-shadow: 0 16px 40px rgba(28,27,25,.2);
+}
+.tier-dialog-title { font-size: 17px; font-weight: 700; margin-bottom: 13px; }
+.tier-dialog-list { display: flex; flex-direction: column; gap: 7px; }
+.tier-dialog-item {
+  min-height: 64px;
+  padding: 10px 12px;
+  border: 1px solid rgba(28,27,25,.13);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-sizing: border-box;
+  background: #fff;
+}
+.tier-dialog-item.on { border-color: #ba7517; background: #fdf4e3; }
+.tier-dialog-copy { flex: 1; min-width: 0; }
+.tier-dialog-amount { font-size: 16px; color: #6b6a65; }
+.tier-dialog-sub { margin-top: 3px; font-size: 12px; color: #6b6a65; }
+.tier-best { padding: 5px 10px; border-radius: 16px; background: #c2770b; color: #fff; font-size: 11px; flex: none; }
+.tier-dialog-actions { display: flex; gap: 8px; margin-top: 16px; }
+.tier-dialog-btn { flex: 1; margin: 0; }
+.tier-dialog-btn.confirm { flex: 1.5; }
 </style>

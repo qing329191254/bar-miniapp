@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
-import { api, go, loadCart, saveCart, savedUser } from "@/utils/api";
+import { api, loadCart, saveCart, savedUser } from "@/utils/api";
 
 const products = ref([]);
 const tables = ref([]);
@@ -90,8 +90,14 @@ async function submit() {
     });
     saveCart([]);
     cart.value = [];
-    go("/pages/c/orders", true);
-    uni.showToast({ title: `已下单 ${order.no}`, icon: "none" });
+    await new Promise((resolve, reject) => {
+      uni.redirectTo({
+        url: "/pages/c/orders?notice=" + encodeURIComponent("已下单 " + order.no),
+        animationType: "none",
+        success: resolve,
+        fail: reject,
+      });
+    });
   } catch (e) {
     msg.value = e.message;
   } finally {
@@ -140,7 +146,7 @@ async function submit() {
 
     <view class="card">
       <view class="h2">桌台 <text class="tiny">选填</text></view>
-      <button class="btn ghost block" style="text-align:left" @tap="showTable = true">
+      <button class="btn ghost block table-select" style="text-align:left" @tap="showTable = true">
         {{ tableName ? tableName + " 桌" : "未指定 · 点击选择（可跳过）" }}
       </button>
     </view>
@@ -184,6 +190,7 @@ async function submit() {
   line-height: 42px;
   margin-bottom: 0;
 }
+.table-select { font-weight: 400; }
 .pay {
   display: flex;
   align-items: center;
@@ -195,7 +202,7 @@ async function submit() {
 .pay.on { border-color: #BA7517; background: #FAEEDA; }
 .dot {
   width: 16px; height: 16px; border-radius: 50%;
-  border: 1px solid rgba(28,27,25,.24); flex: none;
+  border: 1px solid rgba(28,27,25,.24); flex: none; margin-left: auto;
 }
 .dot.on { background: #BA7517; border: none; }
 .lack {

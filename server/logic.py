@@ -1,4 +1,4 @@
-"""Business rules for 玩咖. Persistence is MySQL; Redis holds sessions / pending locks / verify codes."""
+"""Business rules for 玩咖. MySQL stores all persistent business data."""
 from __future__ import annotations
 
 import hashlib
@@ -14,7 +14,7 @@ import cache
 from models import (
     AgreeLog, Card, CardTpl, Category, Champ, CoinAdjust, DailyBiz, Deactivation,
     GameRecord, OpLog, Order, Product, Project, Recharge, Setting, SettleLog,
-    SignRecord, SignRule, TableSeat, Team, Tier, User, VerifyLog, Wallet, Withdrawal,
+    SignRecord, SignRule, TableSeat, Team, Tier, User, VerifyCode, VerifyLog, Wallet, Withdrawal,
 )
 
 MIN_MS = 60_000
@@ -216,10 +216,18 @@ def expire_timeouts(sess: Session):
                 cache.unlock_pending("withdraw", w.uid)
             except Exception:
                 pass
-    try:
-        live = cache.live_verify_card_ids()
-    except Exception:
-        live = set()
+    expired_codes = sess.query(VerifyCode).filter(
+        VerifyCode.status == "VALID", VerifyCode.expire_at <= now,
+    ).all()
+    for vc in expired_codes:
+        vc.status = "EXPIRED"
+    live = {
+        int(cid)
+        for vc in sess.query(VerifyCode).filter(
+            VerifyCode.status == "VALID", VerifyCode.expire_at > now,
+        ).all()
+        for cid in (vc.card_ids or [])
+    }
     for c in sess.query(Card).filter(Card.status == "LOCKED").all():
         if c.id not in live:
             c.status = "UNUSED"
@@ -484,6 +492,7 @@ def create_order(sess: Session, uid: int, items: list, pay_type: str, table_id, 
         lines.append({
             "pid": p.id, "name": p.name,
             "spec": "、".join(spec_name(p, s) for s in spec_ids if spec_name(p, s)),
+            "specIds": spec_ids,
             "qty": qty, "price": price,
         })
     cfg = setting(sess, "config")
@@ -643,9 +652,26 @@ def gen_verify(sess: Session, uid: int, card_ids: list[int]) -> dict:
         c.status = "LOCKED"
     cfg = setting(sess, "config")
     ttl = int(cfg.get("verifyTtl") or 5)
-    vc = {"code": code, "cardIds": [c.id for c in cards], "status": "VALID", "expireAt": now_ms() + ttl * MIN_MS, "uid": uid}
-    cache.verify_put(code, vc, ttl * 60)
-    return vc
+    vc = VerifyCode(
+        code=code, uid=uid, card_ids=[c.id for c in cards], status="VALID",
+        expire_at=now_ms() + ttl * MIN_MS,
+    )
+    sess.add(vc)
+    return verify_code_dict(vc)
+
+
+def verify_code_dict(vc: VerifyCode) -> dict:
+    return {
+        "code": vc.code, "uid": vc.uid, "cardIds": vc.card_ids or [],
+        "status": vc.status, "expireAt": vc.expire_at,
+    }
+
+
+def find_verify(sess: Session, code: str) -> VerifyCode | None:
+    found = sess.get(VerifyCode, code)
+    if found:
+        return found
+    return sess.query(VerifyCode).filter(VerifyCode.code.like(f"%{code}")).order_by(VerifyCode.expire_at.desc()).first()
 
 
 def grant_combo(sess: Session, order: Order) -> int:
@@ -698,6 +724,57 @@ def reject_order(sess: Session, oid: int, reason: str, staff: dict) -> dict:
     o.cancel_reason = reason
     log(sess, "ORDER_REJECT", f"{o.no} · {reason}", o.uid, staff)
     return o.to_dict()
+
+
+def refund_order(sess: Session, oid: int, reason: str, admin: dict) -> dict:
+    """处理售后订单退款；金币订单退回原本金/赠送构成，到吧台付款由线下退款。"""
+    o = sess.get(Order, oid)
+    if not o:
+        err("订单不存在")
+    if o.status in ("PENDING_PAY", "CLOSED", "CANCELLED", "REFUNDED"):
+        err("该订单当前不可退款")
+    reason = (reason or "").strip()
+    if len(reason) < 2:
+        err("请填写退款原因")
+
+    if o.pay_type == "COIN":
+        if o.status not in ("MAKING", "FINISHED"):
+            err("金币订单须在接单扣款后才能退款")
+        principal = int(o.paid_principal or 0)
+        bonus = int(o.paid_bonus or 0)
+        if principal + bonus <= 0:
+            err("该订单没有可退回的金币")
+        wallet = wallet_of(sess, o.uid)
+        wallet.coin_p += principal
+        wallet.coin_b += bonus
+        refund_type = "COIN"
+    else:
+        if o.status not in ("PENDING_ACCEPT", "MAKING", "FINISHED"):
+            err("该订单当前不可退款")
+        principal = 0
+        bonus = 0
+        # 到吧台付款不进入会员钱包，现金或收款码退款由门店线下完成；系统只留痕并更新订单状态。
+        refund_type = "OFFLINE"
+
+    voided = 0
+    for card in sess.query(Card).filter_by(uid=o.uid, src="ORDER_COMBO", status="UNUSED"):
+        if o.no in (card.src_desc or ""):
+            card.status = "VOID"
+            card.void_reason = f"订单退款 · {o.no}"
+            voided += 1
+
+    o.status = "REFUNDED"
+    o.cancel_reason = f"退款：{reason}"[:128]
+    detail = f"{o.no} · "
+    if refund_type == "COIN":
+        detail += f"退回金币 {principal + bonus}（本金 {principal} / 赠送 {bonus}）"
+    else:
+        detail += f"线下退款 ¥{o.total}"
+    if voided:
+        detail += f" · 作废套餐赠卡 {voided} 张"
+    detail += f" · 原因：{reason}"
+    log(sess, "ORDER_REFUND", detail, o.uid, admin)
+    return {**o.to_dict(), "refundType": refund_type, "refundPrincipal": principal, "refundBonus": bonus, "voidedCards": voided}
 
 
 def confirm_pay_order(sess: Session, oid: int, staff: dict) -> dict:
@@ -794,33 +871,33 @@ def reject_withdraw(sess: Session, wid: int, reason: str, staff: dict) -> dict:
 
 
 def verify_preview(sess: Session, code: str) -> dict:
-    full, vc = cache.verify_find(code)
-    if not vc or vc.get("status") != "VALID":
+    vc = find_verify(sess, code)
+    if not vc or vc.status != "VALID" or vc.expire_at <= now_ms():
         err("无法识别的核销码")
     cards = []
-    for cid in vc["cardIds"]:
+    for cid in vc.card_ids or []:
         c = sess.get(Card, cid)
         tm = tpl(sess, c.tpl) if c else None
         cards.append({"card": c.to_dict() if c else None, "tpl": tm.to_dict() if tm else None})
-    return {"code": full or vc["code"], "uid": vc["uid"], "user": public_user(sess, u(sess, vc["uid"])), "cards": cards}
+    return {"code": vc.code, "uid": vc.uid, "user": public_user(sess, u(sess, vc.uid)), "cards": cards}
 
 
 def verify_confirm(sess: Session, code: str, staff: dict) -> dict:
-    full, vc = cache.verify_find(code)
-    if not vc or vc.get("status") != "VALID":
+    vc = find_verify(sess, code)
+    if not vc or vc.status != "VALID" or vc.expire_at <= now_ms():
         err("核销码已失效")
-    for cid in vc["cardIds"]:
+    for cid in vc.card_ids or []:
         c = sess.get(Card, cid)
         if c and c.status == "LOCKED":
             c.status = "USED"
             tm = tpl(sess, c.tpl)
             sess.add(VerifyLog(
                 card_no=c.no, tpl_name=tm.name if tm else "卡券",
-                uid=vc["uid"], op_uid=staff["id"], at=f"{today_str()} {clock()}",
+                uid=vc.uid, op_uid=staff["id"], at=f"{today_str()} {clock()}",
             ))
-    cache.verify_delete(full or vc["code"])
-    log(sess, "CARD_VERIFY", f"核销 {len(vc['cardIds'])} 张", vc["uid"], staff)
-    return vc
+    vc.status = "USED"
+    log(sess, "CARD_VERIFY", f"核销 {len(vc.card_ids or [])} 张", vc.uid, staff)
+    return verify_code_dict(vc)
 
 
 def submit_game(sess: Session, staff: dict, pid: int, table_id, players: list, winners: list, event: str) -> dict:

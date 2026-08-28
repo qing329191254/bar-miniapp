@@ -1,65 +1,38 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { api, uploadFile } from "../api";
 import ImgField from "../components/ImgField.vue";
 import IcoBtn from "../components/IcoBtn.vue";
 
 const addInp = ref<HTMLInputElement | null>(null);
-const tab = ref<"gallery" | "play" | "faq" | "shop">("gallery");
-const previewIdx = ref(0);
-const grads = [
-  "linear-gradient(120deg,#231A0C 0%,#4A3B1E 48%,#8A6A2F 100%)",
-  "linear-gradient(120deg,#141B33 0%,#2A3E6B 55%,#4E6BB8 100%)",
-  "linear-gradient(120deg,#3A2310 0%,#7A4A1D 55%,#C07A2B 100%)",
-  "linear-gradient(120deg,#1B2A24 0%,#2E5347 55%,#4E8A75 100%)",
-];
+const tab = ref<"gallery" | "play">("gallery");
 const content = ref<any>({
   gallery: { title: "店铺相册", items: [] },
   howToPlay: { title: "店铺玩法", sub: "", items: [], pic: "" },
-  shopInfo: {},
-  faq: { title: "常见问题", items: [] },
 });
 const msg = ref("");
+const msgError = ref(false);
+let msgTimer: number | undefined;
+
+function showTip(text: string, error = false) {
+  window.clearTimeout(msgTimer);
+  msg.value = text;
+  msgError.value = error;
+  msgTimer = window.setTimeout(() => { msg.value = ""; }, error ? 3500 : 1800);
+}
+
+onUnmounted(() => window.clearTimeout(msgTimer));
 
 onMounted(async () => {
   const r = await api<any>("/admin/content");
   content.value = {
     gallery: r.gallery || { title: "店铺相册", items: [] },
     howToPlay: r.howToPlay || { title: "店铺玩法", sub: "", items: [], pic: "" },
-    shopInfo: r.shopInfo || {},
-    faq: r.faq || { title: "常见问题", items: [] },
   };
 });
 
 const g = computed(() => content.value.gallery);
 const h = computed(() => content.value.howToPlay);
-const s = computed(() => content.value.shopInfo);
-const f = computed(() => content.value.faq);
-const miss = computed(() => {
-  const x = s.value || {};
-  const m: string[] = [];
-  if (!String(x.name || "").trim()) m.push("门店名称");
-  if (!String(x.addr || "").trim()) m.push("门店地址");
-  if (!String(x.tel || "").trim()) m.push("联系电话");
-  return m;
-});
-const cur = computed(() => {
-  const items = g.value.items || [];
-  if (!items.length) return null;
-  return items[previewIdx.value % items.length];
-});
-function bannerStyle() {
-  const it = cur.value;
-  const i = previewIdx.value;
-  if (it?.url) {
-    return {
-      backgroundImage: `linear-gradient(180deg,rgba(0,0,0,.12),rgba(0,0,0,.4)), url(${it.url})`,
-      backgroundSize: "cover",
-      backgroundPosition: "center",
-    };
-  }
-  return { background: grads[i % grads.length] };
-}
 function isImg(v: string) {
   return !!v && (/^\/uploads\//.test(v) || /^https?:/.test(v) || v.startsWith("data:"));
 }
@@ -68,9 +41,9 @@ async function save(part: string) {
   msg.value = "";
   try {
     await api("/admin/content", { method: "PUT", body: { data: { [part]: content.value[part] } } });
-    msg.value = "已保存，C 端同步";
+    showTip("已保存，小程序已同步");
   } catch (e: any) {
-    msg.value = e.message;
+    showTip(e.message || "保存失败", true);
   }
 }
 function addPhoto() {
@@ -90,11 +63,11 @@ async function onAddFiles(e: Event) {
     }
     g.value.items = items;
   } catch (e: any) {
-    msg.value = e.message;
+    showTip(e.message || "上传失败", true);
   }
 }
 function delPhoto(i: number) {
-  if (!window.confirm("确认删除这张图片？C 端首页轮播会少一屏。")) return;
+  if (!window.confirm("确认删除这张图片？小程序相册弹层会少一张。")) return;
   g.value.items.splice(i, 1);
 }
 function movePhoto(i: number, d: number) {
@@ -117,48 +90,25 @@ function movePlay(i: number, d: number) {
   if (j < 0 || j >= a.length) return;
   [a[i], a[j]] = [a[j], a[i]];
 }
-function addFaq() {
-  f.value.items = f.value.items || [];
-  f.value.items.push({ q: "", a: "" });
-}
-function delFaq(i: number) {
-  f.value.items.splice(i, 1);
-}
-function nextBanner() {
-  const n = g.value.items?.length || 0;
-  if (n < 2) return;
-  previewIdx.value = (previewIdx.value + 1) % n;
-}
-function selBanner(i: number) {
-  previewIdx.value = i;
-}
-
-watch(
-  () => g.value.items?.length || 0,
-  (n) => {
-    if (!n) previewIdx.value = 0;
-    else if (previewIdx.value >= n) previewIdx.value = n - 1;
-  },
-);
 </script>
 
 <template>
   <div v-if="content">
-    <div class="hdr">店铺相册与玩法 <em>C 端首页与「我的」内容配置</em></div>
-    <p class="tiny" v-if="msg" style="color:#3B6D11;margin-bottom:8px">{{ msg }}</p>
+    <div class="hdr">店铺相册与玩法 <em>小程序首页内容配置</em></div>
+    <Transition name="tip-fade">
+      <div v-if="msg" class="content-toast" :class="{ error: msgError }">{{ msg }}</div>
+    </Transition>
     <div class="row" style="gap:8px;margin-bottom:11px;flex-wrap:wrap">
       <span class="chip" :class="{ on: tab==='gallery' }" @click="tab='gallery'">店铺相册 · {{ g.items?.length || 0 }} 张</span>
       <span class="chip" :class="{ on: tab==='play' }" @click="tab='play'">店铺玩法 · {{ h.items?.length || 0 }} 条</span>
-      <span class="chip" :class="{ on: tab==='faq' }" @click="tab='faq'">常见问题 · {{ f.items?.length || 0 }} 条</span>
-      <span class="chip" :class="{ on: tab==='shop' }" @click="tab='shop'">门店信息</span>
-      <span class="tiny" style="margin-left:auto">改动保存后即时同步 C 端</span>
+      <span class="tiny" style="margin-left:auto">改动保存后即时同步小程序</span>
     </div>
 
     <div v-if="tab==='gallery'" class="content-grid">
       <div class="card">
         <div class="row" style="margin-bottom:11px">
           <b>相册图片</b>
-          <span class="tiny" style="margin-left:8px">C 端相册弹层按此顺序展示</span>
+          <span class="tiny" style="margin-left:8px">小程序相册弹层按此顺序展示</span>
           <button class="btn gold" style="margin-left:auto" @click="addPhoto">＋ 上传图片</button>
           <input ref="addInp" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden @change="onAddFiles" />
         </div>
@@ -182,24 +132,24 @@ watch(
               </div>
             </td>
           </tr>
-          <tr v-if="!g.items?.length"><td colspan="5" class="tiny" style="text-align:center">暂无图片，C 端显示「商家尚未上传相册」</td></tr>
+          <tr v-if="!g.items?.length"><td colspan="5" class="tiny" style="text-align:center">暂无图片，小程序显示「商家尚未上传相册」</td></tr>
           </tbody>
         </table>
         <button class="btn" style="margin-top:10px" @click="save('gallery')">保存相册</button>
       </div>
       <div class="preview-col">
         <div class="card">
-          <div class="st">C 端预览 <em>相册弹层</em></div>
+          <div class="st">小程序预览 <em>相册弹层</em></div>
           <div v-if="g.items?.length" class="gallery-sheet">
             <div v-for="(it, i) in g.items" :key="it.id || i" class="gallery-tile">
-              <img v-if="validPic(it.url)" :src="it.url" alt="" />
+              <img v-if="isImg(it.url)" :src="it.url" alt="" />
               <div class="gallery-tile-shade"></div>
               <span>{{ it.name || `现场 ${i + 1}` }}<small v-if="it.desc">{{ it.desc }}</small></span>
             </div>
           </div>
           <div v-else class="gallery-sheet-empty">
             <b>商家尚未上传相册</b>
-            <span>保存后 C 端相册弹层即时展示</span>
+            <span>保存后小程序相册弹层即时展示</span>
           </div>
         </div>
       </div>
@@ -226,12 +176,12 @@ watch(
         </div>
         <div class="tiny">场地示意图（选填）</div>
         <ImgField v-model="h.pic" size="md" />
-        <div class="tiny" style="margin-top:4px">点击方块上传，C 端玩法页展示</div>
+        <div class="tiny" style="margin-top:4px">点击方块上传，小程序玩法页展示</div>
         <button class="btn" style="margin-top:10px" @click="save('howToPlay')">保存玩法</button>
       </div>
       <div>
         <div class="card">
-          <div class="st">C 端预览 <em>玩法弹层</em></div>
+          <div class="st">小程序预览 <em>玩法弹层</em></div>
           <div class="pv-phone">
             <div class="pv-status"><span>玩咖</span><span>21:40 · 5G</span></div>
             <div class="pv-sheet">
@@ -246,59 +196,9 @@ watch(
             </div>
           </div>
         </div>
-        <div class="note">入口：C 端首页「店铺玩法」。这里是给顾客看的说明，不要与对局项目配置（碎片/人数）混淆。</div>
       </div>
     </div>
 
-    <div v-if="tab==='faq'" class="card">
-      <div class="row" style="margin-bottom:11px">
-        <b>常见问题</b>
-        <button class="btn gold" style="margin-left:auto" @click="addFaq">＋ 添加一条</button>
-      </div>
-      <div class="card" v-for="(it,i) in f.items" :key="i" style="background:#FAF9F5">
-        <div class="tiny">问题</div>
-        <input class="inp" v-model="it.q" placeholder="如 金币可以退款吗？" />
-        <div class="tiny">回答</div>
-        <textarea class="inp" style="height:72px" v-model="it.a" />
-        <IcoBtn name="trash" title="删除" @click="delFaq(i)" />
-      </div>
-      <button class="btn" @click="save('faq')">保存常见问题</button>
-      <div class="note" style="margin-top:10px">入口：C 端「我的 → 帮助与联系 → 常见问题」。</div>
-    </div>
-
-    <div v-if="tab==='shop'" class="content-grid">
-      <div class="card">
-        <div class="note rd" v-if="miss.length">门店信息未配置完整，小程序无法上线。缺少：{{ miss.join(" / ") }}</div>
-        <div class="tiny">门店名称 *上线必填</div>
-        <input class="inp" v-model="s.name" placeholder="如 玩咖桌游酒吧（万象城店）" />
-        <div class="tiny">门店地址 *上线必填</div>
-        <input class="inp" v-model="s.addr" placeholder="精确到楼层与铺号" />
-        <div class="tiny">联系电话 *上线必填</div>
-        <input class="inp" v-model="s.tel" placeholder="须为常有人接的号码" />
-        <div class="tiny">营业时间</div>
-        <input class="inp" v-model="s.hours" placeholder="如 周一至周日 14:00 - 次日 02:00" />
-        <div class="tiny">门店公告</div>
-        <textarea class="inp" style="height:78px" v-model="s.notice" placeholder="合规提示与预约须知" />
-        <button class="btn" @click="save('shopInfo')">保存门店信息</button>
-      </div>
-      <div>
-        <div class="card">
-          <div class="st">C 端预览 <em>我的 → 联系店员</em></div>
-          <div class="pv-phone">
-            <div class="pv-status"><span>玩咖</span><span>21:40 · 5G</span></div>
-            <div class="pv-sheet">
-              <b>{{ s.name || "（未配置门店名称）" }}</b>
-              <div class="tiny" style="line-height:1.9;margin-top:6px">
-                地址：{{ s.addr || "—" }}<br />
-                电话：{{ s.tel || "—" }}<br />
-                营业：{{ s.hours || "—" }}
-              </div>
-              <div class="tiny" v-if="s.notice" style="margin-top:7px;padding-top:7px;border-top:1px solid rgba(28,27,25,.12)">{{ s.notice }}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -309,6 +209,25 @@ watch(
   gap: 16px;
   align-items: start;
 }
+.content-toast {
+  position: fixed;
+  top: 36%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 30;
+  padding: 7px 12px;
+  border: 1px solid rgba(59,109,17,.2);
+  border-radius: 8px;
+  background: rgba(234,243,222,.96);
+  color: var(--green);
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: 0 5px 16px rgba(28,27,25,.1);
+  pointer-events: none;
+}
+.content-toast.error { color: var(--red); background: rgba(252,235,235,.97); border-color: rgba(163,45,45,.2); }
+.tip-fade-enter-active,.tip-fade-leave-active { transition: opacity .18s ease, transform .18s ease; }
+.tip-fade-enter-from,.tip-fade-leave-to { opacity: 0; transform: translate(-50%, calc(-50% - 6px)); }
 .content-grid > .card,
 .preview-col,
 .preview-col > .card { min-width: 0; }
@@ -427,7 +346,8 @@ watch(
   padding: 12px;
 }
 .pv-pic {
-  height: 56px;
+  min-height: 56px;
+  max-height: 220px;
   margin-top: 8px;
   border-radius: 8px;
   background: #EDEBE4;
@@ -438,7 +358,7 @@ watch(
   color: var(--ink3);
   overflow: hidden;
 }
-.pv-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pv-pic img { width: 100%; height: auto; max-height: 220px; object-fit: contain; display: block; }
 @media (max-width: 960px) {
   .content-grid { grid-template-columns: 1fr; }
 }

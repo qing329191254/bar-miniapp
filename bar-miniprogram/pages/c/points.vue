@@ -6,7 +6,7 @@ import { api, go } from "@/utils/api";
 const data = ref(null);
 
 function fmt(n) {
-  return Number(n || 0).toLocaleString("zh-CN");
+  return Number(n || 0).toLocaleString("en-US");
 }
 
 const negative = computed(() => (data.value?.point?.av || 0) < 0);

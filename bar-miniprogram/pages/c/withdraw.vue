@@ -16,7 +16,7 @@ const pts = ref("");
 const msg = ref("");
 
 function fmt(n) {
-  return Number(n || 0).toLocaleString("zh-CN");
+  return Number(n || 0).toLocaleString("en-US");
 }
 
 const me = computed(() => savedUser());

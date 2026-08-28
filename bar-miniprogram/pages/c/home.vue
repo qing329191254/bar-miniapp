@@ -21,7 +21,7 @@ const grads = [
 ];
 
 function fmt(n) {
-  return Number(n || 0).toLocaleString("zh-CN");
+  return Number(n || 0).toLocaleString("en-US");
 }
 
 async function load() {
@@ -358,7 +358,7 @@ async function doSign() {
           v-if="howToPlay.picUrl"
           class="play-pic"
           :src="howToPlay.picUrl"
-          mode="aspectFill"
+          mode="widthFix"
           @tap="previewPlayPic"
         />
         <view v-else-if="howToPlay.pic" class="play-ph">{{ howToPlay.pic }}</view>
@@ -522,7 +522,7 @@ async function doSign() {
 }
 .play-pic {
   width: 100%;
-  height: 90px;
+  height: auto;
   border-radius: 10px;
   display: block;
 }
