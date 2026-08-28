@@ -8,7 +8,7 @@ const router = useRouter();
 const user = computed(() => savedUser());
 const isBoss = computed(() => user.value?.role === "BOSS");
 
-const BOSS_ONLY = new Set(["tiers", "staff", "logs", "cfg", "settlecfg"]);
+const BOSS_ONLY = new Set(["staff", "logs", "settlecfg"]);
 const COLLAPSE_KEY = "wanka_admin_nav_off";
 
 function loadOff(): Record<string, boolean> {
@@ -27,23 +27,37 @@ function persistOff() {
 
 const groups = computed(() => {
   const all: { g: string; items: { k: string; n: string }[] }[] = [
-    { g: "数据", items: [{ k: "dash", n: "数据看板" }] },
-    { g: "作业", items: [
+    { g: "经营", items: [
+      { k: "dash", n: "数据看板" },
+      { k: "dailyBiz", n: "营业一览" },
+      { k: "orders", n: "订单记录与管理" },
+      { k: "recharges", n: "充值记录与管理" },
       { k: "jobs", n: "员工作业记录" },
+      { k: "reports", n: "报表与对账" },
+    ] },
+    { g: "对局", items: [
       { k: "gameinput", n: "对局结果录入" },
       { k: "gameRecords", n: "对局记录查询" },
+      { k: "settle", n: "榜单与结算" },
+      { k: "rankHistory", n: "榜单历史记录" },
+      { k: "settlecfg", n: "榜单与奖励规则" },
+      { k: "projects", n: "对局项目配置" },
     ] },
-    { g: "订单", items: [{ k: "orders", n: "订单记录" }, { k: "recharges", n: "充值记录" }] },
     { g: "积分", items: [{ k: "withdrawals", n: "提分单管理" }] },
     { g: "商品", items: [{ k: "products", n: "商品管理" }] },
-    { g: "营销", items: [{ k: "cardTpls", n: "卡券配置" }, { k: "tiers", n: "充值档位配置" }] },
+    { g: "营销", items: [
+      { k: "cardTpls", n: "卡券配置" },
+      { k: "tiers", n: "充值档位配置" },
+      { k: "signRules", n: "签到奖励配置" },
+    ] },
     { g: "会员", items: [{ k: "members", n: "会员列表" }, { k: "deactivations", n: "注销申请处理" }, { k: "teams", n: "战队管理" }] },
     { g: "内容", items: [{ k: "content", n: "店铺相册与玩法" }, { k: "agreement", n: "协议与政策" }] },
     { g: "设置", items: [
+      { k: "push", n: "消息推送" },
+      { k: "shopinfo", n: "门店信息" },
       { k: "config", n: "风控参数" },
       { k: "staff", n: "员工与权限" },
       { k: "logs", n: "操作日志" },
-      { k: "coinAdjusts", n: "金币调账审批" },
     ] },
   ];
   return all
@@ -57,6 +71,9 @@ const groups = computed(() => {
 function on(k: string) {
   const p = route.path.replace("/", "") || "dash";
   return p === k;
+}
+function bossOnly(k: string) {
+  return BOSS_ONLY.has(k);
 }
 function toggle(g: string) {
   off[g] = !off[g];
@@ -161,7 +178,8 @@ watch(
                     :class="{ on: on(it.k) }"
                     :to="'/' + it.k"
                   >
-                    {{ it.n }}
+                    <span>{{ it.n }}</span>
+                    <span v-if="bossOnly(it.k)" class="perm">仅老板</span>
                   </router-link>
                 </div>
               </Transition>

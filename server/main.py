@@ -749,6 +749,61 @@ def admin_list(coll: str, admin: dict = Depends(admin_user), db: Session = Depen
     return [{"id": x.id, "name": x.name} for x in rows]
 
 
+@app.put("/api/admin/card-templates/{tid}")
+def save_card_template(tid: int, body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    card_tpl = db.get(CardTpl, tid)
+    if not card_tpl:
+        raise HTTPException(404, "卡券模板不存在")
+    item = body.data or {}
+    for key, attr in (
+        ("name", "name"), ("cat", "cat"), ("desc", "desc"), ("cost", "cost"), ("days", "days"),
+        ("use", "use"), ("perLimit", "per_limit"), ("stock", "stock"), ("exch", "exch"),
+        ("prize", "prize"),
+    ):
+        if key in item:
+            setattr(card_tpl, attr, item[key])
+    if "rules" in item:
+        raw = item.get("rules") or {}
+        try:
+            duration = max(0, min(24 * 60, int(raw.get("durationMinutes") or 0)))
+            weekdays = sorted({int(day) for day in (raw.get("weekdays") or []) if 1 <= int(day) <= 7})
+        except (TypeError, ValueError):
+            raise HTTPException(400, "卡券限制规则格式不正确")
+        card_tpl.rules = {"durationMinutes": duration, "weekdays": weekdays}
+    L.log(db, "CARD_TEMPLATE_UPDATE", f"更新卡券模板：{card_tpl.name}", None, admin)
+    return card_tpl.to_dict()
+
+
+@app.post("/api/admin/card-templates")
+def create_card_template(body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    item = body.data or {}
+    name = str(item.get("name") or "").strip()
+    cat = str(item.get("cat") or "GAME")
+    if not name:
+        raise HTTPException(400, "请填写卡券名称")
+    if cat not in ("GAME", "FOOD", "OTHER"):
+        raise HTTPException(400, "卡券分类不正确")
+    cost = max(0, int(item.get("cost") or 0))
+    days = max(1, int(item.get("days") or 30))
+    per_limit, stock = int(item.get("perLimit", -1)), int(item.get("stock", -1))
+    raw_rules = item.get("rules") or {}
+    try:
+        duration = max(0, min(24 * 60, int(raw_rules.get("durationMinutes") or 0)))
+        weekdays = sorted({int(day) for day in (raw_rules.get("weekdays") or []) if 1 <= int(day) <= 7})
+    except (TypeError, ValueError):
+        raise HTTPException(400, "卡券限制规则格式不正确")
+    card_tpl = CardTpl(
+        id=L.new_id(db, CardTpl), name=name, cat=cat, desc=str(item.get("desc") or ""), cost=cost,
+        days=days, use=str(item.get("use") or ""), per_limit=per_limit, stock=stock,
+        exch=bool(item.get("exch")) and cost > 0, prize=str(item.get("prize") or "") or None,
+        rules={"durationMinutes": duration, "weekdays": weekdays},
+    )
+    db.add(card_tpl)
+    db.flush()
+    L.log(db, "CARD_TEMPLATE_CREATE", f"新增卡券模板：{name}", None, admin)
+    return card_tpl.to_dict()
+
+
 @app.put("/api/admin/{coll}")
 def admin_put(coll: str, body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
     if coll in ("tiers", "cfg", "staff", "config") and admin["role"] != "BOSS":

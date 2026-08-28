@@ -646,6 +646,11 @@ def gen_verify(sess: Session, uid: int, card_ids: list[int]) -> dict:
         c = sess.get(Card, cid)
         if not c or c.uid != uid or c.status != "UNUSED" or (c.days_left or 0) <= 0:
             err("卡券状态已变化")
+        tm = tpl(sess, c.tpl)
+        weekdays = (tm.rules or {}).get("weekdays") if tm else []
+        allowed = {int(day) for day in weekdays or [] if str(day).isdigit() and 1 <= int(day) <= 7}
+        if allowed and date.today().isoweekday() not in allowed:
+            err(f"{tm.name} 当前不可核销，请按卡券使用限制到店使用")
         cards.append(c)
     code = rand_digits(12)
     for c in cards:

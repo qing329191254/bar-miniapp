@@ -50,6 +50,7 @@ function scan() {
       <view class="tiny">{{ preview.code }}</view>
       <view v-for="(c, i) in preview.cards" :key="i" style="padding:8px 0;border-bottom:1px solid rgba(28,27,25,.12)">
         {{ c.tpl?.name }} · {{ c.card?.no }}
+        <view v-for="(rule, ri) in c.tpl?.ruleText || []" :key="ri" class="tiny gold">{{ rule }}</view>
         <view class="tiny" v-if="c.tpl?.prize">奖品（仅店员可见）：{{ c.tpl.prize }}</view>
       </view>
       <button class="btn block gold" @tap="confirm">确认核销</button>

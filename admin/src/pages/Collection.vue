@@ -6,6 +6,13 @@ import { api, savedUser } from "../api";
 type Col = { k: string; h: string; kind?: string };
 
 const titles: Record<string, string> = {
+  dailyBiz: "营业一览",
+  reports: "报表与对账",
+  settle: "榜单与结算",
+  rankHistory: "榜单历史记录",
+  settlecfg: "榜单与奖励规则",
+  push: "消息推送",
+  shopinfo: "门店信息",
   cardTpls: "卡券配置",
   cards: "已发卡券",
   tiers: "充值档位配置",
@@ -25,6 +32,10 @@ const titles: Record<string, string> = {
 };
 
 const COLS: Record<string, Col[]> = {
+  dailyBiz: [
+    { k: "d", h: "日期" }, { k: "coin", h: "金币消费" }, { k: "offline", h: "现场收款" },
+    { k: "recharge", h: "充值额" }, { k: "orders", h: "订单数" }, { k: "guests", h: "到店人次" },
+  ],
   deactivations: [
     { k: "no", h: "申请单号" },
     { k: "uid", h: "会员", kind: "user" },
@@ -151,6 +162,13 @@ const members = ref<any[]>([]);
 const tpls = ref<any[]>([]);
 const msg = ref("");
 const coll = () => String(route.params.coll || route.path.replace("/", ""));
+const sourceColl = () => ({
+  reports: "dailyBiz",
+  settle: "settleLogs",
+  rankHistory: "settleLogs",
+  settlecfg: "cfg",
+  shopinfo: "content",
+}[coll()] || coll());
 const title = computed(() => titles[coll()] || coll());
 const FALLBACK_H: Record<string, string> = {
   id: "编号", no: "单号", uid: "会员", status: "状态", created: "创建时间", reason: "原因",
@@ -158,7 +176,7 @@ const FALLBACK_H: Record<string, string> = {
   amount: "金额", bonus: "赠送", pts: "积分", event: "赛事", date: "日期",
 };
 const cols = computed(() => {
-  const defined = COLS[coll()];
+  const defined = COLS[coll()] || COLS[sourceColl()];
   if (defined) return defined;
   const first = Array.isArray(rows.value) && rows.value[0];
   if (!first) return [];
@@ -171,7 +189,7 @@ const isObj = computed(() => rows.value && !Array.isArray(rows.value));
 
 async function load() {
   const c = coll();
-  rows.value = await api("/admin/" + c);
+  rows.value = await api("/admin/" + sourceColl());
   msg.value = "";
   if (!members.value.length) {
     try {

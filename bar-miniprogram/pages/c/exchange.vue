@@ -4,8 +4,8 @@ import { onShow } from "@dcloudio/uni-app";
 import { api, go } from "@/utils/api";
 
 const GROUPS = [
-  { cat: "GAME", title: "游戏卡", sub: "兑换后 30 天有效" },
-  { cat: "FOOD", title: "酒水小食卡", sub: "兑换后 30 天有效" },
+  { cat: "GAME", title: "游戏卡" },
+  { cat: "FOOD", title: "酒水小食卡" },
 ];
 
 const data = ref(null);
@@ -115,13 +115,13 @@ onShow(load);
   <view class="pbody" v-if="data">
     <view v-if="notice" class="exchange-notice">{{ notice }}</view>
     <view v-for="g in GROUPS" :key="g.cat">
-      <view class="st exchange-head"><text class="exchange-title">{{ g.title }}</text><text class="st-sub">{{ g.sub }}</text></view>
+      <view class="st exchange-head"><text class="exchange-title">{{ g.title }}</text><text class="st-sub">有效期按卡券配置</text></view>
       <view class="card" v-if="tplsOf(g.cat).length">
         <view class="li exch-li" v-for="t in tplsOf(g.cat)" :key="t.id">
           <view class="ph-lg">卡</view>
           <view class="gr">
             <view style="font-weight:600">{{ t.name }}</view>
-            <view class="tiny">{{ t.desc }}{{ t.use ? " · " + t.use : "" }}</view>
+            <view class="tiny">{{ [t.desc, `兑换后 ${t.days} 天有效`, ...(t.ruleText || [])].filter(Boolean).join(" · ") }}</view>
             <view v-if="tipOf(t)" class="tiny tip" :class="{ bad: tipOf(t).bad }">{{ tipOf(t).text }}</view>
           </view>
           <view class="exch-act">

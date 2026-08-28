@@ -14,6 +14,8 @@ import GameInput from "./pages/GameInput.vue";
 import Content from "./pages/Content.vue";
 import Agreement from "./pages/Agreement.vue";
 import Config from "./pages/Config.vue";
+import CardTemplates from "./pages/CardTemplates.vue";
+import WithdrawalManagement from "./pages/WithdrawalManagement.vue";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -23,7 +25,7 @@ const router = createRouter({
     { path: "/jobs", component: Jobs },
     { path: "/orders", component: Records },
     { path: "/recharges", component: Records },
-    { path: "/withdrawals", component: Records },
+    { path: "/withdrawals", component: WithdrawalManagement },
     { path: "/gameRecords", component: Records },
     { path: "/members", component: Members },
     { path: "/products", component: Products },
@@ -31,6 +33,7 @@ const router = createRouter({
     { path: "/content", component: Content },
     { path: "/agreement", component: Agreement },
     { path: "/config", component: Config },
+    { path: "/cardTpls", component: CardTemplates },
     { path: "/:coll", component: Collection },
   ],
 });

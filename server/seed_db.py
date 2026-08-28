@@ -55,6 +55,10 @@ def seed_all(reset: bool = False):
     ):
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE products MODIFY COLUMN img VARCHAR(512) NULL"))
+    card_tpl_cols = {c["name"] for c in insp.get_columns("card_tpls")}
+    if "rules" not in card_tpl_cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE card_tpls ADD COLUMN rules JSON NULL"))
     unique_names = {x.get("name") for x in insp.get_unique_constraints("sign_records")}
     if "uk_sign_uid_day" in unique_names or "uk_sign_uid_month_day" not in unique_names:
         with engine.begin() as conn:
@@ -127,7 +131,7 @@ def seed_all(reset: bool = False):
         for t in s["cardTpls"]:
             db.add(CardTpl(
                 id=t["id"], name=t["name"], cat=t["cat"], sub=t.get("sub"), desc=t.get("desc") or "",
-                cost=t.get("cost") or 0, days=t.get("days") or 30, use=t.get("use") or "",
+                cost=t.get("cost") or 0, days=t.get("days") or 30, use=t.get("use") or "", rules=t.get("rules"),
                 per_limit=-1 if t.get("perLimit") is None else t["perLimit"],
                 stock=-1 if t.get("stock") is None else t["stock"],
                 exch=False if t.get("exch") is False else True, prize=t.get("prize"),

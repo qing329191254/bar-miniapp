@@ -94,6 +94,7 @@ onUnmounted(() => clearInterval(timer));
         <view v-for="card in data.cards" :key="card?.id" class="card-row">
           <view class="card-name">{{ card?.tplInfo?.name || "卡券" }}</view>
           <view class="tiny">{{ card?.srcDesc || "" }} · {{ card?.expire || "有效期内" }}</view>
+          <view v-for="(rule, ri) in card?.tplInfo?.ruleText || []" :key="ri" class="tiny rule-text">{{ rule }}</view>
         </view>
       </view>
       <button class="btn ghost return-btn" @tap="backToCards">返回卡包</button>
@@ -115,6 +116,7 @@ onUnmounted(() => clearInterval(timer));
 .verify-title { font-size: 19px; font-weight: 700; margin-bottom: 17px; }
 .card-row + .card-row { border-top: 1px solid rgba(28,27,25,.1); margin-top: 14px; padding-top: 14px; }
 .card-name { font-size: 16px; font-weight: 600; margin-bottom: 7px; }
+.rule-text { color: #BA7517; margin-top: 4px; }
 .return-btn { margin-top: 18px; }
 .state-card { margin-top: 48px; padding: 28px 18px; background: #fff; border: 1px solid rgba(28,27,25,.12); border-radius: 18px; }
 .state-title { font-size: 19px; font-weight: 700; margin-bottom: 10px; }

@@ -174,14 +174,27 @@ class CardTpl(Base):
     cost: Mapped[int] = mapped_column(Integer, default=0)
     days: Mapped[int] = mapped_column(Integer, default=30)
     use: Mapped[str] = mapped_column(String(64), default="")
+    rules: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     per_limit: Mapped[int] = mapped_column(Integer, default=-1)
     stock: Mapped[int] = mapped_column(Integer, default=-1)
     exch: Mapped[bool] = mapped_column(Boolean, default=True)
     prize: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     def to_dict(self):
+        rules = self.rules or {}
+        rule_text = []
+        if self.use:
+            rule_text.append(self.use)
+        duration = int(rules.get("durationMinutes") or 0)
+        if duration > 0:
+            rule_text.append(f"核销后可使用 {duration // 60} 小时" if duration % 60 == 0 else f"核销后可使用 {duration} 分钟")
+        weekdays = [int(x) for x in (rules.get("weekdays") or []) if str(x).isdigit() and 1 <= int(x) <= 7]
+        if weekdays:
+            names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+            rule_text.append("仅限" + "、".join(names[x - 1] for x in sorted(set(weekdays))))
         d = {"id": self.id, "name": self.name, "cat": self.cat, "desc": self.desc, "cost": self.cost,
-             "days": self.days, "use": self.use, "perLimit": self.per_limit, "stock": self.stock}
+             "days": self.days, "use": self.use, "rules": rules, "ruleText": list(dict.fromkeys(rule_text)),
+             "perLimit": self.per_limit, "stock": self.stock}
         if self.sub:
             d["sub"] = self.sub
         if not self.exch:

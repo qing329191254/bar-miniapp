@@ -98,7 +98,7 @@ async function gen() {
             · 剩 {{ c.daysLeft }} 天
             <text v-if="c.daysLeft <= 3 && c.status === 'UNUSED'"> · 临期请尽快使用</text>
           </view>
-          <view v-if="c.tplInfo?.use" class="tiny gold" style="margin-top:2px">{{ c.tplInfo.use }}</view>
+          <view v-for="(rule, ri) in c.tplInfo?.ruleText || []" :key="ri" class="tiny gold" style="margin-top:2px">{{ rule }}</view>
         </view>
         <view v-if="voidable" class="pick">
           <view class="box" :class="{ on: selected(c.id) }">{{ selected(c.id) ? "✓" : "" }}</view>
