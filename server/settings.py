@@ -64,6 +64,21 @@ def wx_secret() -> str:
     return (os.getenv("WX_SECRET") or os.getenv("WECHAT_SECRET") or "").strip()
 
 
+def session_secret() -> str:
+    value = (
+        os.getenv("SESSION_SECRET")
+        or os.getenv("WX_SECRET")
+        or os.getenv("WECHAT_SECRET")
+        or os.getenv("MYSQL_PASSWORD")
+        or ""
+    ).strip()
+    if value:
+        return value
+    if in_cloud():
+        raise RuntimeError("SESSION_SECRET 未配置")
+    return "wanka-local-development-session-secret"
+
+
 def host_for_log(url: str) -> str:
     try:
         p = urlparse(url)

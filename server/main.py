@@ -172,10 +172,7 @@ def on_startup():
 
 
 def session_payload(db: Session, user: User) -> dict:
-    try:
-        token = cache.session_create(user.id)
-    except Exception as exc:
-        raise HTTPException(503, "登录服务暂不可用，请稍后重试") from exc
+    token = cache.session_create(user.id)
     return {"token": token, "user": L.public_user(db, user)}
 
 
