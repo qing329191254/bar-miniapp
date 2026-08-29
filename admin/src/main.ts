@@ -22,6 +22,7 @@ import Teams from "./pages/Teams.vue";
 import Settlement from "./pages/Settlement.vue";
 import SettlementHistory from "./pages/SettlementHistory.vue";
 import SettlementConfig from "./pages/SettlementConfig.vue";
+import DailyBiz from "./pages/DailyBiz.vue";
 import CoinAdjust from "./pages/CoinAdjust.vue";
 import Deactivations from "./pages/Deactivations.vue";
 import DeactivationDetail from "./pages/DeactivationDetail.vue";
@@ -32,6 +33,7 @@ const router = createRouter({
   routes: [
     { path: "/", component: Login },
     { path: "/dash", component: Dashboard },
+    { path: "/dailyBiz", component: DailyBiz },
     { path: "/liabCoin", component: DashDrill, props: { kind: "coin" } },
     { path: "/liabPoint", component: DashDrill, props: { kind: "point" } },
     { path: "/liabCard", component: DashDrill, props: { kind: "card" } },

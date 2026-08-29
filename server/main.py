@@ -794,6 +794,17 @@ def admin_job_detail(
     return L.job_detail(db, uid, preset, date_from, date_to)
 
 
+@app.get("/api/admin/daily-biz")
+def daily_biz_page(
+    preset: str = "7d",
+    date_from: str = Query("", alias="from"),
+    date_to: str = Query("", alias="to"),
+    admin: dict = Depends(admin_user),
+    db: Session = Depends(get_db),
+):
+    return L.daily_biz_page(db, preset, date_from, date_to)
+
+
 @app.get("/api/admin/coin-adjust")
 def coin_adjust_page(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
     return L.coin_adjust_page(db)

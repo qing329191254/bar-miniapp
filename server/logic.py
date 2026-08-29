@@ -1549,6 +1549,33 @@ def exec_deactivation(sess: Session, did: int, action: str, reason: str, admin: 
     return d.to_dict()
 
 
+def daily_biz_page(sess: Session, preset: str = "7d", date_from: str = "", date_to: str = "") -> dict:
+    all_rows = sess.query(DailyBiz).order_by(DailyBiz.d.desc()).all()
+    rows = [x.to_dict() for x in all_rows if in_range(x.d, preset, date_from, date_to)]
+    s = {"coin": 0, "offline": 0, "recharge": 0, "orders": 0, "guests": 0}
+    for x in rows:
+        s["coin"] += x["coin"]
+        s["offline"] += x["offline"]
+        s["recharge"] += x["recharge"]
+        s["orders"] += x["orders"]
+        s["guests"] += x["guests"]
+    biz = s["coin"] + s["offline"]
+    avg = round(biz / len(rows)) if rows else 0
+    peak = max(rows, key=lambda x: x["coin"] + x["offline"], default=None)
+    peak_biz = (peak["coin"] + peak["offline"]) if peak else 0
+    chart = list(reversed(rows[:14]))
+    return {
+        "totalDays": len(all_rows),
+        "today": today_str(),
+        "rangeLabel": range_label(preset, date_from, date_to),
+        "summary": {"biz": biz, "avg": avg, "recharge": s["recharge"], "days": len(rows), **s},
+        "peak": {"d": peak["d"], "biz": peak_biz} if peak else None,
+        "rows": rows,
+        "chart": chart,
+        "chartPartial": len(chart) < len(rows),
+    }
+
+
 def coin_adjust_page(sess: Session) -> dict:
     rows = sess.query(CoinAdjust).order_by(CoinAdjust.at.desc()).all()
     uids = {a.uid for a in rows}

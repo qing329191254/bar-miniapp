@@ -76,7 +76,9 @@ th{font-weight:400;color:var(--ink3);font-size:11px;position:sticky;top:0;z-inde
 .li:last-child{border-bottom:none}
 .li .gr{flex:1;min-width:0}
 .li .gr b{font-size:13px;font-weight:500;display:block}
-.li .gr .tiny{display:block;font-size:11px;margin-top:1px}
+.li .gr .mut{display:block;font-size:11px;margin-top:1px;color:var(--ink3)}
+.li .gr .tiny{display:block;font-size:11px;margin-top:1px;color:var(--ink3)}
+.mut{color:var(--ink2);font-size:12px}
 .li-link{cursor:pointer}
 .li-link:hover{background:rgba(28,27,25,.02);margin:0 -14px;padding-left:14px;padding-right:14px}
 .note{font-size:11px;color:var(--blue);background:#E6F1FB;border-radius:7px;padding:7px 9px;margin-bottom:11px;line-height:1.6}
@@ -118,6 +120,9 @@ th{font-weight:400;color:var(--ink3);font-size:11px;position:sticky;top:0;z-inde
 .tb2[data-cols="llcccccc"] :is(thead,tbody,tfoot) tr > :nth-child(1),
 .tb2[data-cols="llcccccc"] :is(thead,tbody,tfoot) tr > :nth-child(2),
 .tb2[data-cols="lc"] :is(thead,tbody,tfoot) tr > :nth-child(1){text-align:left}
+.tb2[data-cols="lccclcc"] :is(thead,tbody,tfoot) tr > :nth-child(1),
+.tb2[data-cols="lccclcc"] :is(thead,tbody,tfoot) tr > :nth-child(4){text-align:left}
+.tb2[data-cols="lccccccc"] :is(thead,tbody,tfoot) tr > :nth-child(1){text-align:left}
 .tb2[data-cols] td.col-l{text-align:left!important}
 .tb-wrap{overflow:auto;min-height:0}
 .pill{font-size:11px;border-radius:20px;padding:2px 9px;display:inline-block}

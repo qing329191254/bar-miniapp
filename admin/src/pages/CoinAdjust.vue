@@ -138,8 +138,10 @@ onMounted(load);
             <span class="tiny pending-reason">原因：{{ a.reason || "—" }} · 调整后余额 ¥{{ fmt(a.projected ?? a.balance) }}</span>
           </div>
           <template v-if="isBoss">
-            <button class="btn sm reject-btn" @click="openReject(a)">驳回</button>
-            <button class="btn sm pri" @click="openApprove(a)">通过</button>
+            <div class="pending-actions">
+              <button class="btn sm ghost reject-btn" @click="openReject(a)">驳回</button>
+              <button class="btn sm pri" @click="openApprove(a)">通过</button>
+            </div>
           </template>
           <span v-else class="tiny" style="color:var(--ink3)">仅老板可审批</span>
         </div>
@@ -147,7 +149,7 @@ onMounted(load);
       <div v-else class="card"><p class="mut empty-pending">暂无待审批的金币调整申请</p></div>
 
       <div class="card table-card">
-        <table class="tb2 tb-even tb-coin-adj" data-cols="lclclcc">
+        <table class="tb2 tb-even tb-coin-adj" data-cols="lccclcc">
           <thead>
             <tr>
               <th>会员</th><th>调整额</th><th>类型</th><th>原因</th><th>申请人</th><th>时间</th><th>状态</th>
@@ -158,7 +160,7 @@ onMounted(load);
               <td>{{ memberLabel(a.uid) }}</td>
               <td><b :style="{ color: deltaColor(a.delta) }">{{ a.delta > 0 ? "+" : "" }}{{ fmt(a.delta) }}</b></td>
               <td class="mut">{{ typeLabel(a.type) }}</td>
-              <td class="mut">{{ a.reason || "—" }}</td>
+              <td class="mut col-reason">{{ a.reason || "—" }}</td>
               <td>{{ staffName(a.by) }}<div class="tiny">{{ staffRole(a.by) }}</div></td>
               <td class="mut">{{ a.at }}</td>
               <td>
@@ -217,10 +219,22 @@ onMounted(load);
 }
 .pending-li {
   border-color: rgba(186, 117, 23, 0.25);
+  align-items: flex-start;
+}
+.pending-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding-top: 2px;
+}
+.pending-actions .btn + .btn {
+  margin-left: 0;
 }
 .pending-reason {
   display: block;
   margin-top: 2px;
+  line-height: 1.5;
 }
 .empty-pending {
   padding: 26px;
@@ -241,6 +255,14 @@ onMounted(load);
 .reject-btn {
   color: var(--red);
   border-color: #e9c4c4;
+  background: transparent;
+}
+:deep(.tb-coin-adj .col-reason) {
+  text-align: left !important;
+  white-space: normal;
+  word-break: break-word;
+  vertical-align: top;
+  line-height: 1.5;
 }
 .adj-mask {
   position: fixed;
