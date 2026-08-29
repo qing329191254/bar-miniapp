@@ -217,6 +217,17 @@ select.inp{
 .pg-num{min-width:52px;text-align:center;color:var(--ink2)}
 .pg-bar .btn{margin:0}
 
+/* 结算弹层挂载到 body，避免被后台主滚动容器裁切或参与文档流。 */
+.settle-modal-mask{position:fixed!important;inset:0!important;z-index:1000!important;display:flex!important;align-items:center!important;justify-content:center!important;padding:20px;background:rgba(28,27,25,.48);overflow:auto}
+.settle-modal{width:min(480px,100%);max-height:min(88vh,720px);overflow:auto;padding:20px;border:1px solid var(--line);border-radius:14px;background:#fff;box-shadow:0 20px 60px rgba(28,27,25,.25)}
+.settle-modal-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;font-size:17px;font-weight:600}
+.settle-modal-close{border:0;background:transparent;color:var(--ink3);font-size:24px;line-height:1;cursor:pointer}
+.settle-target-summary{display:flex;flex-direction:column;gap:2px;margin-bottom:16px;padding:11px 12px;border-radius:9px;background:#FAF9F5}
+.settle-target-summary span{color:var(--ink2);font-size:12px}.settle-field-label{display:block;margin-bottom:6px;color:var(--ink2);font-size:12px}.settle-field-label i{color:var(--red);font-style:normal}
+.settle-reason-input{min-height:82px;margin-bottom:8px;resize:vertical}.settle-danger-tip,.settle-info-tip{padding:9px 10px;border-radius:8px;font-size:12px;line-height:1.6}.settle-danger-tip{background:var(--redbg);color:var(--red)}.settle-info-tip{background:#E6F1FB;color:var(--blue)}
+.settle-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px}.settle-modal-actions .btn{min-width:88px;margin:0}.settle-manual-modal{width:min(600px,100%)}.settle-manual-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.settle-snapshot-modal{width:min(720px,100%)}.settle-snapshot-sub{margin-top:-10px;margin-bottom:12px}.settle-snapshot-list{max-height:440px;overflow:auto;border-top:1px solid var(--line)}.settle-snapshot-row{display:grid;grid-template-columns:1.2fr 1.4fr auto;align-items:center;gap:12px;padding:10px 4px;border-bottom:1px solid var(--line)}.settle-snapshot-row small{display:block;color:var(--ink3)}
+@media(max-width:760px){.settle-manual-grid{grid-template-columns:1fr}.settle-snapshot-row{grid-template-columns:1fr auto}.settle-snapshot-row>span:nth-child(2){display:none}}
+
 /* 异步页加载：骨架屏 / 刷新条 / 淡入 */
 .page-loading {
   animation: page-fade-in 0.28s ease;

@@ -1084,13 +1084,135 @@ def _settle_dict(row: SettleLog) -> dict:
     return row.to_dict()
 
 
+def _settlement_week(db: Session) -> str:
+    period = L.setting(db, "settleWeek") or {}
+    start, end = str(period.get("start") or ""), str(period.get("end") or "")
+    return f"{start}~{end}" if start and end else ""
+
+
+def _settlement_plan(db: Session) -> list[dict]:
+    cfg = L.setting(db, "cfg") or {}
+    dim = "MONTH" if cfg.get("rankDim") == "MONTH" else "WEEK"
+    rank_range = max(1, int(cfg.get("rankRange") or 3))
+    prize_map = cfg.get("prizeMap") or {}
+    templates = {x.sub: x for x in db.query(CardTpl).filter(CardTpl.cat == "OTHER").all() if x.sub}
+    rows: list[dict] = []
+    seen: set[int] = set()
+
+    if cfg.get("teamReward"):
+        teams = L.rank_rows(db, "SHARD", dim, "TEAM")
+        if teams:
+            winner = teams[0]
+            team = db.get(Team, int(winner["team"]["id"]))
+            tm = templates.get(str(cfg.get("teamCard") or ""))
+            if team and tm:
+                members = db.query(User).filter(User.role == "CUSTOMER", User.status == "ACTIVE", User.team_id == team.id).all()
+                for user in members:
+                    shard = L.shard_of(db, user.id)["w" if dim == "WEEK" else "t"]
+                    allowed = not cfg.get("reqShard") or shard > 0
+                    rows.append({"uid": user.id, "target": team.name, "nick": user.nick, "type": "TEAM_CHAMPION",
+                                 "sub": tm.sub, "desc": tm.name, "sh": shard, "eligible": allowed,
+                                 "reason": "" if allowed else "本周期无碎片"})
+                    if allowed:
+                        seen.add(user.id)
+
+    for ranked in L.rank_rows(db, "SHARD", dim, "USER"):
+        rank = int(ranked.get("rank") or 0)
+        if rank > rank_range:
+            continue
+        user_data = ranked.get("user") or {}
+        uid = int(user_data.get("id") or 0)
+        tm = templates.get(str(prize_map.get(str(rank)) or ""))
+        if not uid or not tm:
+            continue
+        allowed = bool(cfg.get("stack", True)) or uid not in seen
+        rows.append({"uid": uid, "target": "个人榜", "nick": user_data.get("nick") or "", "type": f"PERSONAL_RANK{rank}",
+                     "sub": tm.sub, "desc": tm.name, "sh": int(ranked.get("v") or 0), "rank": rank,
+                     "eligible": allowed, "reason": "" if allowed else "规则不允许叠加"})
+        if allowed:
+            seen.add(uid)
+    return rows
+
+
 @app.get("/api/admin/settlement/current")
-def settlement_current(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+def settlement_current(page: int = Query(1, ge=1), page_size: int = Query(15, ge=1, le=50, alias="pageSize"), admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
     configured = (L.setting(db, "settleWeek") or {}).get("start", "")
     weeks = sorted({x.week for x in db.query(SettleLog).all() if x.week}, reverse=True)
-    week = next((x for x in weeks if configured and configured in x), weeks[0] if weeks else "")
-    rows = [x for x in db.query(SettleLog).filter(SettleLog.week == week).order_by(SettleLog.id).all()]
-    return {"week": week, "rows": [_settle_dict(x) for x in rows], "cfg": L.setting(db, "cfg") or {}}
+    week = next((x for x in weeks if configured and configured in x), weeks[0] if weeks else _settlement_week(db))
+    query = db.query(SettleLog).filter(SettleLog.week == week).order_by(SettleLog.id)
+    total = query.count()
+    rows = query.offset((page - 1) * page_size).limit(page_size).all()
+    granted = db.query(SettleLog).filter(SettleLog.week == week, SettleLog.status == "GRANTED").count()
+    team = db.query(SettleLog).filter(SettleLog.week == week, SettleLog.status == "GRANTED", SettleLog.type == "TEAM_CHAMPION").count()
+    personal = db.query(SettleLog).filter(SettleLog.week == week, SettleLog.status == "GRANTED", SettleLog.type.like("PERSONAL%" )).count()
+    return {"week": week, "rows": [_settle_dict(x) for x in rows], "total": total, "page": page, "pageSize": page_size,
+            "executed": total > 0, "summary": {"granted": granted, "team": team, "personal": personal},
+            "cfg": L.setting(db, "cfg") or {}}
+
+
+@app.get("/api/admin/settlement/preview")
+def settlement_preview(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    rows = _settlement_plan(db)
+    eligible = [x for x in rows if x["eligible"]]
+    cfg = L.setting(db, "cfg") or {}
+    return {"week": _settlement_week(db), "rows": rows, "count": len(eligible),
+            "cap": int(cfg.get("settleCap") or 20), "blocked": len(eligible) > int(cfg.get("settleCap") or 20)}
+
+
+@app.post("/api/admin/settlement/rerun")
+def settlement_rerun(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    week = _settlement_week(db)
+    if not week:
+        raise HTTPException(400, "未配置结算周期")
+    existing = db.query(SettleLog).filter(SettleLog.week == week).count()
+    if existing:
+        L.log(db, "SETTLE_RERUN", f"重跑 {week} · 幂等跳过，未重复发放", None, admin)
+        return {"ok": True, "skipped": True, "message": "该周期已执行，本次幂等跳过，未重复发放"}
+    plan = _settlement_plan(db)
+    eligible = [x for x in plan if x["eligible"]]
+    cap = int((L.setting(db, "cfg") or {}).get("settleCap") or 20)
+    if len(eligible) > cap:
+        raise HTTPException(400, f"预计发放 {len(eligible)} 张，超过单次上限 {cap} 张，请先调整规则")
+    for item in plan:
+        card_id = None
+        status = "SKIPPED"
+        desc = item["reason"] or item["desc"]
+        if item["eligible"]:
+            tm = db.query(CardTpl).filter(CardTpl.sub == item["sub"]).first()
+            if tm:
+                card = L.issue_card(db, item["uid"], tm, "SETTLE_REWARD", f"{week} · {item['target']}")
+                card_id, status, desc = card.id, "GRANTED", tm.name
+        db.add(SettleLog(id=L.next_seq(db, "settle"), week=week, type=item["type"], sub=item["sub"],
+                         target=item["target"], nick=item["nick"], sh=item["sh"], status=status,
+                         card_id=card_id, desc=desc))
+    L.log(db, "SETTLE_RUN", f"执行 {week} · 发放 {len(eligible)} 张", None, admin)
+    return {"ok": True, "skipped": False, "message": f"结算完成，共发放 {len(eligible)} 张奖励"}
+
+
+@app.post("/api/admin/settlement/manual")
+def settlement_manual(body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    data = body.data or {}
+    try:
+        uid, tpl_id = int(data.get("uid")), int(data.get("tplId"))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "请选择会员和补发奖励")
+    reason = str(data.get("reason") or "").strip()
+    if len(reason) < 2:
+        raise HTTPException(400, "补发原因至少 2 个字")
+    user = db.get(User, uid)
+    tm = db.get(CardTpl, tpl_id)
+    if not user or user.role != "CUSTOMER" or user.status != "ACTIVE":
+        raise HTTPException(400, "会员不存在或状态不可用")
+    if not tm or tm.cat != "OTHER":
+        raise HTTPException(400, "补发奖励不可用")
+    week = _settlement_week(db)
+    card = L.issue_card(db, uid, tm, "SETTLE_MANUAL", f"{week} · 手动补发：{reason}")
+    row = SettleLog(id=L.next_seq(db, "settle"), week=week, type="MANUAL", sub=tm.sub or "",
+                    target="手动补发", nick=user.nick, sh=L.shard_of(db, uid)["w"], status="GRANTED",
+                    card_id=card.id, desc=f"{tm.name} · {reason}")
+    db.add(row)
+    L.log(db, "SETTLE_MANUAL", f"{week} · {user.nick} · {tm.name} · {reason}", None, admin)
+    return _settle_dict(row)
 
 
 @app.get("/api/admin/settlement/history")
@@ -1112,9 +1234,12 @@ def settlement_history(preset: str = "all", admin: dict = Depends(admin_user), d
 
 
 @app.post("/api/admin/settlement/{sid}/revoke")
-def revoke_settlement(sid: int, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+def revoke_settlement(sid: int, body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
     if admin["role"] != "BOSS":
         raise HTTPException(403, "仅老板可撤销结算奖励")
+    reason = str((body.data or {}).get("reason") or "").strip()
+    if len(reason) < 2:
+        raise HTTPException(400, "撤销原因至少 2 个字")
     row = db.get(SettleLog, sid)
     if not row or row.status != "GRANTED":
         raise HTTPException(400, "该奖励不能撤销")
@@ -1122,9 +1247,9 @@ def revoke_settlement(sid: int, admin: dict = Depends(admin_user), db: Session =
         card = db.get(Card, row.card_id)
         if card and card.status == "UNUSED":
             card.status = "VOID"
-            card.void_reason = "结算奖励撤销"
+            card.void_reason = f"结算奖励撤销：{reason}"[:64]
     row.status = "REVOKED"
-    L.log(db, "SETTLE_REVOKE", f"撤销 {row.week} · {row.nick} · {row.desc}", None, admin)
+    L.log(db, "SETTLE_REVOKE", f"撤销 {row.week} · {row.nick} · {row.desc} · 原因：{reason}", None, admin)
     return _settle_dict(row)
 
 

@@ -2,12 +2,12 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { api } from "../api";
 import AppSelect from "../components/AppSelect.vue";
+import DateTimePicker from "../components/DateTimePicker.vue";
 
 const meta = ref({ projects: [] as any[], tables: [] as any[] });
 const members = ref<any[]>([]);
 const search = ref("");
 const msg = ref("");
-const timeInput = ref<HTMLInputElement | null>(null);
 const searchArea = ref<HTMLElement | null>(null);
 
 function localDateTimeValue(date = new Date()) {
@@ -63,10 +63,6 @@ function onPidChange() {
 }
 function onTimeChange() {
   if (!form.eventTouched) form.event = defaultEvent();
-}
-function openTimePicker() {
-  timeInput.value?.focus({ preventScroll: true });
-  timeInput.value?.showPicker?.();
 }
 function added(id: number) {
   return form.players.some((p) => p.uid === id);
@@ -163,7 +159,7 @@ async function submit() {
             </div>
             <div>
               <div class="tiny game-time-label">对局时间（精确到分钟）</div>
-              <input ref="timeInput" class="inp game-time-input" type="datetime-local" v-model="form.time" @pointerdown.prevent="openTimePicker" @change="onTimeChange" />
+              <DateTimePicker v-model="form.time" @change="onTimeChange" />
             </div>
           </div>
           <div class="tiny">赛事名称</div>
@@ -199,15 +195,15 @@ async function submit() {
               </div>
             </div>
           </div>
-          <table class="tb2" data-cols="lcccc">
+          <table class="tb2 player-table" data-cols="lcccc">
             <thead>
               <tr><th>玩家</th><th>积分</th><th>碎片</th><th>冠军</th><th></th></tr>
             </thead>
             <tbody>
             <tr v-for="p in form.players" :key="p.uid">
               <td><b>{{ p.nick }}</b></td>
-              <td><input class="inp" style="width:70px;padding:4px 7px" type="number" v-model.number="p.pts" /></td>
-              <td><input class="inp" style="width:70px;padding:4px 7px" type="number" v-model.number="p.sh" /></td>
+              <td><input class="inp score-input" type="number" v-model.number="p.pts" /></td>
+              <td><input class="inp score-input" type="number" v-model.number="p.sh" /></td>
               <td><input type="checkbox" :checked="!!form.winners[p.uid]" @change="form.winners[p.uid] = ($event.target as HTMLInputElement).checked" /></td>
               <td class="tiny" style="cursor:pointer" @click="remove(p.uid)">移除</td>
             </tr>
@@ -243,10 +239,6 @@ async function submit() {
 .game-hdr em{margin-left:auto;text-align:right}
 .game-info-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:8px}
 .game-time-label{color:var(--ink2);font-weight:500}
-.game-time-input{cursor:pointer;user-select:none;-webkit-user-select:none;caret-color:transparent;background:#FAF7F0;border-color:rgba(186,117,23,.5);box-shadow:inset 0 0 0 1px rgba(186,117,23,.08);transition:background .16s ease,border-color .16s ease,box-shadow .16s ease}
-.game-time-input:hover{background:#FFFDF8;border-color:rgba(186,117,23,.8)}
-.game-time-input:focus{background:#fff;border-color:var(--gold);box-shadow:0 0 0 3px rgba(186,117,23,.18)}
-.game-time-input::-webkit-calendar-picker-indicator{cursor:pointer;opacity:.78}
 .player-search{position:relative;margin-bottom:10px}
 .player-search-row{gap:8px}
 .search-input-wrap{position:relative;flex:1;min-width:0}
@@ -260,6 +252,8 @@ async function submit() {
 .search-result{cursor:pointer}
 .search-result:hover{background:rgba(28,27,25,.035);margin:0 -12px;padding-left:12px;padding-right:12px}
 .search-result.added{opacity:.45;cursor:default}
+.player-table td{padding-top:7px;padding-bottom:7px}
+.score-input{display:block;width:72px;margin:0 auto;padding:5px 7px;text-align:center}
 .submit-btn{padding:8px 20px}
 .submit-btn:disabled{background:#D8D6D0;color:#8C8981;opacity:1;cursor:not-allowed}
 @media(max-width:1100px){.game-info-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
