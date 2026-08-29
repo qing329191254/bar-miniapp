@@ -732,6 +732,78 @@ async def admin_upload(admin: dict = Depends(admin_user), file: UploadFile = Fil
     return {"url": f"{cos_public_base()}/{cloud_path}"}
 
 
+@app.get("/api/admin/team-management")
+def team_management(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    teams = []
+    for team in db.query(Team).order_by(Team.id).all():
+        members = []
+        for user in db.query(User).filter(User.role == "CUSTOMER", User.team_id == team.id).order_by(User.id).all():
+            wallet = L.wallet_of(db, user.id)
+            members.append({
+                "id": user.id, "nick": user.nick, "no": user.no,
+                "champions": L.champ_count(db, user.id), "shard": int(wallet.shard_w or 0),
+            })
+        teams.append({
+            "id": team.id, "name": team.name, "members": members,
+            "champions": sum(x["champions"] for x in members),
+            "shard": sum(x["shard"] for x in members),
+        })
+    unassigned = [{"id": u.id, "nick": u.nick, "no": u.no} for u in db.query(User).filter(User.role == "CUSTOMER", User.team_id.is_(None)).order_by(User.id)]
+    return {"teams": teams, "unassigned": unassigned}
+
+
+@app.post("/api/admin/teams")
+def create_team(body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    name = str((body.data or {}).get("name") or "").strip()
+    if not name:
+        raise HTTPException(400, "请填写战队名称")
+    if db.query(Team).filter(Team.name == name).first():
+        raise HTTPException(400, "该战队名称已存在")
+    team = Team(id=L.new_id(db, Team), name=name[:32])
+    db.add(team)
+    L.log(db, "TEAM_CREATE", f"新增战队：{team.name}", None, admin)
+    return {"id": team.id, "name": team.name}
+
+
+@app.put("/api/admin/teams/{tid}")
+def rename_team(tid: int, body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    team = db.get(Team, tid)
+    name = str((body.data or {}).get("name") or "").strip()
+    if not team:
+        raise HTTPException(404, "战队不存在")
+    if not name:
+        raise HTTPException(400, "请填写战队名称")
+    if db.query(Team).filter(Team.name == name, Team.id != tid).first():
+        raise HTTPException(400, "该战队名称已存在")
+    old = team.name
+    team.name = name[:32]
+    L.log(db, "TEAM_RENAME", f"战队更名：{old} → {team.name}", None, admin)
+    return {"id": team.id, "name": team.name}
+
+
+@app.post("/api/admin/team-members/move")
+def move_team_member(body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    data = body.data or {}
+    try:
+        uid = int(data.get("uid"))
+        target_id = data.get("teamId")
+        target_id = int(target_id) if target_id not in (None, "", 0) else None
+    except (TypeError, ValueError):
+        raise HTTPException(400, "成员或目标战队不正确")
+    user = db.get(User, uid)
+    if not user or user.role != "CUSTOMER":
+        raise HTTPException(404, "会员不存在")
+    target = db.get(Team, target_id) if target_id else None
+    if target_id and not target:
+        raise HTTPException(404, "目标战队不存在")
+    old = db.get(Team, user.team_id)
+    if user.team_id == target_id:
+        raise HTTPException(400, "成员已在该战队")
+    user.team_id = target_id
+    L.log(db, "TEAM_MEMBER_MOVE", f"{user.nick}：{old.name if old else '未分配'} → {target.name if target else '未分配'}", None, admin)
+    return {"ok": True}
+
+
 @app.get("/api/admin/{coll}")
 def admin_list(coll: str, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
     if coll == "members":
@@ -804,7 +876,7 @@ def create_card_template(body: PatchIn, admin: dict = Depends(admin_user), db: S
     return card_tpl.to_dict()
 
 
-def _sign_rule_item(item: dict, db: Session, ignore_id: int | None = None) -> tuple[int, int, list, bool]:
+def _sign_rule_item(item: dict, db: Session, ignore_id: int | None = None, allow_empty: bool = False) -> tuple[int, int, list, bool]:
     try:
         days = int(item.get("days") or 0)
         pts = max(0, int(item.get("pts") or 0))
@@ -826,7 +898,7 @@ def _sign_rule_item(item: dict, db: Session, ignore_id: int | None = None) -> tu
         if qty < 1 or not db.get(CardTpl, tid):
             raise HTTPException(400, "奖励卡券不存在或数量无效")
         cards.append({"tpl": tid, "qty": qty})
-    if not pts and not cards:
+    if not allow_empty and not pts and not cards:
         raise HTTPException(400, "至少配置积分或卡券中的一项奖励")
     return days, pts, cards, bool(item.get("enabled", True))
 
@@ -843,12 +915,25 @@ def signin_overview(admin: dict = Depends(admin_user), db: Session = Depends(get
 
 @app.post("/api/admin/sign-rules")
 def create_sign_rule(body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
-    days, pts, cards, enabled = _sign_rule_item(body.data or {}, db)
+    days, pts, cards, enabled = _sign_rule_item(body.data or {}, db, allow_empty=True)
     rule = SignRule(id=L.new_id(db, SignRule), days=days, pts=pts, cards=cards, enabled=enabled)
     db.add(rule)
     db.flush()
     L.log(db, "SIGN_RULE_CREATE", f"新增连续签到 {days} 天奖励", None, admin)
     return rule.to_dict()
+
+
+@app.put("/api/admin/signin-config")
+def update_signin_config(body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    try:
+        sign_points = max(0, int((body.data or {}).get("signPoints") or 0))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "每日签到积分必须是数字")
+    config = dict(L.setting(db, "config") or {})
+    config["signPoints"] = sign_points
+    L.save_setting(db, "config", config)
+    L.log(db, "SIGN_DAILY_UPDATE", f"每日签到积分调整为 {sign_points}", None, admin)
+    return {"signPoints": sign_points}
 
 
 @app.put("/api/admin/sign-rules/{rid}")

@@ -17,6 +17,7 @@ import Config from "./pages/Config.vue";
 import CardTemplates from "./pages/CardTemplates.vue";
 import WithdrawalManagement from "./pages/WithdrawalManagement.vue";
 import SignRewards from "./pages/SignRewards.vue";
+import Teams from "./pages/Teams.vue";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -36,6 +37,7 @@ const router = createRouter({
     { path: "/config", component: Config },
     { path: "/cardTpls", component: CardTemplates },
     { path: "/signRules", component: SignRewards },
+    { path: "/teams", component: Teams },
     { path: "/:coll", component: Collection },
   ],
 });

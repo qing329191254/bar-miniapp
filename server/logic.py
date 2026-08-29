@@ -434,7 +434,12 @@ def do_sign(sess: Session, uid: int) -> dict:
     w.point_wg += sp
     w.point_mg += sp
     w.point_pd = 0 if w.point_av >= 0 else -w.point_av
-    w.sign_streak = int(w.sign_streak or 0) + 1
+    # 连续签到必须以北京时间的前一天为准，漏签则从 1 天重新开始。
+    previous_day = business_today() - timedelta(days=1)
+    signed_yesterday = sess.query(SignRecord).filter_by(
+        uid=uid, month=previous_day.strftime("%Y-%m"), day=previous_day.day
+    ).first()
+    w.sign_streak = int(w.sign_streak or 0) + 1 if signed_yesterday else 1
     extra_pts, names = 0, []
     for r in sess.query(SignRule).all():
         if r.enabled is False or r.days != w.sign_streak:
