@@ -151,6 +151,11 @@ class ReasonIn(BaseModel):
     reason: str = ""
 
 
+class VoidGameIn(BaseModel):
+    reason: str = ""
+    voidCards: bool = True
+
+
 class GameIn(BaseModel):
     projectId: int
     tableId: Optional[int] = None
@@ -760,11 +765,33 @@ def admin_alert_points(admin: dict = Depends(admin_user), db: Session = Depends(
     return L.point_alert_detail(db)
 
 
+@app.get("/api/admin/games/{gid}/void-preview")
+def admin_void_game_preview(gid: int, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    return L.void_game_preview(db, gid)
+
+
+@app.post("/api/admin/games/{gid}/void")
+def admin_void_game(gid: int, body: VoidGameIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    return L.void_game(db, gid, body.reason, body.voidCards, admin)
+
+
 @app.get("/api/admin/jobs")
 def admin_jobs(preset: str = "7d", admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
     staff = db.query(User).filter(User.role != "CUSTOMER").all()
     keys = ("amount", "orders", "verifies", "games", "wds", "rcAmt", "odAmt")
     return [{"user": L.public_user(db, s), **{k: L.job_stat(db, s.id, preset)[k] for k in keys}} for s in staff]
+
+
+@app.get("/api/admin/jobs/{uid}")
+def admin_job_detail(
+    uid: int,
+    preset: str = "today",
+    date_from: str = Query("", alias="from"),
+    date_to: str = Query("", alias="to"),
+    admin: dict = Depends(admin_user),
+    db: Session = Depends(get_db),
+):
+    return L.job_detail(db, uid, preset, date_from, date_to)
 
 
 COLL_MAP = {

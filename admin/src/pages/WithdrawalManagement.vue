@@ -70,7 +70,7 @@ onMounted(() => { load(); timer = window.setInterval(() => { now.value = Date.no
       <div class="tiny" style="color:#BA7517;margin-top:7px">顾客到吧台报单号末四位，店员在移动端待办中核对后当面发放；这里没有操作按钮是刻意设计。</div>
     </div>
 
-    <div class="card" style="padding:0;overflow:auto"><table class="tb2">
+    <div class="card" style="padding:0;overflow:auto"><table class="tb2" data-cols="llcccccc">
       <thead><tr><th>提分单号</th><th>会员</th><th>数量</th><th>状态</th><th>提交时间</th><th>等待时长</th><th>经手员工</th><th>备注</th></tr></thead>
       <tbody><tr v-for="row in filtered" :key="row.id" :style="row.status === 'PENDING_CONFIRM' ? 'background:#FDF8EE' : ''">
         <td><b>{{ row.no }}</b></td><td>{{ nick(row.uid) }}</td><td><b>{{ fmt(row.pts) }}</b></td>

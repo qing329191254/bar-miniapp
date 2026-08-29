@@ -63,7 +63,7 @@ async function save() {
           <button class="btn gold" style="margin-left:auto" @click="edit = { name:'', cid: cats[0]?.id, price:0, type:'SINGLE', desc:'', combo:[], img:'' }">＋ 新增商品</button>
         </div>
         <div class="tb-wrap">
-          <table class="tb2">
+          <table class="tb2" data-cols="lccccc">
             <thead>
               <tr><th>商品</th><th>分类</th><th>价格</th><th>类型</th><th>状态</th><th>操作</th></tr>
             </thead>
@@ -119,7 +119,7 @@ async function save() {
         </div>
         <div class="card cat-card">
           <div class="st">商品分类 <em>点单页顶部分类</em></div>
-          <table class="tb2">
+          <table class="tb2" data-cols="lc">
             <thead>
               <tr><th>分类</th><th>在售</th></tr>
             </thead>

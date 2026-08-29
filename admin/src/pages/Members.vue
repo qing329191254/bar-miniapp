@@ -62,7 +62,7 @@ function fmt(n: number) {
     <div class="hdr">会员列表 <em>{{ shown.length }} 人 · 点击查看详情</em></div>
     <input class="inp" style="max-width:260px;margin-bottom:11px" placeholder="搜索昵称 / 会员号 / 手机尾号" v-model="kw" />
     <div class="card" style="padding:0;overflow-x:auto">
-      <table class="tb2">
+      <table class="tb2" data-cols="lcccccc">
         <thead>
           <tr><th>会员</th><th>手机</th><th>战队</th><th>金币</th><th>积分</th><th>碎片(周/总)</th><th></th></tr>
         </thead>

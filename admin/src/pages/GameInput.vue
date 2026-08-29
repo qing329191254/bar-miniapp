@@ -121,7 +121,7 @@ async function submit() {
               <span class="tiny">{{ added(x.id) ? "已添加" : "添加" }}</span>
             </div>
           </div>
-          <table class="tb2">
+          <table class="tb2" data-cols="lcccc">
             <thead>
               <tr><th>玩家</th><th>积分</th><th>碎片</th><th>冠军</th><th></th></tr>
             </thead>

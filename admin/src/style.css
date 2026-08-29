@@ -59,7 +59,10 @@ th{font-weight:400;color:var(--ink3);font-size:11px;position:sticky;top:0;z-inde
 .tiny{color:var(--ink3);font-size:12px}
 .acct{display:block;width:100%;text-align:left;padding:12px;border:1px solid var(--line);border-radius:10px;background:#fff;margin-bottom:8px;cursor:pointer}
 .login{max-width:420px;margin:80px auto}
-.hdr{font-size:18px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.hdr{font-size:18px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:8px;position:relative}
+.hdr-title{flex:none}
+.hdr-note{position:absolute;left:50%;transform:translateX(-50%);font-style:normal;font-size:12px;color:var(--ink3);font-weight:400;white-space:nowrap;pointer-events:none}
+.hdr-back{margin-left:auto;flex:none}
 .hdr em{font-style:normal;font-size:12px;color:var(--ink3);font-weight:400}
 .mtr{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:11px}
 .mtr .k{font-size:11px;color:var(--ink2)}
@@ -79,6 +82,40 @@ th{font-weight:400;color:var(--ink3);font-size:11px;position:sticky;top:0;z-inde
 .tb2{width:100%;border-collapse:separate;border-spacing:0;font-size:12px}
 .tb2 th{text-align:left;font-weight:400;color:var(--ink3);font-size:11px;padding:7px 8px;border-bottom:1px solid var(--line);white-space:nowrap;position:sticky;top:0;z-index:3;background:#fff;box-shadow:0 1px 0 var(--line)}
 .tb2 td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+.tb2 .tb-foot td{background:#FAF9F5;font-weight:600;border-bottom:none}
+/* 列对齐：data-cols 用 l=左对齐 c=居中（数字/状态/操作）；默认文本列左、其余居中 */
+.tb2[data-cols] :is(thead,tbody,tfoot) tr > *{text-align:center}
+.tb2[data-cols="lcccc"] :is(thead,tbody,tfoot) tr > :nth-child(1),
+.tb2[data-cols="lccccc"] :is(thead,tbody,tfoot) tr > :nth-child(1),
+.tb2[data-cols="lcccccc"] :is(thead,tbody,tfoot) tr > :nth-child(1),
+.tb2[data-cols="lccccccc"] :is(thead,tbody,tfoot) tr > :nth-child(1),
+.tb2[data-cols="lccc"] :is(thead,tbody,tfoot) tr > :nth-child(1),
+.tb2[data-cols="lcccclcc"] :is(thead,tbody,tfoot) tr > :nth-child(1),
+.tb2[data-cols="lcccclcc"] :is(thead,tbody,tfoot) tr > :nth-child(7),
+.tb2[data-cols="llcccc"] :is(thead,tbody,tfoot) tr > :nth-child(1),
+.tb2[data-cols="llcccc"] :is(thead,tbody,tfoot) tr > :nth-child(2),
+.tb2[data-cols="llllcc"] :is(thead,tbody,tfoot) tr > :nth-child(1),
+.tb2[data-cols="llllcc"] :is(thead,tbody,tfoot) tr > :nth-child(2),
+.tb2[data-cols="llllcc"] :is(thead,tbody,tfoot) tr > :nth-child(3),
+.tb2[data-cols="llllcc"] :is(thead,tbody,tfoot) tr > :nth-child(4),
+.tb2[data-cols="llcccccc"] :is(thead,tbody,tfoot) tr > :nth-child(1),
+.tb2[data-cols="llcccccc"] :is(thead,tbody,tfoot) tr > :nth-child(2),
+.tb2[data-cols="llccccc"] :is(thead,tbody,tfoot) tr > :nth-child(1),
+.tb2[data-cols="llccccc"] :is(thead,tbody,tfoot) tr > :nth-child(2),
+.tb2[data-cols="lclcccc"] :is(thead,tbody,tfoot) tr > :nth-child(2),
+.tb2[data-cols="lclcccc"] :is(thead,tbody,tfoot) tr > :nth-child(4),
+.tb2[data-cols="clclccc"] :is(thead,tbody,tfoot) tr > :nth-child(2),
+.tb2[data-cols="clclccc"] :is(thead,tbody,tfoot) tr > :nth-child(4),
+.tb2[data-cols="lccccccl"] :is(thead,tbody,tfoot) tr > :nth-child(1),
+.tb2[data-cols="lccccccl"] :is(thead,tbody,tfoot) tr > :nth-child(7){text-align:left}
+.tb2[data-cols="cllcc"] :is(thead,tbody,tfoot) tr > :nth-child(2),
+.tb2[data-cols="cllcc"] :is(thead,tbody,tfoot) tr > :nth-child(3),
+.tb2[data-cols="llccc"] :is(thead,tbody,tfoot) tr > :nth-child(1),
+.tb2[data-cols="llccc"] :is(thead,tbody,tfoot) tr > :nth-child(2),
+.tb2[data-cols="llcccccc"] :is(thead,tbody,tfoot) tr > :nth-child(1),
+.tb2[data-cols="llcccccc"] :is(thead,tbody,tfoot) tr > :nth-child(2),
+.tb2[data-cols="lc"] :is(thead,tbody,tfoot) tr > :nth-child(1){text-align:left}
+.tb2[data-cols] td.col-l{text-align:left!important}
 .tb-wrap{overflow:auto;min-height:0}
 .pill{font-size:11px;border-radius:20px;padding:2px 9px;display:inline-block}
 .chip{font-size:12px;color:var(--ink2);padding:6px 11px;border-radius:9px;cursor:pointer;border:1px solid var(--line);background:#fff}

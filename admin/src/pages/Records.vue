@@ -122,7 +122,7 @@ const pendingWdr = computed(() =>
       <span class="chip" v-for="(v,k) in OD" :key="k" :class="{ on: status===k }" @click="status = status===k ? '' : k">{{ v[0] }}</span>
     </div>
     <div class="card" style="padding:0;overflow-x:auto">
-      <table class="tb2" v-if="coll==='orders'">
+      <table class="tb2" v-if="coll==='orders'" data-cols="llcccccc">
         <thead>
           <tr><th>单号</th><th>会员</th><th>桌台</th><th>金额</th><th>支付</th><th>状态</th><th>时间</th><th>操作</th></tr>
         </thead>
@@ -139,7 +139,7 @@ const pendingWdr = computed(() =>
         </tr>
         </tbody>
       </table>
-      <table class="tb2" v-else-if="coll==='recharges'">
+      <table class="tb2" v-else-if="coll==='recharges'" data-cols="llcccc">
         <thead>
           <tr><th>单号</th><th>会员</th><th>金额</th><th>赠送</th><th>状态</th><th>时间</th></tr>
         </thead>
@@ -154,7 +154,7 @@ const pendingWdr = computed(() =>
         </tr>
         </tbody>
       </table>
-      <table class="tb2" v-else-if="coll==='withdrawals'">
+      <table class="tb2" v-else-if="coll==='withdrawals'" data-cols="llcccc">
         <thead>
           <tr><th>单号</th><th>会员</th><th>积分数</th><th>状态</th><th>提交时间</th><th>发放时间</th></tr>
         </thead>
@@ -169,7 +169,7 @@ const pendingWdr = computed(() =>
         </tr>
         </tbody>
       </table>
-      <table class="tb2" v-else>
+      <table class="tb2" v-else data-cols="lccccccl">
         <thead>
           <tr><th>项目</th><th>桌台</th><th>时间</th><th>人数</th><th>积分</th><th>碎片</th><th>录入</th><th>状态</th></tr>
         </thead>

@@ -7,6 +7,7 @@ import Login from "./pages/Login.vue";
 import Dashboard from "./pages/Dashboard.vue";
 import Collection from "./pages/Collection.vue";
 import Jobs from "./pages/Jobs.vue";
+import JobDetail from "./pages/JobDetail.vue";
 import Records from "./pages/Records.vue";
 import Members from "./pages/Members.vue";
 import Products from "./pages/Products.vue";
@@ -33,6 +34,7 @@ const router = createRouter({
     { path: "/liabCard", component: DashDrill, props: { kind: "card" } },
     { path: "/alertPoint", component: DashDrill, props: { kind: "alert" } },
     { path: "/jobs", component: Jobs },
+    { path: "/jobs/:uid", component: JobDetail },
     { path: "/orders", component: Records },
     { path: "/recharges", component: Records },
     { path: "/withdrawals", component: WithdrawalManagement },

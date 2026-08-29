@@ -1051,6 +1051,33 @@ def job_stat(sess: Session, uid: int, preset="today", date_from: str = "", date_
     }
 
 
+def job_detail(sess: Session, uid: int, preset="today", date_from: str = "", date_to: str = "") -> dict:
+    user = sess.get(User, uid)
+    if not user or user.role not in ("STAFF", "MANAGER", "BOSS"):
+        err("员工不存在")
+    st = job_stat(sess, uid, preset, date_from, date_to)
+    paid = [o for o in st["ods"] if o["status"] in ("MAKING", "FINISHED")]
+    pts = sum(sum(int(p.get("pts") or 0) for p in (g.get("players") or [])) for g in st["gms"])
+    shs = sum(sum(int(p.get("sh") or 0) for p in (g.get("players") or [])) for g in st["gms"])
+    acts = len(st["ods"]) + len(st["rcs"]) + len(st["vfs"]) + len(st["gms"])
+    uids = {x.get("uid") for x in st["ods"] + st["rcs"] + st["vfs"] if x.get("uid")}
+    members = {
+        m.id: {"nick": m.nick, "tail": m.tail or ""}
+        for m in sess.query(User).filter(User.id.in_(list(uids))).all()
+    } if uids else {}
+    return {
+        "user": public_user(sess, user),
+        "members": members,
+        "stat": {
+            "amount": st["amount"], "rcAmt": st["rcAmt"], "odAmt": st["odAmt"],
+            "orders": st["orders"], "verifies": st["verifies"], "games": st["games"],
+            "heads": st["heads"], "wds": st["wds"], "acts": acts, "pts": pts, "shs": shs,
+            "paidOrders": len(paid), "range": st["range"],
+        },
+        "ods": st["ods"], "rcs": st["rcs"], "vfs": st["vfs"], "gms": st["gms"],
+    }
+
+
 def champ_count(sess: Session, uid, month=False) -> int:
     q = sess.query(Champ).filter(Champ.uid == uid)
     if month:
@@ -1255,8 +1282,8 @@ def point_alert_detail(sess: Session) -> dict:
             continue
         pts = sum(int(p.get("pts") or 0) for p in (g.players or []))
         by_day[d] = by_day.get(d, 0) + pts
-    days = sorted(by_day.keys(), reverse=True)[:10]
-    trend = [{"d": d, "pts": by_day[d], "today": d == today} for d in days]
+    days = [(business_today() - timedelta(days=i)).isoformat() for i in range(9, -1, -1)]
+    trend = [{"d": d, "pts": by_day.get(d, 0), "today": d == today} for d in days]
     today_games = []
     by_op: dict[int, dict] = {}
     for g in sess.query(GameRecord).all():
@@ -1277,6 +1304,68 @@ def point_alert_detail(sess: Session) -> dict:
         "byOp": [{"opUid": k, **v} for k, v in sorted(by_op.items(), key=lambda x: -x[1]["pts"])],
         "games": today_games,
     }
+
+
+def void_game_preview(sess: Session, gid: int) -> dict:
+    g = sess.get(GameRecord, gid)
+    if not g or g.status == "VOID":
+        err("对局不存在或已作废")
+    game_month = (g.time or "")[:7]
+    skip_pts = bool(game_month and game_month != current_month())
+    rows = []
+    for p in g.players or []:
+        uid = int(p.get("uid") or 0)
+        pts = int(p.get("pts") or 0)
+        w = wallet_of(sess, uid)
+        av = int(w.point_av or 0)
+        neg = pts > 0 and av < pts and not skip_pts
+        rel_n = 0
+        if neg:
+            rel_n = sess.query(Card).filter_by(uid=uid, status="UNUSED", src="EXCHANGE").count()
+        rows.append({
+            "uid": uid,
+            "nick": p.get("nick") or "—",
+            "pts": pts,
+            "balance": av,
+            "neg": neg,
+            "skipPts": skip_pts,
+            "relCards": rel_n,
+        })
+    return {"id": g.id, "pname": g.pname, "time": g.time, "rows": rows}
+
+
+def void_game(sess: Session, gid: int, reason: str, void_cards: bool, admin: dict) -> dict:
+    g = sess.get(GameRecord, gid)
+    if not g or g.status == "VOID":
+        err("对局不存在或已作废")
+    reason = (reason or "").strip()
+    if len(reason) < 2:
+        err("作废原因至少 2 个字")
+    game_month = (g.time or "")[:7]
+    skip_pts = bool(game_month and game_month != current_month())
+    for p in g.players or []:
+        uid = int(p.get("uid") or 0)
+        pts = int(p.get("pts") or 0)
+        sh = int(p.get("sh") or 0)
+        w = wallet_of(sess, uid)
+        if not skip_pts and pts > 0:
+            w.point_av -= pts
+            w.point_wg = max(0, int(w.point_wg or 0) - pts)
+            w.point_mg = max(0, int(w.point_mg or 0) - pts)
+            w.point_pd = 0 if w.point_av >= 0 else -w.point_av
+            if w.point_av < 0 and void_cards:
+                for c in sess.query(Card).filter_by(uid=uid, status="UNUSED", src="EXCHANGE"):
+                    c.status = "VOID"
+                    c.void_reason = f"对局作废 · {reason}"
+        if sh > 0:
+            w.shard_w = max(0, int(w.shard_w or 0) - sh)
+            w.shard_t = max(0, int(w.shard_t or 0) - sh)
+    g.status = "VOID"
+    total_pts = sum(int(p.get("pts") or 0) for p in g.players or [])
+    uid0 = int(g.players[0]["uid"]) if g.players else None
+    log(sess, "GAME_VOID", f"{g.pname} · {len(g.players or [])} 人 · 积分 {total_pts} · {reason}", uid0, admin)
+    sess.flush()
+    return g.to_dict()
 
 
 def signed_days(sess: Session, uid: int) -> list[int]:
