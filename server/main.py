@@ -794,6 +794,42 @@ def admin_job_detail(
     return L.job_detail(db, uid, preset, date_from, date_to)
 
 
+@app.get("/api/admin/coin-adjust")
+def coin_adjust_page(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    return L.coin_adjust_page(db)
+
+
+@app.post("/api/admin/coin-adjust/{aid}/{action}")
+def coin_adjust(aid: int, action: str, body: ReasonIn = ReasonIn(), admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    if admin["role"] != "BOSS":
+        raise HTTPException(403, "仅老板审批")
+    try:
+        return L.approve_coin_adjust(db, aid, action, admin, body.reason or "")
+    except ValueError as e:
+        fail(e)
+
+
+@app.get("/api/admin/deactivation")
+def deactivation_list(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    return L.deactivation_page(db)
+
+
+@app.get("/api/admin/deactivation/{did}")
+def deactivation_one(did: int, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    try:
+        return L.deactivation_detail(db, did)
+    except ValueError as e:
+        fail(e)
+
+
+@app.post("/api/admin/deactivations/{did}/{action}")
+def deact_act(did: int, action: str, body: ReasonIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    try:
+        return L.exec_deactivation(db, did, action, body.reason, admin)
+    except ValueError as e:
+        fail(e)
+
+
 COLL_MAP = {
     "orders": (Order, "to_dict"),
     "recharges": (Recharge, "to_dict"),
@@ -1190,46 +1226,10 @@ def save_product(body: PatchIn, admin: dict = Depends(admin_user), db: Session =
     return p.to_dict()
 
 
-@app.get("/api/admin/coin-adjust")
-def coin_adjust_page(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
-    return L.coin_adjust_page(db)
-
-
-@app.post("/api/admin/coin-adjust/{aid}/{action}")
-def coin_adjust(aid: int, action: str, body: ReasonIn = ReasonIn(), admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
-    if admin["role"] != "BOSS":
-        raise HTTPException(403, "仅老板审批")
-    try:
-        return L.approve_coin_adjust(db, aid, action, admin, body.reason or "")
-    except ValueError as e:
-        fail(e)
-
-
 @app.post("/api/admin/orders/{oid}/refund")
 def admin_refund_order(oid: int, body: ReasonIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
     try:
         return L.refund_order(db, oid, body.reason, admin)
-    except ValueError as e:
-        fail(e)
-
-
-@app.get("/api/admin/deactivation")
-def deactivation_list(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
-    return L.deactivation_page(db)
-
-
-@app.get("/api/admin/deactivation/{did}")
-def deactivation_one(did: int, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
-    try:
-        return L.deactivation_detail(db, did)
-    except ValueError as e:
-        fail(e)
-
-
-@app.post("/api/admin/deactivations/{did}/{action}")
-def deact_act(did: int, action: str, body: ReasonIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
-    try:
-        return L.exec_deactivation(db, did, action, body.reason, admin)
     except ValueError as e:
         fail(e)
 
