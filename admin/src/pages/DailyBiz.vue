@@ -73,9 +73,6 @@ function clampCustomDates() {
 function todayMax() {
   return new Date().toISOString().slice(0, 10);
 }
-function setChartMetric(m: BizMetric) {
-  chartMetric.value = m;
-}
 
 const tablePage = ref(1);
 const tablePageSize = ref(DEFAULT_PAGE_SIZE);
@@ -179,11 +176,7 @@ watch([tablePage, tablePageSize], () => load());
     <template v-else-if="data">
       <p v-if="err" class="load-err">{{ err }} <button class="btn sm ghost" @click="load">重试</button></p>
       <div class="cards">
-        <div
-          class="mtr mtr-metric"
-          :class="{ on: chartMetric === 'biz' }"
-          @click="setChartMetric('biz')"
-        >
+        <div class="mtr">
           <div class="k">区间营业额</div>
           <div class="v">¥{{ fmt(summary.biz) }}</div>
           <div class="tiny">{{ summary.days }} 天合计</div>
@@ -193,11 +186,7 @@ watch([tablePage, tablePageSize], () => load());
           <div class="v">¥{{ fmt(summary.avg) }}</div>
           <div class="tiny">区间内平均</div>
         </div>
-        <div
-          class="mtr mtr-metric"
-          :class="{ on: chartMetric === 'recharge' }"
-          @click="setChartMetric('recharge')"
-        >
+        <div class="mtr">
           <div class="k">区间充值</div>
           <div class="v">¥{{ fmt(summary.recharge) }}</div>
           <div class="tiny">现金实收口径</div>
@@ -312,17 +301,6 @@ watch([tablePage, tablePageSize], () => load());
   width: auto;
   max-width: 150px;
   margin: 0;
-}
-.mtr-metric {
-  cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-.mtr-metric:hover {
-  border-color: rgba(55, 138, 221, 0.35);
-}
-.mtr-metric.on {
-  border-color: #378add;
-  box-shadow: 0 0 0 1px rgba(55, 138, 221, 0.2);
 }
 .peak-day {
   font-size: 17px;
