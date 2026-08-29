@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { api, DEFAULT_PAGE_SIZE, pageQs } from "../api";
 import AppPagination from "../components/AppPagination.vue";
+import AppDateInput from "../components/AppDateInput.vue";
 
 const router = useRouter();
 const route = useRoute();
@@ -85,14 +86,6 @@ function onCustomDateChange() {
 }
 function toggleStatus(k: string) {
   status.value = status.value === k ? "" : k;
-}
-function openDatePicker(e: Event) {
-  const el = e.currentTarget as HTMLInputElement;
-  try {
-    el.showPicker?.();
-  } catch {
-    /* unsupported */
-  }
 }
 
 const summary = computed(() => data.value?.summary || { paidAmount: 0, paidCount: 0, avgAmount: 0, cancelled: 0, active: 0 });
@@ -202,9 +195,9 @@ watch(status, () => load(true));
         </div>
         <div v-if="preset === 'custom'" class="flt-custom">
           <span class="tiny">起</span>
-          <input v-model="dateFrom" type="date" class="inp flt-date" @change="onCustomDateChange" @click="openDatePicker" />
+          <AppDateInput v-model="dateFrom" @change="onCustomDateChange" />
           <span class="tiny">止</span>
-          <input v-model="dateTo" type="date" class="inp flt-date" @change="onCustomDateChange" @click="openDatePicker" />
+          <AppDateInput v-model="dateTo" @change="onCustomDateChange" />
         </div>
         <div class="flt-extra">
           <label class="flt-field">

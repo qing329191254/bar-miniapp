@@ -5,6 +5,7 @@ import { api, DEFAULT_PAGE_SIZE, pageQs } from "../api";
 import BizTrendChart from "./BizTrendChart.vue";
 import { buildChartSlice, type BizMetric } from "./bizChartUtil";
 import AppPagination from "../components/AppPagination.vue";
+import AppDateInput from "../components/AppDateInput.vue";
 
 const router = useRouter();
 const preset = ref("7d");
@@ -71,14 +72,6 @@ function clampCustomDates() {
 }
 function todayMax() {
   return new Date().toISOString().slice(0, 10);
-}
-function openDatePicker(e: Event) {
-  const el = e.currentTarget as HTMLInputElement;
-  try {
-    el.showPicker?.();
-  } catch {
-    /* already open or unsupported */
-  }
 }
 function setChartMetric(m: BizMetric) {
   chartMetric.value = m;
@@ -170,9 +163,9 @@ watch([tablePage, tablePageSize], () => load());
       </div>
       <div v-if="preset === 'custom'" class="flt-custom">
         <span class="tiny">起</span>
-        <input v-model="dateFrom" type="date" class="inp flt-date" :max="data?.today || todayMax()" @click="openDatePicker" @change="onCustomDateChange" />
+        <AppDateInput v-model="dateFrom" :max="data?.today || todayMax()" @change="onCustomDateChange" />
         <span class="tiny">止</span>
-        <input v-model="dateTo" type="date" class="inp flt-date" :max="data?.today || todayMax()" @click="openDatePicker" @change="onCustomDateChange" />
+        <AppDateInput v-model="dateTo" :max="data?.today || todayMax()" @change="onCustomDateChange" />
         <span v-if="!dateFrom || !dateTo" class="tiny flt-custom-hint">请选择起止日期</span>
       </div>
     </div>

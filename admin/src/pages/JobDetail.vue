@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { api, DEFAULT_PAGE_SIZE, pageQs } from "../api";
 import AppPagination from "../components/AppPagination.vue";
+import AppDateInput from "../components/AppDateInput.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -162,9 +163,9 @@ watch([feedPage, feedPageSize], () => load());
         </div>
         <div v-if="preset === 'custom'" class="flt-custom">
           <span class="tiny">起</span>
-          <input v-model="dateFrom" type="date" class="inp flt-date" @change="load" />
+          <AppDateInput v-model="dateFrom" @change="load" />
           <span class="tiny">止</span>
-          <input v-model="dateTo" type="date" class="inp flt-date" @change="load" />
+          <AppDateInput v-model="dateTo" @change="load" />
         </div>
       </div>
 
