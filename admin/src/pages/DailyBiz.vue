@@ -290,17 +290,13 @@ watch([tablePage, tablePageSize], () => load());
 .flt-custom {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   margin-top: 10px;
   flex-wrap: wrap;
 }
 .flt-custom-hint {
   color: var(--ink3);
-}
-.flt-date {
-  width: auto;
-  max-width: 150px;
-  margin: 0;
+  margin-left: 2px;
 }
 .peak-day {
   font-size: 17px;

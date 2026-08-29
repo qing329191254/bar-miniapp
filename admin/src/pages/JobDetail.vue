@@ -240,14 +240,9 @@ watch([feedPage, feedPageSize], () => load());
 .flt-custom {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   margin-top: 10px;
   flex-wrap: wrap;
-}
-.flt-date {
-  width: auto;
-  max-width: 150px;
-  margin: 0;
 }
 .job-day-card {
   padding-bottom: 4px;

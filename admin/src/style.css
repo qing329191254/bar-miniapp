@@ -135,7 +135,8 @@ th{font-weight:400;color:var(--ink3);font-size:11px;position:sticky;top:0;z-inde
   position:relative;
   cursor:pointer;
   color-scheme:light;
-  min-height:36px;
+  width:auto;
+  min-height:32px;
 }
 .inp[type="date"]::-webkit-calendar-picker-indicator{
   position:absolute;

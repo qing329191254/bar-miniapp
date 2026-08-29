@@ -363,8 +363,7 @@ watch(status, () => load(true));
 .err-card p { color: #a32d2d; padding: 16px; }
 .flt-card .st em { font-weight: normal; color: var(--ink2); }
 .flt-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.flt-custom { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-.flt-date { width: auto; max-width: 150px; margin: 0; }
+.flt-custom { display: flex; align-items: center; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
 .flt-extra { display: flex; gap: 10px; margin-top: 9px; flex-wrap: wrap; }
 .flt-field { display: block; }
 .flt-field .fld { display: block; color: var(--ink2); font-size: 12px; margin-bottom: 4px; }
