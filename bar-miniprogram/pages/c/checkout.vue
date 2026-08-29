@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
-import { api, loadCart, saveCart, savedUser } from "@/utils/api";
+import { api, loadCart, saveCart, savedUser, toastText } from "@/utils/api";
 
 const products = ref([]);
 const tables = ref([]);
@@ -28,7 +28,7 @@ onShow(async () => {
   if (valid.length !== cart.value.length) {
     cart.value = valid;
     saveCart(valid);
-    uni.showToast({ title: "购物车有失效商品，已自动移除", icon: "none" });
+    toastText("已移除失效商品");
   }
   try {
     const me = await api("/me");
@@ -107,6 +107,7 @@ async function submit() {
 </script>
 
 <template>
+  <page-meta :page-style="`overflow:${showTable ? 'hidden' : 'visible'}`" />
   <view class="pbody">
     <view class="card">
       <view class="h2">商品明细</view>

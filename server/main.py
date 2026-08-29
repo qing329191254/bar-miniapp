@@ -79,6 +79,8 @@ def current_user(
     user = L.u(db, uid)
     if not user or user.status == "DEACTIVATED":
         raise HTTPException(401, "账号不可用")
+    if user.role == "CUSTOMER" and L.agreement_reconsent_required(db, user.id):
+        raise HTTPException(401, "协议已重大更新，请重新阅读并同意")
     return L.public_user(db, user)
 
 
@@ -103,11 +105,17 @@ class LoginIn(BaseModel):
     password: str = ""
     code: str = ""
     phoneCode: str = ""
+    agreed: bool = False
+    termsVersion: int = 0
+    privacyVersion: int = 0
 
 
 class WxLoginIn(BaseModel):
     code: str = ""
     phoneCode: str = ""
+    agreed: bool = False
+    termsVersion: int = 0
+    privacyVersion: int = 0
 
 
 class RegisterIn(BaseModel):
@@ -190,7 +198,15 @@ def session_payload(db: Session, user: User) -> dict:
     return {"token": token, "user": L.public_user(db, user)}
 
 
-def login_with_wx(code: str, phone_code: str, db: Session) -> dict:
+def login_with_wx(code: str, phone_code: str, agreed: bool, terms_version: int,
+                  privacy_version: int, db: Session) -> dict:
+    agreements = L.setting(db, "agreements") or {}
+    current_terms = int((agreements.get("terms") or {}).get("ver") or 1)
+    current_privacy = int((agreements.get("privacy") or {}).get("ver") or 1)
+    if not agreed:
+        raise HTTPException(400, "请先阅读并同意协议")
+    if terms_version != current_terms or privacy_version != current_privacy:
+        raise HTTPException(409, "协议已更新，请重新阅读并同意")
     if not (phone_code or "").strip():
         raise HTTPException(400, "请授权手机号")
     try:
@@ -201,13 +217,15 @@ def login_with_wx(code: str, phone_code: str, db: Session) -> dict:
     user = L.register_wx(db, openid, phone_full)
     if user.status == "DEACTIVATED":
         raise HTTPException(401, "账号不可用")
+    L.record_agreement(db, user, current_terms, current_privacy)
     return session_payload(db, user)
 
 
 @app.post("/api/auth/login")
 def login(body: LoginIn, db: Session = Depends(get_db)):
     if (body.code or "").strip():
-        return login_with_wx(body.code, body.phoneCode, db)
+        return login_with_wx(body.code, body.phoneCode, body.agreed, body.termsVersion,
+                             body.privacyVersion, db)
     raw = (body.account or "").strip()
     digits = "".join(ch for ch in raw if ch.isdigit())
     if not digits:
@@ -228,7 +246,8 @@ def login(body: LoginIn, db: Session = Depends(get_db)):
 
 @app.post("/api/auth/wx")
 def wx_login(body: WxLoginIn, db: Session = Depends(get_db)):
-    return login_with_wx(body.code, body.phoneCode, db)
+    return login_with_wx(body.code, body.phoneCode, body.agreed, body.termsVersion,
+                         body.privacyVersion, db)
 
 
 @app.get("/api/dev/accounts")
@@ -317,6 +336,12 @@ def home(
 @app.get("/api/content")
 def content(db: Session = Depends(get_db)):
     return L.setting(db, "content")
+
+
+@app.get("/api/agreements")
+def public_agreements(db: Session = Depends(get_db)):
+    docs = L.setting(db, "agreements") or {}
+    return {"terms": docs.get("terms") or {}, "privacy": docs.get("privacy") or {}}
 
 
 @app.get("/api/products")
@@ -484,17 +509,44 @@ def team_detail(tid: int, db: Session = Depends(get_db)):
     t = L.team(db, tid)
     if not t:
         raise HTTPException(404, "战队不存在")
-    ms = [L.public_user(db, x) for x in L.custs(db) if x.team_id == tid]
-    return {"team": {"id": t.id, "name": t.name}, "members": ms,
-            "champs": sum(L.champ_count(db, x.id) for x in L.custs(db) if x.team_id == tid)}
+    users = [x for x in L.custs(db) if x.team_id == tid]
+    members = []
+    for x in users:
+        wallet = L.wallet_of(db, x.id)
+        members.append({
+            **L.public_user(db, x), "champions": L.champ_count(db, x.id),
+            "shardWeek": int(wallet.shard_w or 0), "shardTotal": int(wallet.shard_t or 0),
+        })
+    members.sort(key=lambda x: -x["shardWeek"])
+    champ_total = sum(x["champions"] for x in members)
+    user_ids = {x.id for x in users}
+    champ_month = sum(1 for c in db.query(Champ).all() if c.uid in user_ids and str(c.date).startswith(L.current_month()))
+    rank_rows = L.rank_rows(db, "SHARD", "WEEK", "TEAM")
+    rank = next((r["rank"] for r in rank_rows if r.get("team", {}).get("id") == tid), None)
+    records = []
+    for c in db.query(Champ).filter(Champ.uid.in_(user_ids)).order_by(Champ.date.desc(), Champ.id.desc()).all():
+        winner = L.u(db, c.uid)
+        records.append({**c.to_dict(), "nick": winner.nick if winner else "—"})
+    return {
+        "team": {"id": t.id, "name": t.name}, "members": members,
+        "champs": champ_total, "monthChamps": champ_month,
+        "shardWeek": sum(x["shardWeek"] for x in members),
+        "shardTotal": sum(x["shardTotal"] for x in members),
+        "rank": rank, "records": records,
+    }
 
 
 @app.put("/api/profile")
 def profile(body: ProfileIn, user: dict = Depends(current_user), db: Session = Depends(get_db)):
     usr = L.u(db, user["id"])
-    if body.nick:
-        usr.nick = body.nick.strip()[:12]
+    if body.nick is not None:
+        nick = body.nick.strip()
+        if not 2 <= len(nick) <= 12:
+            raise HTTPException(400, "昵称长度需为 2-12 个字符")
+        usr.nick = nick
     if body.gender is not None:
+        if body.gender not in (0, 1, 2):
+            raise HTTPException(400, "性别参数不正确")
         usr.gender = body.gender
     return L.public_user(db, usr)
 
@@ -802,6 +854,78 @@ def move_team_member(body: PatchIn, admin: dict = Depends(admin_user), db: Sessi
     user.team_id = target_id
     L.log(db, "TEAM_MEMBER_MOVE", f"{user.nick}：{old.name if old else '未分配'} → {target.name if target else '未分配'}", None, admin)
     return {"ok": True}
+
+
+def _settle_dict(row: SettleLog) -> dict:
+    return row.to_dict()
+
+
+@app.get("/api/admin/settlement/current")
+def settlement_current(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    configured = (L.setting(db, "settleWeek") or {}).get("start", "")
+    weeks = sorted({x.week for x in db.query(SettleLog).all() if x.week}, reverse=True)
+    week = next((x for x in weeks if configured and configured in x), weeks[0] if weeks else "")
+    rows = [x for x in db.query(SettleLog).filter(SettleLog.week == week).order_by(SettleLog.id).all()]
+    return {"week": week, "rows": [_settle_dict(x) for x in rows], "cfg": L.setting(db, "cfg") or {}}
+
+
+@app.get("/api/admin/settlement/history")
+def settlement_history(preset: str = "all", admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    rows = [_settle_dict(x) for x in db.query(SettleLog).order_by(SettleLog.id.desc()).all()]
+    weeks: dict[str, list] = {}
+    for row in rows:
+        weeks.setdefault(row["week"] or "未标注周期", []).append(row)
+    grouped = []
+    for week, group in weeks.items():
+        granted = [x for x in group if x["status"] == "GRANTED"]
+        revoked = [x for x in group if x["status"] == "REVOKED"]
+        grouped.append({"week": week, "rows": group, "winners": len({x["nick"] for x in group if x["nick"]}),
+                        "team": sum(1 for x in group if x["type"] == "TEAM_CHAMPION"),
+                        "personal": sum(1 for x in group if x["type"].startswith("PERSONAL")),
+                        "manual": sum(1 for x in group if x["type"] == "MANUAL"),
+                        "granted": len(granted), "revoked": len(revoked), "total": len(group)})
+    return {"weeks": grouped, "rows": rows}
+
+
+@app.post("/api/admin/settlement/{sid}/revoke")
+def revoke_settlement(sid: int, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    if admin["role"] != "BOSS":
+        raise HTTPException(403, "仅老板可撤销结算奖励")
+    row = db.get(SettleLog, sid)
+    if not row or row.status != "GRANTED":
+        raise HTTPException(400, "该奖励不能撤销")
+    if row.card_id:
+        card = db.get(Card, row.card_id)
+        if card and card.status == "UNUSED":
+            card.status = "VOID"
+            card.void_reason = "结算奖励撤销"
+    row.status = "REVOKED"
+    L.log(db, "SETTLE_REVOKE", f"撤销 {row.week} · {row.nick} · {row.desc}", None, admin)
+    return _settle_dict(row)
+
+
+@app.get("/api/admin/settlement-config")
+def settlement_config(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    return {"cfg": L.setting(db, "cfg") or {}, "templates": [x.to_dict() for x in db.query(CardTpl).filter(CardTpl.cat == "OTHER").all()]}
+
+
+@app.put("/api/admin/settlement-config")
+def save_settlement_config(body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    if admin["role"] != "BOSS":
+        raise HTTPException(403, "仅老板可修改榜单与奖励规则")
+    data = body.data or {}
+    cfg = dict(L.setting(db, "cfg") or {})
+    cfg["rankDim"] = "MONTH" if data.get("rankDim") == "MONTH" else "WEEK"
+    cfg["rankRange"] = max(1, min(20, int(data.get("rankRange") or 3)))
+    cfg["prizeMap"] = {str(k): str(v) for k, v in (data.get("prizeMap") or {}).items() if str(k).isdigit()}
+    cfg["teamReward"] = bool(data.get("teamReward"))
+    cfg["teamCard"] = str(data.get("teamCard") or "")
+    cfg["stack"] = bool(data.get("stack"))
+    cfg["reqShard"] = bool(data.get("reqShard"))
+    cfg["settleCap"] = max(1, min(100, int(data.get("settleCap") or 20)))
+    L.save_setting(db, "cfg", cfg)
+    L.log(db, "SETTLE_CONFIG_UPDATE", "更新榜单与奖励规则", None, admin)
+    return cfg
 
 
 @app.get("/api/admin/{coll}")

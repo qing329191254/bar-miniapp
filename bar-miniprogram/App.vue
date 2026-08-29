@@ -41,6 +41,13 @@ button::after { border: none; }
 .row { display: flex; align-items: center; gap: 8px; }
 .between { display: flex; justify-content: space-between; align-items: center; }
 .tiny { color: #9C9A93; font-size: 11px; }
+.number-display {
+	font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+	font-variant-numeric: tabular-nums;
+	font-feature-settings: "tnum";
+	font-weight: 600;
+	letter-spacing: -.5px;
+}
 .gold { color: #BA7517; }
 .pill {
 	display: inline-block;

@@ -66,7 +66,15 @@
 		},
 		{
 			"path": "pages/c/shard",
-			"style": { "navigationBarTitleText": "碎片" }
+			"style": { "navigationBarTitleText": "我的碎片" }
+		},
+		{
+			"path": "pages/c/champion",
+			"style": { "navigationBarTitleText": "我的冠军" }
+		},
+		{
+			"path": "pages/c/team",
+			"style": { "navigationBarTitleText": "战队详情" }
 		},
 		{
 			"path": "pages/s/todo",

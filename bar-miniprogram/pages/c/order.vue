@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
-import { api, go, loadCart, media, saveCart, savedUser } from "@/utils/api";
+import { api, go, loadCart, media, saveCart, savedUser, toastText } from "@/utils/api";
 
 const cats = ref([]);
 const products = ref([]);
@@ -25,7 +25,7 @@ onShow(async () => {
   if (valid.length !== cart.value.length) {
     cart.value = valid;
     saveCart(valid);
-    uni.showToast({ title: "已移除下架、售罄或失效规格商品", icon: "none" });
+    toastText("已移除失效商品");
   }
   cid.value = cats.value[0]?.id || 0;
 });
@@ -110,6 +110,7 @@ function checkout() {
 </script>
 
 <template>
+  <page-meta :page-style="`overflow:${specPid ? 'hidden' : 'visible'}`" />
   <view class="ord-page">
     <view class="ord-sub">{{ user.nick }} {{ user.tail }} · 桌台选填</view>
     <view class="ord-main">

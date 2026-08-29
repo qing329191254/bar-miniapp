@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onUnmounted, ref } from "vue";
 import { onLoad, onShow } from "@dcloudio/uni-app";
-import { api } from "@/utils/api";
+import { api, toastText } from "@/utils/api";
 
 const data = ref(null);
 const me = ref(null);
@@ -34,7 +34,7 @@ async function load(withLoading = true) {
     me.value = mine;
     now.value = Date.now();
     if (createdNo.value) {
-      uni.showToast({ title: "充值单已生成：" + createdNo.value, icon: "none", duration: 2200 });
+      toastText("充值单已生成", 2200);
       createdNo.value = "";
     }
   } catch (e) {
@@ -46,7 +46,7 @@ async function cancel() {
   if (!order.value || order.value.status !== "PENDING_PAY") return;
   try {
     await api(`/recharges/${order.value.id}/cancel`, { method: "POST" });
-    uni.showToast({ title: "充值单已取消", icon: "none" });
+    toastText("充值单已取消");
     setTimeout(() => uni.navigateBack(), 700);
   } catch (e) {
     msg.value = e.message;

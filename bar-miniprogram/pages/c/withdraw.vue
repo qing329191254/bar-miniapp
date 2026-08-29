@@ -116,6 +116,7 @@ onUnmounted(() => clearTimeout(noticeTimer));
 </script>
 
 <template>
+  <page-meta :page-style="`overflow:${showConfirm || showCancelConfirm ? 'hidden' : 'visible'}`" />
   <view class="pbody" v-if="data">
     <template v-if="pw">
       <view class="card pend">
@@ -170,7 +171,7 @@ onUnmounted(() => clearTimeout(noticeTimer));
     <template v-else>
       <view class="pt-card">
         <view class="tiny pt-label">可提取积分</view>
-        <view class="pt-num" :class="{ neg: negative }">{{ negative ? "−" + fmt(-av) : fmt(av) }}</view>
+        <view class="pt-num number-display" :class="{ neg: negative }">{{ negative ? "−" + fmt(-av) : fmt(av) }}</view>
         <view v-if="data.point.fz > 0" class="tiny" style="color:#ffe9b8;margin-top:4px">
           另有 {{ fmt(data.point.fz) }} 分冻结中
         </view>
@@ -255,7 +256,7 @@ onUnmounted(() => clearTimeout(noticeTimer));
   margin-bottom: 12px;
 }
 .pt-label { color: rgba(255, 255, 255, 0.8); }
-.pt-num { font-size: 32px; font-weight: 700; margin-top: 2px; }
+.pt-num { font-size: 32px; margin-top: 2px; }
 .pt-num.neg { color: #ffc9c9; }
 .st { font-size: 13px; font-weight: 600; margin: 4px 0 8px; }
 .pend { border: 2px solid #ba7517; background: #fdf4e3; }
@@ -319,6 +320,8 @@ onUnmounted(() => clearTimeout(noticeTimer));
   font-size: 14px;
   text-align: center;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   box-shadow: 0 8px 20px rgba(28,27,25,.18);
 }
 </style>

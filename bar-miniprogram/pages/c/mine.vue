@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
-import { api, clearSession, go, relaunch } from "@/utils/api";
+import { api, clearSession, go, relaunch, toastText } from "@/utils/api";
 
 const me = ref(null);
 const champs = ref({ list: [], total: 0, month: 0 });
@@ -11,6 +11,10 @@ const showFaq = ref(false);
 const showTerms = ref(false);
 const showPrivacy = ref(false);
 const showDeact = ref(false);
+const showEdit = ref(false);
+const editNick = ref("");
+const editGender = ref(0);
+const editMsg = ref("");
 const deactReason = ref("");
 const deactMsg = ref("");
 
@@ -89,13 +93,39 @@ function logout() {
   clearSession();
   relaunch("/pages/login/login");
 }
-function gender(g) {
-  return g === 1 ? "男" : g === 2 ? "女" : "未知";
+function openEditProfile() {
+  editNick.value = me.value?.user?.nick || "";
+  editGender.value = Number(me.value?.user?.gender || 0);
+  editMsg.value = "";
+  showEdit.value = true;
+}
+function closeEditProfile() {
+  showEdit.value = false;
+}
+async function saveProfile() {
+  const nick = editNick.value.trim();
+  if (nick.length < 2 || nick.length > 12) { editMsg.value = "昵称长度为 2-12 个字符"; return; }
+  try {
+    await api("/profile", { method: "PUT", body: { nick, gender: editGender.value } });
+    me.value = await api("/me");
+    closeEditProfile();
+    uni.showToast({ title: "资料已保存", icon: "success" });
+  } catch (e) { editMsg.value = e.message || "保存失败"; }
 }
 const lastChamp = computed(() => {
   const d = champs.value.list?.[0]?.date;
   return d ? String(d).slice(5) : "—";
 });
+function genderLabel(g) { return g === 1 ? "男" : g === 2 ? "女" : "暂未设置"; }
+
+function openTeamDetail() {
+  const teamId = me.value?.user?.teamId;
+  if (teamId) {
+    go(`/pages/c/team?id=${teamId}`);
+    return;
+  }
+  toastText("暂无战队，请联系店员");
+}
 
 const shop = computed(() => {
   const s = me.value?.shop || {};
@@ -117,7 +147,7 @@ function closeShopSheet() {
 function callShop() {
   const tel = shop.value.tel;
   if (!tel) {
-    uni.showToast({ title: "商家尚未配置联系电话", icon: "none" });
+    toastText("尚未配置联系电话");
     return;
   }
   uni.makePhoneCall({ phoneNumber: tel.replace(/\s/g, "") });
@@ -215,7 +245,7 @@ const deactAssets = computed(() => {
 
 function openDeactDlg() {
   if (deactPending.value) {
-    uni.showToast({ title: "注销申请已提交，请到店由店长核对资产结清", icon: "none" });
+    toastText("注销申请已提交");
     return;
   }
   deactReason.value = "";
@@ -235,7 +265,7 @@ async function submitDeact() {
   try {
     await api("/deactivate", { method: "POST", body: { reason } });
     showDeact.value = false;
-    uni.showToast({ title: "注销申请已提交，请到店由店长核对资产结清", icon: "none", duration: 2500 });
+    toastText("注销申请已提交", 2500);
     me.value = await api("/me");
   } catch (e) {
     deactMsg.value = e.message;
@@ -244,29 +274,31 @@ async function submitDeact() {
 </script>
 
 <template>
+  <page-meta :page-style="`overflow:${showEdit || showShop || showFaq || showTerms || showPrivacy || showDeact ? 'hidden' : 'visible'}`" />
   <view class="pbody" v-if="me">
     <view class="profile-hd">
       <view class="row">
         <view class="ph-lg">{{ me.user.av }}</view>
         <view style="margin-left:12px;flex:1">
           <view style="font-size:17px;font-weight:600;letter-spacing:.5px">{{ me.user.nick }}</view>
-          <view class="tiny" style="color:rgba(255,255,255,.72);margin-top:2px">{{ me.user.phone }} · {{ gender(me.user.gender) }}</view>
+          <view class="tiny" style="color:rgba(255,255,255,.72);margin-top:2px">{{ me.user.phone }} · {{ genderLabel(me.user.gender) }}</view>
           <view class="row" style="margin-top:6px">
             <text class="pill-w">会员 {{ me.user.no }}</text>
-            <text class="pill-w" v-if="me.user.teamName" style="color:#CECBF6">{{ me.user.teamName }}</text>
+            <text class="pill-w team-pill">{{ me.user.teamName || "暂未加入战队" }}</text>
           </view>
         </view>
+        <view class="edit-entry" @tap="openEditProfile">编辑资料 <text>›</text></view>
       </view>
     </view>
 
     <view class="asset-card">
       <view class="asset-grid">
         <view class="asset" @tap="go('/pages/c/recharge')">
-          <view class="ab gold">{{ fmt(me.user.coin.total) }}</view>
+          <view class="ab gold number-display">{{ fmt(me.user.coin.total) }}</view>
           <text>金币</text>
         </view>
         <view class="asset" @tap="go('/pages/c/points')">
-          <view class="ab" :style="{ color: me.user.point.av < 0 ? '#A32D2D' : '#185FA5' }">{{ fmt(me.user.point.av) }}</view>
+          <view class="ab number-display" :style="{ color: me.user.point.av < 0 ? '#A32D2D' : '#185FA5' }">{{ fmt(me.user.point.av) }}</view>
           <text>积分</text>
         </view>
         <view class="asset" @tap="go('/pages/c/cards')">
@@ -274,19 +306,19 @@ async function submitDeact() {
           <text>卡包</text>
         </view>
         <view class="asset" @tap="go('/pages/c/shard')">
-          <view class="ab" style="color:#3B6D11">{{ fmt(me.user.shard.w) }}</view>
+          <view class="ab number-display" style="color:#3B6D11">{{ fmt(me.user.shard.w) }}</view>
           <text>碎片</text>
         </view>
       </view>
     </view>
 
     <view class="honor-grid">
-      <view class="honor g">
+      <view class="honor g" @tap="go('/pages/c/champion')">
         <view>我的冠军</view>
         <view class="hv">{{ champs.total }}</view>
         <view class="hl">累计夺冠 · 本月 {{ champs.month }} · 最近 {{ lastChamp }}</view>
       </view>
-      <view class="honor gn">
+      <view class="honor gn" @tap="openTeamDetail">
         <view>{{ me.user.teamName || "（暂无战队）" }}</view>
         <view class="hv">{{ team ? team.champs + " 冠" : "—" }}</view>
         <view class="hl">{{ team ? (team.members?.length || 0) + " 名成员" : "可联系店员加入" }}</view>
@@ -296,9 +328,9 @@ async function submitDeact() {
     <view class="card">
       <view class="h2">我的订单</view>
       <view class="g3">
-        <button class="btn ghost" @tap="go('/pages/c/orders')">金币订单</button>
-        <button class="btn ghost" @tap="go('/pages/c/cards')">卡包订单</button>
-        <button class="btn ghost" @tap="go('/pages/c/points')">积分订单</button>
+        <button class="btn ghost" @tap="go('/pages/c/orders?tab=coin')">金币订单</button>
+        <button class="btn ghost" @tap="go('/pages/c/orders?tab=card')">卡包订单</button>
+        <button class="btn ghost" @tap="go('/pages/c/orders?tab=point')">积分订单</button>
       </view>
     </view>
 
@@ -339,13 +371,27 @@ async function submitDeact() {
     <button class="btn ghost block" @tap="logout">切换账号</button>
     <tab-bar current="mine" />
 
+    <view v-if="showEdit" class="shop-mask" @tap="closeEditProfile" @touchmove.stop.prevent></view>
+    <view v-if="showEdit" class="shop-sheet edit-sheet" @touchmove.stop.prevent>
+      <view class="shop-hd"><text class="shop-title">编辑资料</text><text class="shop-close" @tap="closeEditProfile">关闭</text></view>
+      <view class="edit-avatar">{{ me.user.av }}</view>
+      <view class="tiny edit-avatar-tip">头像使用昵称前两字，修改昵称后会自动更新</view>
+      <view class="edit-label">昵称 *</view>
+      <input class="field edit-input" v-model="editNick" maxlength="12" placeholder="请输入昵称" />
+      <view class="tiny">2-12 个字符，将展示在榜单与战队名单中</view>
+      <view class="edit-label">性别</view>
+      <view class="gender-row"><button class="gender-btn" :class="{active:editGender===1}" @tap="editGender=1">男</button><button class="gender-btn" :class="{active:editGender===2}" @tap="editGender=2">女</button><button class="gender-btn" :class="{active:editGender===0}" @tap="editGender=0">不显示</button></view>
+      <view class="edit-readonly"><view><text>会员号</text><b>{{me.user.no}}</b></view><view><text>手机号</text><b>{{me.user.phone}}</b></view><view><text>战队</text><b>{{me.user.teamName || '未加入'}}</b></view><view class="tiny">会员号为账号唯一标识不可修改；换手机号与调整战队需到吧台由店员操作。</view></view>
+      <view v-if="editMsg" class="err">{{editMsg}}</view><button class="btn block" @tap="saveProfile">保存</button>
+    </view>
+
     <view v-if="showShop" class="shop-mask" @tap="closeShopSheet" @touchmove.stop.prevent></view>
     <view v-if="showShop" class="shop-sheet" @touchmove.stop>
       <view class="shop-hd">
         <text class="shop-title">联系店员</text>
         <text class="shop-close" @tap="closeShopSheet">关闭</text>
       </view>
-      <scroll-view scroll-y class="shop-body">
+      <scroll-view scroll-y :show-scrollbar="false" class="shop-body sheet-scroll">
         <view class="card shop-card">
           <view style="font-weight:600;font-size:14px">{{ shop.name }}</view>
           <view class="shop-line">
@@ -379,7 +425,7 @@ async function submitDeact() {
         <text class="shop-title">{{ faq.title }}</text>
         <text class="shop-close" @tap="closeFaqSheet">关闭</text>
       </view>
-      <scroll-view scroll-y class="faq-body">
+      <scroll-view scroll-y :show-scrollbar="false" class="faq-body sheet-scroll">
         <view class="tiny faq-sub">{{ faq.sub }} · 共 {{ faq.items.length }} 条</view>
         <view v-if="faq.items.length" class="faq-list">
           <view v-for="(it, i) in faq.items" :key="i" class="card faq-item">
@@ -398,7 +444,7 @@ async function submitDeact() {
         <text class="shop-title">{{ terms.title }} v{{ terms.ver }}</text>
         <text class="shop-close" @tap="closeTermsSheet">关闭</text>
       </view>
-      <scroll-view scroll-y class="terms-body">
+      <scroll-view scroll-y :show-scrollbar="false" class="terms-body sheet-scroll">
         <view class="tiny terms-meta">{{ termsMeta }}</view>
         <view class="terms-text">{{ terms.text }}</view>
         <view class="note terms-tip">
@@ -413,7 +459,7 @@ async function submitDeact() {
         <text class="shop-title">{{ privacy.title }} v{{ privacy.ver }}</text>
         <text class="shop-close" @tap="closePrivacySheet">关闭</text>
       </view>
-      <scroll-view scroll-y class="terms-body">
+      <scroll-view scroll-y :show-scrollbar="false" class="terms-body sheet-scroll">
         <view class="tiny terms-meta">{{ privacyMeta }}</view>
         <view class="terms-text">{{ privacy.text }}</view>
         <view class="note terms-tip">
@@ -466,7 +512,7 @@ async function submitDeact() {
         <view class="err" v-if="deactMsg">{{ deactMsg }}</view>
         <view class="dlg-btns">
           <button class="btn ghost dlg-btn" @tap="closeDeactDlg">取消</button>
-          <button class="btn danger dlg-btn" @tap="submitDeact">提交注销申请</button>
+          <button class="btn dlg-btn deact-submit" @tap="submitDeact">提交注销申请</button>
         </view>
       </view>
     </view>
@@ -503,6 +549,8 @@ async function submitDeact() {
 .shop-title { font-size: 14px; font-weight: 600; }
 .shop-close { margin-left: auto; font-size: 13px; color: #9c9a93; }
 .shop-body { max-height: 62vh; }
+.sheet-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+.sheet-scroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .shop-card { padding: 12px 14px; margin-bottom: 11px; }
 .shop-line {
   display: flex;
@@ -578,4 +626,17 @@ async function submitDeact() {
 }
 .dlg-btns { display: flex; gap: 8px; margin-top: 4px; }
 .dlg-btn { flex: 1; }
+.deact-submit { background:#b52b2b;color:#fff;border-color:#b52b2b;font-weight:600; }
+.edit-entry { flex:none; border:1px solid rgba(255,255,255,.35); color:#fff; border-radius:9px; padding:6px 9px; font-size:12px; }
+.edit-entry text { margin-left:2px; }
+.edit-sheet { max-height:82%; padding-bottom:22px; }
+.edit-avatar { width:54px;height:54px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#8470C8,#D065A0);color:#fff;font-size:20px;font-weight:600; }
+.edit-avatar-tip { margin:7px 0 13px;color:#9c9a93; }
+.edit-label { margin-top:13px;margin-bottom:6px;font-size:13px;color:#6b6a65; }
+.edit-input { width:100%;height:42px;border:1px solid rgba(28,27,25,.24);border-radius:9px;padding:0 11px;font-size:15px;box-sizing:border-box;margin-bottom:6px; }
+.gender-row { display:flex;gap:8px; }
+.gender-btn { min-width:58px;padding:7px 12px;border:1px solid rgba(28,27,25,.18);border-radius:9px;background:#fff;color:#6b6a65;font-size:13px; }
+.gender-btn.active { background:#1c1b19;color:#fff;border-color:#1c1b19; }
+.edit-readonly { background:#f5f4f0;border:1px solid rgba(28,27,25,.12);border-radius:12px;padding:11px 12px;margin:14px 0; }
+.edit-readonly>view:not(.tiny) { display:flex;justify-content:space-between;padding:3px 0;font-size:13px; }.edit-readonly text { color:#9c9a93; }.edit-readonly .tiny { margin-top:7px;line-height:1.7;color:#9c9a93; }
 </style>

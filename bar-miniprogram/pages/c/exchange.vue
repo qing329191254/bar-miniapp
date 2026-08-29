@@ -112,6 +112,7 @@ onShow(load);
 </script>
 
 <template>
+  <page-meta :page-style="`overflow:${dlg ? 'hidden' : 'visible'}`" />
   <view class="pbody" v-if="data">
     <view v-if="notice" class="exchange-notice">{{ notice }}</view>
     <view v-for="g in GROUPS" :key="g.cat">
@@ -225,6 +226,9 @@ onShow(load);
   font-size: 14px;
   line-height: 1.35;
   text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   box-shadow: 0 8px 20px rgba(28, 27, 25, .18);
 }
 </style>

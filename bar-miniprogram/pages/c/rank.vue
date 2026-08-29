@@ -64,6 +64,7 @@ const color = computed(() =>
 </script>
 
 <template>
+  <page-meta :page-style="`overflow:${showMetric ? 'hidden' : 'visible'}`" />
   <view class="pbody">
     <view class="seg">
       <button class="seg-b" :class="{ on: kind === 'SHARD' }" @tap="chooseKind('SHARD')">碎片榜</button>

@@ -150,7 +150,7 @@ export function api(path, opts = {}) {
         }
         const error = new Error(detailMsg(data));
         if (method === "GET" && opts.silent !== true) {
-          uni.showToast({ title: error.message, icon: "none" });
+          toastText(error.message);
         }
         finish();
         reject(error);
@@ -158,7 +158,7 @@ export function api(path, opts = {}) {
       fail(err) {
         const message = err?.errMsg?.includes("timeout") ? "请求超时，请稍后重试" : "连不上云端服务";
         if (method === "GET" && opts.silent !== true) {
-          uni.showToast({ title: message, icon: "none" });
+          toastText(message);
         }
         finish();
         reject(new Error(message));
@@ -176,6 +176,13 @@ export function api(path, opts = {}) {
 export function go(url, replace) {
   if (replace) uni.redirectTo({ url });
   else uni.navigateTo({ url });
+}
+
+export function toastText(message, duration = 2000) {
+  const text = String(message || "操作失败").replace(/\s+/g, " ").trim();
+  const chars = Array.from(text);
+  const title = chars.length > 10 ? chars.slice(0, 9).join("") + "…" : text;
+  uni.showToast({ title, icon: "none", duration });
 }
 
 export function relaunch(url) {

@@ -73,10 +73,11 @@ async function create() {
 </script>
 
 <template>
+  <page-meta :page-style="`overflow:${showTierDialog ? 'hidden' : 'visible'}`" />
   <view class="rc-page" v-if="data">
     <view class="card coin-card">
       <view class="tiny gold-t">当前金币</view>
-      <view class="coin-num">{{ fmt(coinTotal) }}</view>
+      <view class="coin-num number-display">{{ fmt(coinTotal) }}</view>
       <view class="coin-row">
         <text class="tiny gold-t">本金 {{ fmt(coin.p) }}</text>
         <text class="tiny gold-t">赠送 {{ fmt(coin.b) }}</text>
@@ -173,7 +174,7 @@ async function create() {
   margin-bottom: 12px;
 }
 .gold-t { color: #ba7517; }
-.coin-num { font-size: 32px; font-weight: 700; color: #633806; margin-top: 2px; }
+.coin-num { font-size: 32px; color: #633806; margin-top: 2px; }
 .coin-row { display: flex; align-items: center; gap: 10px; margin-top: 5px; flex-wrap: wrap; }
 .warn-pill { background: #fff; color: #e24b4a; margin-left: auto; }
 .st-row { display: flex; align-items: baseline; gap: 8px; margin: 4px 0 8px; }

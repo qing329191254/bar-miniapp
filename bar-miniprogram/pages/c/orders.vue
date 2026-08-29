@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from "vue";
 import { onLoad, onShow } from "@dcloudio/uni-app";
-import { api, go, saveCart } from "@/utils/api";
+import { api, go, saveCart, toastText } from "@/utils/api";
 
 const TABS = [
   { key: "coin", label: "金币订单" },
@@ -96,8 +96,8 @@ async function load() {
 }
 onShow(load);
 onLoad((options) => {
-  if (!options?.notice) return;
-  showNotice(decodeURIComponent(options.notice));
+  if (TABS.some((item) => item.key === options?.tab)) tab.value = options.tab;
+  if (options?.notice) showNotice(decodeURIComponent(options.notice));
 });
 
 function cancel(order) {
@@ -131,7 +131,7 @@ function reorder(order) {
     specIds: Array.isArray(item.specIds) ? item.specIds : [],
   }));
   if (!lines.length) {
-    uni.showToast({ title: "该订单商品已失效", icon: "none" });
+    toastText("订单商品已失效");
     return;
   }
   saveCart(lines);
@@ -141,6 +141,7 @@ function reorder(order) {
 </script>
 
 <template>
+  <page-meta :page-style="`overflow:${codeOrder ? 'hidden' : 'visible'}`" />
   <view class="pbody orders-page">
     <view v-if="notice" class="order-notice">{{ notice }}</view>
     <view class="order-tabs">
@@ -220,6 +221,9 @@ function reorder(order) {
   font-size: 14px;
   line-height: 1.35;
   text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   box-shadow: 0 8px 20px rgba(28, 27, 25, .18);
 }
 .order-tabs { display: flex; gap: 8px; margin-bottom: 12px; }

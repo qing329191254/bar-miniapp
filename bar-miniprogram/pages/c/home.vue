@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
-import { api, go, media } from "@/utils/api";
+import { api, go, media, toastText } from "@/utils/api";
 
 const WEEK_HEAD = ["一", "二", "三", "四", "五", "六", "日"];
 
@@ -190,7 +190,7 @@ async function doSign() {
     let tip = "签到成功，+" + fmt(r.points) + " 积分";
     if (r.extraPts) tip += " · 连签 " + r.streak + " 天额外 +" + fmt(r.extraPts) + " 分";
     if (r.cards?.length) tip += " · 得卡券 " + r.cards.join("、");
-    uni.showToast({ title: tip, icon: "none", duration: 2500 });
+    toastText(tip, 2500);
     data.value = await api("/home");
   } catch (e) {
     msg.value = e.message;
@@ -201,6 +201,7 @@ async function doSign() {
 </script>
 
 <template>
+  <page-meta :page-style="`overflow:${showGallery || showSign || showPlay ? 'hidden' : 'visible'}`" />
   <view class="pbody" v-if="data">
     <view
       class="home-b"

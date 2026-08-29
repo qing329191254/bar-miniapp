@@ -179,7 +179,6 @@ watch(
                     :to="'/' + it.k"
                   >
                     <span>{{ it.n }}</span>
-                    <span v-if="bossOnly(it.k)" class="perm">仅老板</span>
                   </router-link>
                 </div>
               </Transition>

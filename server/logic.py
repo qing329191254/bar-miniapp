@@ -303,8 +303,6 @@ def register_wx(sess: Session, openid: str, phone_full: str | None = None) -> Us
                 by_phone.wx_openid = openid
                 bind_wx_phone(sess, by_phone, d11)
                 return by_phone
-    agreements = setting(sess, "agreements")
-    ver = int((agreements.get("terms") or {}).get("ver") or 1)
     if phone_full:
         masked, tail = mask_phone(phone_full)
     else:
@@ -319,24 +317,45 @@ def register_wx(sess: Session, openid: str, phone_full: str | None = None) -> Us
         gender=0,
         role="CUSTOMER",
         status="ACTIVE",
-        agreed_version=ver,
+        agreed_version=0,
         pwd="",
         wx_openid=openid,
     )
     sess.add(user)
     sess.flush()
     sess.add(Wallet(user_id=user.id))
-    sess.add(AgreeLog(doc="terms", ver=ver, uid=user.id, at=fmt_hm()))
-    sess.add(AgreeLog(
-        doc="privacy",
-        ver=int((agreements.get("privacy") or {}).get("ver") or ver),
-        uid=user.id, at=fmt_hm(),
-    ))
     grant_demo_points(sess, user.id)
     grant_demo_coins(sess, user.id)
     grant_demo_cards(sess, user.id)
     grant_demo_sign(sess, user.id)
     return user
+
+
+def record_agreement(sess: Session, user: User, terms_ver: int, privacy_ver: int) -> None:
+    for doc, ver in (("terms", terms_ver), ("privacy", privacy_ver)):
+        exists = sess.query(AgreeLog).filter_by(doc=doc, ver=ver, uid=user.id).first()
+        if not exists:
+            sess.add(AgreeLog(doc=doc, ver=ver, uid=user.id, at=fmt_hm()))
+    user.agreed_version = terms_ver
+
+
+def agreement_reconsent_required(sess: Session, uid: int) -> bool:
+    agreements = setting(sess, "agreements") or {}
+    for doc in ("terms", "privacy"):
+        current = agreements.get(doc) or {}
+        major_versions = [
+            int(item.get("v") or 0) for item in (current.get("hist") or [])
+            if item.get("type") == "重大变更"
+        ]
+        if current.get("major"):
+            major_versions.append(int(current.get("ver") or 1))
+        required_ver = max(major_versions or [0])
+        if not required_ver:
+            continue
+        latest = sess.query(AgreeLog).filter_by(doc=doc, uid=uid).order_by(AgreeLog.ver.desc()).first()
+        if not latest or latest.ver < required_ver:
+            return True
+    return False
 
 
 STARTER_POINTS = {"av": 8600, "wg": 3200, "mg": 17300, "pd": 0, "wd": 0, "fz": 0}

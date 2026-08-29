@@ -26,7 +26,7 @@ onShow(load);
   <view class="pbody" v-if="data">
     <view class="pt-card">
       <view class="tiny pt-label">可用积分</view>
-      <view class="pt-num" :class="{ neg: negative }">{{ negative ? "−" + fmt(-av) : fmt(av) }}</view>
+      <view class="pt-num number-display" :class="{ neg: negative }">{{ negative ? "−" + fmt(-av) : fmt(av) }}</view>
       <view v-if="negative" class="row" style="margin-top:5px">
         <text class="pill pt-pill-warn">余额为负 · 待抵扣 {{ fmt(data.point.pd || -av) }} 分，后续获得将优先冲抵</text>
       </view>
@@ -88,7 +88,7 @@ onShow(load);
   box-shadow: 0 4px 12px rgba(24, 95, 165, 0.22);
 }
 .pt-label { color: rgba(255, 255, 255, 0.8); }
-.pt-num { font-size: 32px; font-weight: 700; margin-top: 2px; }
+.pt-num { font-size: 32px; margin-top: 2px; }
 .pt-num.neg { color: #ffc9c9; }
 .pt-pill-warn { background: rgba(255, 255, 255, 0.18); color: #ffd9d9; }
 .pt-pill-gold { background: rgba(255, 255, 255, 0.18); color: #ffe9b8; }

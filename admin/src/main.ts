@@ -18,6 +18,9 @@ import CardTemplates from "./pages/CardTemplates.vue";
 import WithdrawalManagement from "./pages/WithdrawalManagement.vue";
 import SignRewards from "./pages/SignRewards.vue";
 import Teams from "./pages/Teams.vue";
+import Settlement from "./pages/Settlement.vue";
+import SettlementHistory from "./pages/SettlementHistory.vue";
+import SettlementConfig from "./pages/SettlementConfig.vue";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -38,6 +41,9 @@ const router = createRouter({
     { path: "/cardTpls", component: CardTemplates },
     { path: "/signRules", component: SignRewards },
     { path: "/teams", component: Teams },
+    { path: "/settle", component: Settlement },
+    { path: "/rankHistory", component: SettlementHistory },
+    { path: "/settlecfg", component: SettlementConfig },
     { path: "/:coll", component: Collection },
   ],
 });
