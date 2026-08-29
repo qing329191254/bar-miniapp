@@ -1434,51 +1434,179 @@ def deactivate(sess: Session, uid: int, reason: str) -> dict:
     return rec.to_dict()
 
 
+def deact_live(sess: Session, uid: int) -> dict:
+    c = coin_of(sess, uid)
+    p = point_of(sess, uid)
+    sh = shard_of(sess, uid)
+    cards = sess.query(Card).filter_by(uid=uid, status="UNUSED").count()
+    return {"coinP": c["p"], "coinB": c["b"], "point": p["av"], "pointFz": p["fz"],
+            "shardW": sh["w"], "cards": cards}
+
+
+def deactivation_page(sess: Session) -> dict:
+    rows = sess.query(Deactivation).order_by(Deactivation.created.desc()).all()
+    uids = {d.uid for d in rows}
+    members = {
+        m.id: {"nick": m.nick, "tail": m.tail or "", "no": m.no or ""}
+        for m in sess.query(User).filter(User.id.in_(list(uids))).all()
+    } if uids else {}
+    out = []
+    refund_tot = 0
+    for d in rows:
+        live = deact_live(sess, d.uid)
+        if d.status == "PENDING":
+            refund_tot += live["coinP"]
+        out.append({**d.to_dict(), "live": live})
+    return {
+        "list": out,
+        "members": members,
+        "summary": {
+            "total": len(rows),
+            "pending": sum(1 for d in rows if d.status == "PENDING"),
+            "rejected": sum(1 for d in rows if d.status == "REJECTED"),
+            "done": sum(1 for d in rows if d.status == "DONE"),
+            "refundTotal": refund_tot,
+        },
+    }
+
+
+def deactivation_detail(sess: Session, did: int) -> dict:
+    d = sess.get(Deactivation, did)
+    if not d:
+        err("申请不存在")
+    usr = u(sess, d.uid)
+    live = deact_live(sess, d.uid)
+    snap = d.snap or {}
+    staff = {}
+    if d.audit_by:
+        s = sess.get(User, d.audit_by)
+        if s:
+            staff[d.audit_by] = {"nick": s.nick, "role": s.role}
+    member = None
+    if usr:
+        member = {"nick": usr.nick, "tail": usr.tail or "", "no": usr.no or "",
+                  "status": usr.status, "deact": usr.deact}
+    return {**d.to_dict(), "member": member, "live": live, "snap": snap, "staff": staff}
+
+
 def exec_deactivation(sess: Session, did: int, action: str, reason: str, admin: dict) -> dict:
     d = sess.get(Deactivation, did)
     if not d or d.status != "PENDING":
         err("已处理")
     usr = u(sess, d.uid)
+    nick = usr.nick if usr else f"uid{d.uid}"
     if action == "reject":
+        r = (reason or "").strip()
+        if len(r) < 2:
+            err("驳回原因至少 2 个字")
         d.status = "REJECTED"
-        d.audit_remark = reason
+        d.audit_remark = r
         d.audit_by = admin["id"]
         d.audit_at = f"{today_str()} {clock()}"
         if usr:
             usr.deact = None
+        log(sess, "MEMBER_DEACTIVATE_REJECT",
+            f"{nick} {usr.no if usr else ''} 注销申请被驳回 · 单号 {d.no} · 原因：{r}",
+            d.uid, admin)
     else:
+        w = wallet_of(sess, d.uid)
+        if w.point_fz > 0:
+            err("该会员仍有冻结积分，请先处理其提分单")
+        refunded = w.coin_p
+        coin_b = w.coin_b
+        cleared_pts = max(0, w.point_av)
+        shard_w = w.shard_w
         d.status = "DONE"
         d.audit_by = admin["id"]
         d.audit_at = f"{today_str()} {clock()}"
         if usr:
             usr.status = "DEACTIVATED"
             usr.deact = None
-            w = wallet_of(sess, usr.id)
-            d.refunded = w.coin_p
-            d.refund_ok = True
-            void_n = 0
-            w.coin_p = 0
-            w.coin_b = 0
-            w.point_av = 0
-            for card in sess.query(Card).filter_by(uid=usr.id, status="UNUSED"):
-                card.status = "VOID"
-                card.void_reason = "账号注销作废"
-                void_n += 1
-            d.void_cards = void_n
+            usr.team_id = None
+        void_n = 0
+        w.coin_p = 0
+        w.coin_b = 0
+        w.point_av = 0
+        w.point_pd = 0
+        w.point_fz = 0
+        w.shard_w = 0
+        w.shard_t = 0
+        for card in sess.query(Card).filter_by(uid=d.uid, status="UNUSED"):
+            card.status = "VOID"
+            card.void_reason = "账号注销作废"
+            void_n += 1
+        d.refund_ok = True
+        d.refunded = refunded
+        d.void_cards = void_n
+        ledger = dict(setting(sess, "ledger") or {})
+        ledger["ptCleared"] = int(ledger.get("ptCleared") or 0) + cleared_pts
+        save_setting(sess, "ledger", ledger)
+        log(sess, "MEMBER_DEACTIVATE",
+            f"{nick} {usr.no if usr else ''} 已注销 · 单号 {d.no} · 退还本金 ¥{refunded}"
+            f" · 核销赠送 ¥{coin_b} · 清零积分 {cleared_pts} / 碎片 {shard_w}"
+            f" · 作废卡券 {void_n} 张",
+            d.uid, admin)
     return d.to_dict()
 
 
-def approve_coin_adjust(sess: Session, aid: int, action: str) -> dict:
+def coin_adjust_page(sess: Session) -> dict:
+    rows = sess.query(CoinAdjust).order_by(CoinAdjust.at.desc()).all()
+    uids = {a.uid for a in rows}
+    staff_ids = {a.adjust_by for a in rows}
+    staff_ids |= {a.audit_by for a in rows if a.audit_by}
+    members = {
+        m.id: {"nick": m.nick, "tail": m.tail or ""}
+        for m in sess.query(User).filter(User.id.in_(list(uids))).all()
+    } if uids else {}
+    staff = {
+        s.id: {"nick": s.nick, "role": s.role}
+        for s in sess.query(User).filter(User.id.in_(list(staff_ids))).all()
+    } if staff_ids else {}
+    out = []
+    for a in rows:
+        c = coin_of(sess, a.uid)
+        bal = c["p"] + c["b"]
+        out.append({**a.to_dict(), "balance": bal, "projected": bal + a.delta if a.status == "PENDING" else None})
+    return {"list": out, "members": members, "staff": staff, "pending": sum(1 for a in rows if a.status == "PENDING")}
+
+
+def approve_coin_adjust(sess: Session, aid: int, action: str, admin: dict, reason: str = "") -> dict:
     a = sess.get(CoinAdjust, aid)
     if not a or a.status != "PENDING":
         err("已处理")
+    usr = sess.get(User, a.uid)
+    nick = usr.nick if usr else "—"
+    typ = "本金" if a.type == "PRINCIPAL" else "赠送"
+    adj = sess.get(User, a.adjust_by)
+    adj_name = adj.nick if adj else "—"
     if action == "approve":
         w = wallet_of(sess, a.uid)
+        before = w.coin_p + w.coin_b
         if a.type == "PRINCIPAL":
             w.coin_p += a.delta
         else:
             w.coin_b += a.delta
+        if w.coin_p < 0:
+            w.coin_b += w.coin_p
+            w.coin_p = 0
+        if w.coin_b < 0:
+            w.coin_b = 0
+        after = w.coin_p + w.coin_b
         a.status = "APPROVED"
+        a.audit_by = admin["id"]
+        a.audit_at = fmt_hm()
+        log(sess, "COIN_ADJUST_APPROVE",
+            f"{nick} · {'+' if a.delta > 0 else ''}{a.delta} {typ} · 余额 {before}→{after} · 申请人 {adj_name} · 原因：{a.reason}",
+            a.uid, admin)
     else:
+        r = (reason or "").strip()
+        if len(r) < 2:
+            err("驳回原因至少 2 个字")
         a.status = "REJECTED"
+        a.audit_by = admin["id"]
+        a.audit_at = fmt_hm()
+        a.audit_remark = r
+        log(sess, "COIN_ADJUST_REJECT",
+            f"{nick} · {'+' if a.delta > 0 else ''}{a.delta} 已驳回 · 原因：{r}",
+            a.uid, admin)
     return a.to_dict()

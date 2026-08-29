@@ -44,7 +44,7 @@ function member(uid: number) {
   router.push("/members?uid=" + uid);
 }
 function jobs(uid: number) {
-  router.push({ path: `/jobs/${uid}`, query: { preset: "today", back: route.path } });
+  router.push({ path: `/jobs/${uid}`, query: { preset: "today" } });
 }
 function catLabel(cat: string) {
   if (cat === "OTHER") return "宝箱卡";

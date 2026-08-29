@@ -369,10 +369,14 @@ class CoinAdjust(Base):
     adjust_by: Mapped[int] = mapped_column(Integer, default=0)
     at: Mapped[str] = mapped_column(String(24), default="")
     status: Mapped[str] = mapped_column(String(16), default="PENDING")
+    audit_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    audit_at: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    audit_remark: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     def to_dict(self):
         return {"id": self.id, "uid": self.uid, "delta": self.delta, "type": self.type,
-                "reason": self.reason, "by": self.adjust_by, "at": self.at, "status": self.status}
+                "reason": self.reason, "by": self.adjust_by, "at": self.at, "status": self.status,
+                "auditBy": self.audit_by, "auditAt": self.audit_at, "auditRemark": self.audit_remark}
 
 
 class Tier(Base):

@@ -22,6 +22,9 @@ import Teams from "./pages/Teams.vue";
 import Settlement from "./pages/Settlement.vue";
 import SettlementHistory from "./pages/SettlementHistory.vue";
 import SettlementConfig from "./pages/SettlementConfig.vue";
+import CoinAdjust from "./pages/CoinAdjust.vue";
+import Deactivations from "./pages/Deactivations.vue";
+import DeactivationDetail from "./pages/DeactivationDetail.vue";
 import DashDrill from "./pages/DashDrill.vue";
 
 const router = createRouter({
@@ -33,6 +36,9 @@ const router = createRouter({
     { path: "/liabPoint", component: DashDrill, props: { kind: "point" } },
     { path: "/liabCard", component: DashDrill, props: { kind: "card" } },
     { path: "/alertPoint", component: DashDrill, props: { kind: "alert" } },
+    { path: "/coinAdjusts", component: CoinAdjust },
+    { path: "/deactivations", component: Deactivations },
+    { path: "/deactivations/:id", component: DeactivationDetail },
     { path: "/jobs", component: Jobs },
     { path: "/jobs/:uid", component: JobDetail },
     { path: "/orders", component: Records },
@@ -54,7 +60,7 @@ const router = createRouter({
     { path: "/:coll", component: Collection },
   ],
 });
-const BOSS_ONLY = new Set(["/tiers", "/staff", "/logs", "/cfg", "/settlecfg", "/coinAdjusts", "/liabCoin", "/liabPoint", "/liabCard"]);
+const BOSS_ONLY = new Set(["/tiers", "/staff", "/logs", "/cfg", "/settlecfg", "/liabCoin", "/liabPoint", "/liabCard"]);
 router.beforeEach((to) => {
   if (to.path === "/") return true;
   if (!token()) return "/";

@@ -59,6 +59,12 @@ def seed_all(reset: bool = False):
     if "rules" not in card_tpl_cols:
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE card_tpls ADD COLUMN rules JSON NULL"))
+    coin_adj_cols = {c["name"] for c in insp.get_columns("coin_adjusts")} if insp.has_table("coin_adjusts") else set()
+    if coin_adj_cols and "audit_by" not in coin_adj_cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE coin_adjusts ADD COLUMN audit_by INTEGER NULL"))
+            conn.execute(text("ALTER TABLE coin_adjusts ADD COLUMN audit_at VARCHAR(24) NULL"))
+            conn.execute(text("ALTER TABLE coin_adjusts ADD COLUMN audit_remark VARCHAR(128) NULL"))
     unique_names = {x.get("name") for x in insp.get_unique_constraints("sign_records")}
     if "uk_sign_uid_day" in unique_names or "uk_sign_uid_month_day" not in unique_names:
         with engine.begin() as conn:
@@ -179,6 +185,7 @@ def seed_all(reset: bool = False):
                 id=a["id"], uid=a["uid"], delta=a["delta"], type=a["type"],
                 reason=a.get("reason") or "", adjust_by=a.get("by") or 0,
                 at=a.get("at") or "", status=a.get("status") or "PENDING",
+                audit_by=a.get("auditBy"), audit_at=a.get("auditAt"), audit_remark=a.get("auditRemark"),
             ))
         for t in s["tiers"]:
             db.add(Tier(id=t["id"], amount=t["amount"], bonus=t.get("bonus") or 0, rec=bool(t.get("rec"))))

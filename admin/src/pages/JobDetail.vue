@@ -67,8 +67,7 @@ function memberLabel(members: Record<number, { nick: string; tail: string }>, id
   return x ? `${x.nick} ${x.tail}`.trim() : "—";
 }
 function back() {
-  const b = String(route.query.back || "");
-  router.push(b || "/jobs");
+  router.push("/jobs");
 }
 function setPreset(p: string) {
   preset.value = p;
@@ -183,7 +182,7 @@ watch(uid, load);
       <em v-if="data" class="hdr-note">
         {{ ROLE[data.user?.role] || data.user?.role }} · {{ data.user?.phone || "—" }} · {{ data.stat?.range?.label || "—" }}
       </em>
-      <button class="btn sm ghost hdr-back" @click="back">‹ {{ route.query.back ? "返回" : "返回员工列表" }}</button>
+      <button class="btn sm ghost hdr-back" @click="back">‹ 返回员工列表</button>
     </div>
 
     <div v-if="loading" class="card"><p class="tiny" style="padding:24px;text-align:center">加载中…</p></div>
