@@ -65,11 +65,12 @@ const color = computed(() =>
 
 <template>
   <page-meta :page-style="`overflow:${showMetric ? 'hidden' : 'visible'}`" />
+  <app-toast />
   <view class="pbody">
-    <view class="seg">
-      <button class="seg-b" :class="{ on: kind === 'SHARD' }" @tap="chooseKind('SHARD')">碎片榜</button>
-      <button class="seg-b" :class="{ on: kind === 'POINT' }" @tap="chooseKind('POINT')">积分榜</button>
-      <button class="seg-b" :class="{ on: kind === 'CHAMPION' }" @tap="chooseKind('CHAMPION')">冠军榜</button>
+    <view class="seg rank-seg">
+      <button class="seg-b" :class="{ on: kind === 'SHARD' }" @tap="chooseKind('SHARD')">🧩 碎片榜</button>
+      <button class="seg-b" :class="{ on: kind === 'POINT' }" @tap="chooseKind('POINT')">⭐ 积分榜</button>
+      <button class="seg-b" :class="{ on: kind === 'CHAMPION' }" @tap="chooseKind('CHAMPION')">🏆 冠军榜</button>
     </view>
     <view class="row" style="margin-bottom:12px">
       <text class="chip" :class="{ on: subject === 'TEAM' }" @tap="subject = 'TEAM'">战队榜</text>

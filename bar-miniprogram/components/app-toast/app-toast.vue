@@ -12,20 +12,24 @@ import { toastStore } from "@/utils/api";
 .app-toast-root {
   position: fixed;
   left: 50%;
-  top: 56px;
+  top: 22vh;
   transform: translateX(-50%);
-  z-index: 999;
+  z-index: 9999;
   pointer-events: none;
-  max-width: calc(100vw - 32px);
+  max-width: calc(100vw - 56px);
 }
 .app-toast {
   background: rgba(28, 27, 25, 0.92);
   color: #fff;
-  font-size: 12.5px;
-  padding: 9px 16px;
-  border-radius: 20px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+  font-size: 14px;
+  line-height: 1.35;
+  padding: 10px 18px;
+  border-radius: 99px;
+  box-shadow: 0 8px 20px rgba(28, 27, 25, 0.18);
   text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   animation: toast-in 0.25s ease;
 }
 .app-toast.out {

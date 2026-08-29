@@ -2,6 +2,9 @@
 import { computed, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
 import { api, clearSession, go, relaunch, toastText } from "@/utils/api";
+import { iconSrc } from "@/utils/icons";
+
+const chevSrc = iconSrc("chevron");
 
 const me = ref(null);
 const champs = ref({ list: [], total: 0, month: 0 });
@@ -275,51 +278,64 @@ async function submitDeact() {
 
 <template>
   <page-meta :page-style="`overflow:${showEdit || showShop || showFaq || showTerms || showPrivacy || showDeact ? 'hidden' : 'visible'}`" />
+  <app-toast />
   <view class="pbody" v-if="me">
     <view class="profile-hd">
-      <view class="row">
+      <view class="edit-entry" @tap="openEditProfile">编辑资料 <image class="chev chev-w" :src="chevSrc" mode="aspectFit" /></view>
+      <view class="profile-hd-body">
         <view class="ph-lg">{{ me.user.av }}</view>
-        <view style="margin-left:12px;flex:1">
-          <view style="font-size:17px;font-weight:600;letter-spacing:.5px">{{ me.user.nick }}</view>
-          <view class="tiny" style="color:rgba(255,255,255,.72);margin-top:2px">{{ me.user.phone }} · {{ genderLabel(me.user.gender) }}</view>
-          <view class="row" style="margin-top:6px">
-            <text class="pill-w">会员 {{ me.user.no }}</text>
-            <text class="pill-w team-pill">{{ me.user.teamName || "暂未加入战队" }}</text>
+        <view class="profile-meta">
+          <view class="profile-nick">{{ me.user.nick }}</view>
+          <view class="profile-sub">{{ me.user.phone }} · {{ genderLabel(me.user.gender) }}</view>
+          <view class="profile-pills">
+            <text class="pill-w pill-member">会员 {{ me.user.no }}</text>
+            <text class="pill-w pill-team">{{ me.user.teamName || "暂未加入战队" }}</text>
           </view>
         </view>
-        <view class="edit-entry" @tap="openEditProfile">编辑资料 <text>›</text></view>
       </view>
     </view>
 
     <view class="asset-card">
       <view class="asset-grid">
         <view class="asset" @tap="go('/pages/c/recharge')">
+          <view class="asset-ic-wrap">
+            <app-icon name="coin" tone="gold" size="sm" shape="soft" />
+          </view>
           <view class="ab gold number-display">{{ fmt(me.user.coin.total) }}</view>
-          <text>金币</text>
+          <text class="asset-label">金币</text>
         </view>
         <view class="asset" @tap="go('/pages/c/points')">
-          <view class="ab number-display" :style="{ color: me.user.point.av < 0 ? '#A32D2D' : '#185FA5' }">{{ fmt(me.user.point.av) }}</view>
-          <text>积分</text>
+          <view class="asset-ic-wrap">
+            <app-icon name="point" tone="blue" size="sm" shape="soft" />
+          </view>
+          <view class="ab number-display" :class="{ 'asset-val-sm': fmt(me.user.point.av).length > 5 }" :style="{ color: me.user.point.av < 0 ? '#A32D2D' : '#185FA5' }">{{ fmt(me.user.point.av) }}</view>
+          <text class="asset-label">积分</text>
         </view>
         <view class="asset" @tap="go('/pages/c/cards')">
-          <view class="ab" style="color:#534AB7">{{ me.usableCards }} 张</view>
-          <text>卡包</text>
+          <view class="asset-ic-wrap">
+            <app-icon name="card" tone="indigo" size="sm" shape="soft" />
+          </view>
+          <view class="ab" style="color:#534AB7">{{ me.usableCards }}</view>
+          <text class="asset-label">卡包</text>
         </view>
         <view class="asset" @tap="go('/pages/c/shard')">
+          <view class="asset-ic-wrap">
+            <app-icon name="shard" tone="green" size="sm" shape="soft" />
+          </view>
           <view class="ab number-display" style="color:#3B6D11">{{ fmt(me.user.shard.w) }}</view>
-          <text>碎片</text>
+          <text class="asset-label">碎片</text>
         </view>
       </view>
     </view>
 
     <view class="honor-grid">
       <view class="honor g" @tap="go('/pages/c/champion')">
-        <view>我的冠军</view>
+        <view class="honor-hd"><text class="honor-ic">🏆</text><text>我的冠军</text></view>
         <view class="hv">{{ champs.total }}</view>
         <view class="hl">累计夺冠 · 本月 {{ champs.month }} · 最近 {{ lastChamp }}</view>
       </view>
       <view class="honor gn" @tap="openTeamDetail">
-        <view>{{ me.user.teamName || "（暂无战队）" }}</view>
+        <view class="honor-hd"><text class="honor-ic">👥</text><text>{{ me.user.teamName || "暂无战队" }}</text></view>
         <view class="hv">{{ team ? team.champs + " 冠" : "—" }}</view>
         <view class="hl">{{ team ? (team.members?.length || 0) + " 名成员" : "可联系店员加入" }}</view>
       </view>
@@ -336,39 +352,51 @@ async function submitDeact() {
 
     <view class="card">
       <view class="h2">帮助与联系</view>
-      <view class="li" @tap="openShopSheet">
-        <view class="av">店</view>
-        <view class="gr"><view style="font-weight:500">联系店员</view><view class="tiny">{{ me.shop?.tel ? "地址、电话与营业时间" : "商家尚未配置门店信息" }}</view></view>
-        <text class="tiny">›</text>
-      </view>
-      <view class="li" @tap="openFaqSheet">
-        <view class="av">问</view>
-        <view class="gr"><view style="font-weight:500">常见问题</view><view class="tiny">{{ faqSub }}</view></view>
-        <text class="tiny">›</text>
-      </view>
-      <view class="li" @tap="openTermsSheet">
-        <view class="av">议</view>
-        <view class="gr"><view style="font-weight:500">用户协议</view><view class="tiny">{{ termsSub }}</view></view>
-        <text class="tiny">›</text>
-      </view>
-      <view class="li" @tap="openPrivacySheet">
-        <view class="av">隐</view>
-        <view class="gr"><view style="font-weight:500">隐私政策</view><view class="tiny">{{ privacySub }}</view></view>
-        <text class="tiny">›</text>
-      </view>
-      <view class="li deact-li" @tap="openDeactDlg">
-        <view class="av deact-av">注</view>
+      <view class="menu-li" @tap="openShopSheet">
+        <app-icon name="shop" tone="teal" size="sm" shape="soft" />
         <view class="gr">
-          <view style="font-weight:600" :style="{ color: deactPending ? '#BA7517' : '#A32D2D' }">注销账号</view>
-          <view class="tiny">{{ deactPending ? "申请已提交 · 待店长核对资产结清" : "清空资产并注销会员，操作不可恢复" }}</view>
+          <view class="menu-title">联系店员</view>
+          <view class="menu-sub">{{ me.shop?.tel ? "地址、电话与营业时间" : "商家尚未配置门店信息" }}</view>
+        </view>
+        <image class="chev" :src="chevSrc" mode="aspectFit" />
+      </view>
+      <view class="menu-li" @tap="openFaqSheet">
+        <app-icon name="faq" tone="blue" size="sm" shape="soft" />
+        <view class="gr">
+          <view class="menu-title">常见问题</view>
+          <view class="menu-sub">{{ faqSub }}</view>
+        </view>
+        <image class="chev" :src="chevSrc" mode="aspectFit" />
+      </view>
+      <view class="menu-li" @tap="openTermsSheet">
+        <app-icon name="terms" tone="purple" size="sm" shape="soft" />
+        <view class="gr">
+          <view class="menu-title">用户协议</view>
+          <view class="menu-sub">{{ termsSub }}</view>
+        </view>
+        <image class="chev" :src="chevSrc" mode="aspectFit" />
+      </view>
+      <view class="menu-li" @tap="openPrivacySheet">
+        <app-icon name="privacy" tone="indigo" size="sm" shape="soft" />
+        <view class="gr">
+          <view class="menu-title">隐私政策</view>
+          <view class="menu-sub">{{ privacySub }}</view>
+        </view>
+        <image class="chev" :src="chevSrc" mode="aspectFit" />
+      </view>
+      <view class="menu-li deact-li" @tap="openDeactDlg">
+        <app-icon name="deact" tone="red" size="sm" shape="soft" />
+        <view class="gr">
+          <view class="menu-title" :style="{ color: deactPending ? '#BA7517' : '#A32D2D', fontWeight: 600 }">注销账号</view>
+          <view class="menu-sub">{{ deactPending ? "申请已提交 · 待店长核对资产结清" : "清空资产并注销会员，操作不可恢复" }}</view>
         </view>
         <text v-if="deactPending" class="pill deact-pill">处理中</text>
-        <text v-else class="tiny">›</text>
+        <image v-else class="chev" :src="chevSrc" mode="aspectFit" />
       </view>
       <view class="tiny deact-foot">协议为常驻入口，可随时查看当前生效版本全文与你的同意记录。</view>
     </view>
 
-    <button class="btn ghost block" @tap="logout">切换账号</button>
+    <button class="btn ghost block foot-btn" @tap="logout">切换账号</button>
     <tab-bar current="mine" />
 
     <view v-if="showEdit" class="shop-mask" @tap="closeEditProfile" @touchmove.stop.prevent></view>
@@ -584,6 +612,8 @@ async function submitDeact() {
 .deact-av { background: #fcebeb; color: #a32d2d; }
 .deact-pill { background: #ba7517; color: #fff; }
 .deact-foot { margin-top: 7px; color: #9c9a93; line-height: 1.7; }
+.chev-w { width: 14px; height: 14px; opacity: .75; vertical-align: -2px; margin-left: 2px; }
+.honor-ic { font-size: 14px; line-height: 1; }
 .dlg-mask {
   position: fixed;
   inset: 0;
@@ -627,7 +657,61 @@ async function submitDeact() {
 .dlg-btns { display: flex; gap: 8px; margin-top: 4px; }
 .dlg-btn { flex: 1; }
 .deact-submit { background:#b52b2b;color:#fff;border-color:#b52b2b;font-weight:600; }
-.edit-entry { flex:none; border:1px solid rgba(255,255,255,.35); color:#fff; border-radius:9px; padding:6px 9px; font-size:12px; }
+.profile-hd-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.profile-meta {
+  flex: 1;
+  min-width: 0;
+  padding-right: 4px;
+}
+.profile-nick {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  padding-right: 78px;
+  line-height: 1.3;
+}
+.profile-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.72);
+  line-height: 1.45;
+}
+.profile-pills {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  width: 100%;
+  min-width: 0;
+}
+.pill-member {
+  flex: 0 0 auto;
+}
+.pill-team {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.edit-entry {
+  position: absolute;
+  top: 16px;
+  right: 14px;
+  z-index: 1;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: #fff;
+  border-radius: 9px;
+  padding: 6px 9px;
+  font-size: 12px;
+  white-space: nowrap;
+}
 .edit-entry text { margin-left:2px; }
 .edit-sheet { max-height:82%; padding-bottom:22px; }
 .edit-avatar { width:54px;height:54px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#8470C8,#D065A0);color:#fff;font-size:20px;font-weight:600; }

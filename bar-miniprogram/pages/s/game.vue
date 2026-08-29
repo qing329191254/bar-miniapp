@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from "vue";
+import { onBackPress } from "@dcloudio/uni-app";
 import { api, clearGameDraft, go, loadGameDraft, saveGameDraft, toastText } from "@/utils/api";
 
 const meta = ref({ projects: [], tables: [], busy: [] });
@@ -12,8 +13,10 @@ const msg = ref("");
 const submitting = ref(false);
 const confirmTime = ref("");
 const showDraftDlg = ref(false);
+const showExitDlg = ref(false);
+const showZeroRewardDlg = ref(false);
 
-const dlgOpen = computed(() => showDraftDlg.value || showCustomDlg.value);
+const dlgOpen = computed(() => showDraftDlg.value || showCustomDlg.value || showExitDlg.value || showZeroRewardDlg.value);
 
 const wiz = reactive({
   step: 0,
@@ -188,6 +191,50 @@ function next() {
     if (!wiz.eventTouched) wiz.event = defaultEvent();
   }
 }
+function prev() {
+  msg.value = "";
+  if (wiz.step <= 1) return;
+  wiz.step -= 1;
+}
+function hasWizProgress() {
+  return !!(wiz.projectId || wiz.tableId || (wiz.round || "").trim() || wiz.players.length);
+}
+function cancelWiz() {
+  msg.value = "";
+  if (hasWizProgress()) {
+    showExitDlg.value = true;
+    return;
+  }
+  clearGameDraft();
+  resetWiz(0);
+}
+function closeExitDlg() {
+  showExitDlg.value = false;
+}
+function confirmExitWiz() {
+  showExitDlg.value = false;
+  saveGameDraft(JSON.parse(JSON.stringify(wiz)));
+  resetWiz(0);
+}
+function goBack() {
+  if (wiz.step === 1) cancelWiz();
+  else prev();
+}
+
+onBackPress(() => {
+  if (dlgOpen.value) {
+    showDraftDlg.value = false;
+    showCustomDlg.value = false;
+    showExitDlg.value = false;
+    showZeroRewardDlg.value = false;
+    return true;
+  }
+  if (wiz.step >= 1 && wiz.step <= 4) {
+    goBack();
+    return true;
+  }
+  return false;
+});
 function toggle(id) {
   const i = wiz.players.indexOf(id);
   if (i >= 0) {
@@ -243,15 +290,19 @@ function split() {
 async function submit() {
   msg.value = "";
   if (totalPts.value === 0 && totalSh.value === 0) {
-    const ok = await new Promise((resolve) => {
-      uni.showModal({
-        title: "确认提交",
-        content: "本局无任何奖励，确认提交？",
-        success: (r) => resolve(r.confirm),
-      });
-    });
-    if (!ok) return;
+    showZeroRewardDlg.value = true;
+    return;
   }
+  await doSubmit();
+}
+function closeZeroRewardDlg() {
+  showZeroRewardDlg.value = false;
+}
+async function confirmZeroSubmit() {
+  showZeroRewardDlg.value = false;
+  await doSubmit();
+}
+async function doSubmit() {
   submitting.value = true;
   try {
     const rec = await api("/staff/games", {
@@ -326,12 +377,16 @@ function hasDraft() {
 
 <template>
   <page-meta :page-style="`overflow:${dlgOpen ? 'hidden' : 'visible'}`" />
+  <app-toast />
   <view class="pbody">
     <!-- 开始 -->
-    <view v-if="wiz.step === 0" class="card" style="text-align:center;padding:34px 14px">
-      <view style="font-size:15px;font-weight:600">录入对局</view>
-      <view class="tiny" style="margin:6px 0 14px">选项目 → 选玩家 → 填分数 → 确认提交</view>
-      <button class="btn block" @tap="startWiz">开始录入</button>
+    <view v-if="wiz.step === 0" class="card game-start">
+      <view class="game-start-icon">
+        <app-icon name="game" tone="slate" size="xl" shape="round" />
+      </view>
+      <view class="game-start-title">录入对局</view>
+      <view class="tiny game-start-sub">选项目 → 选玩家 → 填分数 → 确认提交</view>
+      <button class="btn block grad-dark" @tap="startWiz">开始录入</button>
     </view>
 
     <!-- 成功 -->
@@ -403,7 +458,10 @@ function hasDraft() {
           <text class="hint">选填</text>
         </view>
         <input class="round-input" v-model="wiz.round" placeholder="第 3 局" />
-        <button class="btn block wiz-primary" style="margin-top:12px" :disabled="!wiz.projectId" @tap="next">下一步 · 选玩家</button>
+        <view class="wiz-nav" style="margin-top:12px">
+          <button class="btn ghost wiz-nav-back" @tap="goBack">取消</button>
+          <button class="btn wiz-primary wiz-nav-next" :disabled="!wiz.projectId" @tap="next">下一步 · 选玩家</button>
+        </view>
       </view>
 
       <!-- 2 选玩家 -->
@@ -453,7 +511,10 @@ function hasDraft() {
               <text class="tiny">添加</text>
             </view>
           </view>
-          <button class="btn block wiz-primary" :disabled="!wiz.players.length" @tap="next">下一步 · 填分</button>
+          <view class="wiz-nav">
+            <button class="btn ghost wiz-nav-back" @tap="goBack">上一步</button>
+            <button class="btn wiz-primary wiz-nav-next" :disabled="!wiz.players.length" @tap="next">下一步 · 填分</button>
+          </view>
         </view>
       </view>
 
@@ -521,7 +582,10 @@ function hasDraft() {
             <button class="btn ghost split-action" @tap="split">均分</button>
           </view>
         </view>
-        <button class="btn block wiz-primary" :disabled="!wiz.players.length" @tap="next">下一步 · 确认</button>
+        <view class="wiz-nav">
+          <button class="btn ghost wiz-nav-back" @tap="goBack">上一步</button>
+          <button class="btn wiz-primary wiz-nav-next" :disabled="!wiz.players.length" @tap="next">下一步 · 确认</button>
+        </view>
       </view>
 
       <!-- 4 确认 -->
@@ -559,9 +623,9 @@ function hasDraft() {
           <view class="tiny" style="color:#A32D2D;line-height:1.7"><text style="font-weight:600">提交后会员立即可见。</text>录错需店长在管理后台撤销。</view>
         </view>
         <button class="btn block wiz-primary" style="margin-bottom:8px" :disabled="submitting" @tap="submit">确认提交</button>
-        <view class="row">
-          <button class="btn ghost" style="flex:1" @tap="saveAndTodo">存草稿</button>
-          <button class="btn ghost" style="flex:1" @tap="wiz.step = 3">返回修改</button>
+        <view class="wiz-nav">
+          <button class="btn ghost wiz-nav-back" @tap="goBack">上一步</button>
+          <button class="btn ghost wiz-nav-next" @tap="saveAndTodo">存草稿</button>
         </view>
       </view>
     </view>
@@ -596,10 +660,53 @@ function hasDraft() {
         </view>
       </view>
     </view>
+
+    <view v-if="showExitDlg" class="draft-mask" @tap="closeExitDlg" @touchmove.stop.prevent>
+      <view class="draft-dialog" @tap.stop>
+        <view class="draft-title">返回首页</view>
+        <view class="draft-body">当前进度将保存为草稿，下次可继续录入。</view>
+        <view class="draft-actions">
+          <button class="btn ghost draft-btn" @tap="closeExitDlg">继续录入</button>
+          <button class="btn draft-btn" @tap="confirmExitWiz">返回首页</button>
+        </view>
+      </view>
+    </view>
+
+    <view v-if="showZeroRewardDlg" class="draft-mask" @tap="closeZeroRewardDlg" @touchmove.stop.prevent>
+      <view class="draft-dialog" @tap.stop>
+        <view class="draft-title">确认提交</view>
+        <view class="draft-body">本局无任何奖励，确认提交？</view>
+        <view class="draft-actions">
+          <button class="btn ghost draft-btn" :disabled="submitting" @tap="closeZeroRewardDlg">再想想</button>
+          <button class="btn draft-btn" :disabled="submitting" @tap="confirmZeroSubmit">
+            {{ submitting ? "提交中…" : "确认提交" }}
+          </button>
+        </view>
+      </view>
+    </view>
   </view>
 </template>
 
 <style scoped>
+.game-start {
+  text-align: center;
+  padding: 28px 16px 22px;
+  background: linear-gradient(180deg, #fff 0%, #f7f6f2 100%);
+}
+.game-start-icon {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+.game-start-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.game-start-sub {
+  margin: 0 0 16px;
+  line-height: 1.6;
+}
 .event-label {
   display: flex;
   align-items: center;
@@ -727,6 +834,20 @@ button.wiz-primary {
 }
 button.wiz-primary[disabled] {
   opacity: 0.4;
+}
+.wiz-nav {
+  display: flex;
+  gap: 8px;
+}
+.wiz-nav .btn {
+  flex: 1;
+  margin: 0;
+}
+.wiz-nav-back {
+  flex: 0 0 88px;
+}
+.wiz-nav-next {
+  flex: 1;
 }
 .round-input {
   width: 100%;

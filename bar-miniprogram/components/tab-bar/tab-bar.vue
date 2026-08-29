@@ -1,6 +1,9 @@
 <script setup>
 import { onMounted } from "vue";
 import { savedUser, hideWxHomeButton } from "@/utils/api";
+import { iconSrc as svgIcon } from "@/utils/icons";
+
+const scanSrc = svgIcon("scan");
 
 const props = defineProps({ current: { type: String, default: "" } });
 const user = savedUser();
@@ -37,8 +40,10 @@ onMounted(() => {
 
 <template>
   <view>
-    <app-toast />
-    <view v-if="isStaff && current !== 'scan'" class="fab" @tap="scan">扫码<br />核销</view>
+    <view v-if="isStaff && current !== 'scan'" class="fab" @tap="scan">
+      <image class="fab-ic" :src="scanSrc" mode="aspectFit" />
+      <text class="fab-txt">核销</text>
+    </view>
     <view class="ptabs">
       <view
         v-for="t in tabs"
@@ -53,3 +58,17 @@ onMounted(() => {
     </view>
   </view>
 </template>
+
+<style scoped>
+.fab-ic {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+.fab-txt {
+  font-size: 10px;
+  font-weight: 600;
+  margin-top: 2px;
+  line-height: 1;
+}
+</style>

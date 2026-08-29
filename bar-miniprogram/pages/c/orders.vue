@@ -25,6 +25,8 @@ const loading = ref(false);
 const msg = ref("");
 const notice = ref("");
 const codeOrder = ref(null);
+const cancelOrder = ref(null);
+const canceling = ref(false);
 let noticeTimer = null;
 
 const shownCards = computed(() => {
@@ -101,20 +103,27 @@ onLoad((options) => {
 });
 
 function cancel(order) {
-  uni.showModal({
-    title: "取消订单",
-    content: `确认取消订单 ${order.no}？`,
-    success: async ({ confirm }) => {
-      if (!confirm) return;
-      try {
-        await api(`/orders/${order.id}/cancel`, { method: "POST" });
-        showNotice("订单已取消");
-        await load();
-      } catch (error) {
-        msg.value = error.message || "取消失败";
-      }
-    },
-  });
+  cancelOrder.value = order;
+  msg.value = "";
+}
+function closeCancelDlg() {
+  if (canceling.value) return;
+  cancelOrder.value = null;
+}
+async function confirmCancel() {
+  if (!cancelOrder.value || canceling.value) return;
+  canceling.value = true;
+  msg.value = "";
+  try {
+    await api(`/orders/${cancelOrder.value.id}/cancel`, { method: "POST" });
+    cancelOrder.value = null;
+    showNotice("订单已取消");
+    await load();
+  } catch (error) {
+    msg.value = error.message || "取消失败";
+  } finally {
+    canceling.value = false;
+  }
 }
 
 function showOrderCode(order) {
@@ -141,7 +150,7 @@ function reorder(order) {
 </script>
 
 <template>
-  <page-meta :page-style="`overflow:${codeOrder ? 'hidden' : 'visible'}`" />
+  <page-meta :page-style="`overflow:${codeOrder || cancelOrder ? 'hidden' : 'visible'}`" />
   <view class="pbody orders-page">
     <view v-if="notice" class="order-notice">{{ notice }}</view>
     <view class="order-tabs">
@@ -200,6 +209,20 @@ function reorder(order) {
         <view class="code-no">{{ codeOrder.no }}</view>
         <view class="code-tip">应付 ¥{{ codeOrder.total }} · 生成后 30 分钟内有效</view>
         <button class="btn ghost code-close" @tap="closeOrderCode">关闭</button>
+      </view>
+    </view>
+
+    <view v-if="cancelOrder" class="confirm-mask" @tap="closeCancelDlg" @touchmove.stop.prevent>
+      <view class="confirm-dialog" @tap.stop>
+        <view class="confirm-title">取消订单</view>
+        <view class="confirm-body">确认取消订单 {{ cancelOrder.no }}？</view>
+        <view v-if="msg" class="err">{{ msg }}</view>
+        <view class="confirm-actions">
+          <button class="btn ghost confirm-btn" :disabled="canceling" @tap="closeCancelDlg">再想想</button>
+          <button class="btn confirm-btn confirm-danger" :disabled="canceling" @tap="confirmCancel">
+            {{ canceling ? "取消中…" : "确认取消" }}
+          </button>
+        </view>
       </view>
     </view>
     <app-toast />
@@ -262,5 +285,53 @@ function reorder(order) {
 .code-no { margin-top: 15px; font-size: 25px; font-weight: 700; letter-spacing: .5px; line-height: 1.25; }
 .code-tip { margin-top: 6px; color: #9c9a93; font-size: 13px; }
 .code-close { display: block; width: 100%; margin-top: 18px; padding: 11px; font-size: 15px; }
+.confirm-mask {
+  position: fixed;
+  z-index: 110;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 30px;
+  background: rgba(0, 0, 0, 0.35);
+}
+.confirm-dialog {
+  width: 84%;
+  max-width: 320px;
+  box-sizing: border-box;
+  padding: 16px;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+}
+.confirm-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1c1b19;
+  margin-bottom: 9px;
+}
+.confirm-body {
+  font-size: 12.5px;
+  color: #6b6a65;
+  line-height: 1.7;
+  margin-bottom: 13px;
+}
+.confirm-actions {
+  display: flex;
+  gap: 8px;
+}
+.confirm-btn {
+  flex: 1;
+  margin: 0;
+}
+.confirm-actions .btn + .btn {
+  margin-left: 0;
+}
+.confirm-danger {
+  border-color: #b52d2d;
+  background: #b52d2d;
+  color: #fff;
+}
 @keyframes sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
 </style>

@@ -2,6 +2,9 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
 import { api, go, media, toastText } from "@/utils/api";
+import { iconSrc } from "@/utils/icons";
+
+const chevSrc = iconSrc("chevron");
 
 const WEEK_HEAD = ["一", "二", "三", "四", "五", "六", "日"];
 
@@ -202,6 +205,7 @@ async function doSign() {
 
 <template>
   <page-meta :page-style="`overflow:${showGallery || showSign || showPlay ? 'hidden' : 'visible'}`" />
+  <app-toast />
   <view class="pbody" v-if="data">
     <view
       class="home-b"
@@ -226,39 +230,39 @@ async function doSign() {
 
     <view class="home-kg">
       <view class="kg-i" @tap="go('/pages/c/order')">
-        <view class="ic" style="background:linear-gradient(135deg,#3EAF8E,#9FE1CB)">点</view>
+        <app-icon name="order" tone="teal" size="lg" shape="round" />
         <text>点单</text>
       </view>
       <view class="kg-i" @tap="go('/pages/c/cards')">
-        <view class="ic" style="background:linear-gradient(135deg,#4E8ED9,#B5D4F4)">卡</view>
+        <app-icon name="card" tone="blue" size="lg" shape="round" />
         <text>用卡</text>
       </view>
       <view class="kg-i" @tap="go('/pages/c/points')">
-        <view class="ic" style="background:linear-gradient(135deg,#D96A96,#F4C0D1)">分</view>
+        <app-icon name="point" tone="pink" size="lg" shape="round" />
         <text>积分</text>
       </view>
       <view class="kg-i" @tap="openSignSheet">
-        <view class="ic" style="background:linear-gradient(135deg,#7FA94F,#C0DD97)">签</view>
+        <app-icon name="sign" tone="green" size="lg" shape="round" />
         <text>{{ data.signedToday ? "已签" : "签到" }}</text>
       </view>
     </view>
     <view class="err" v-if="msg">{{ msg }}</view>
 
     <view class="home-op" @tap="openPlaySheet">
-      <view class="home-ic" style="background:linear-gradient(135deg,#8F87E0,#CECBF6)">玩</view>
+      <app-icon name="play" tone="purple" size="md" shape="sq" />
       <view class="home-txt">
         <view class="ht">{{ play.title }}</view>
         <view class="hs">{{ play.sub }}</view>
       </view>
-      <text class="home-arr">›</text>
+      <image class="chev" :src="chevSrc" mode="aspectFit" />
     </view>
     <view class="home-op" @tap="go('/pages/c/recharge')">
-      <view class="home-ic" style="background:linear-gradient(135deg,#E89A3C,#FAC775)">充</view>
+      <app-icon name="recharge" tone="gold" size="md" shape="sq" />
       <view class="home-txt">
         <view class="ht">充值有奖</view>
         <view class="hs">充多送多</view>
       </view>
-      <text class="home-arr">›</text>
+      <image class="chev" :src="chevSrc" mode="aspectFit" />
     </view>
     <tab-bar current="home" />
 

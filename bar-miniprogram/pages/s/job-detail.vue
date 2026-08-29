@@ -254,6 +254,7 @@ async function load() {
 </script>
 
 <template>
+  <app-toast />
   <view class="pbody" v-if="stat">
     <view class="card flt-card">
       <view class="sec-head">

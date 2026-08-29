@@ -27,13 +27,19 @@ onMounted(load);
 const defs = computed(() => {
   if (!data.value) return [];
   return [
-    { k: "accept", label: "待接单", n: data.value.accept.length },
-    { k: "pay", label: "待收款", n: data.value.recharges.length + data.value.payOrders.length },
-    { k: "wdr", label: "待确认提分", n: data.value.withdrawals.length },
-    { k: "making", label: "制作中", n: data.value.making.length },
+    { k: "accept", label: "待接单", n: data.value.accept.length, icon: "accept", tone: "amber" },
+    { k: "pay", label: "待收款", n: data.value.recharges.length + data.value.payOrders.length, icon: "pay", tone: "blue" },
+    { k: "wdr", label: "待确认提分", n: data.value.withdrawals.length, icon: "wdr", tone: "indigo" },
+    { k: "making", label: "制作中", n: data.value.making.length, icon: "making", tone: "slate" },
   ];
 });
 const total = computed(() => defs.value.reduce((s, d) => s + d.n, 0));
+const summaryBrief = computed(() =>
+  defs.value
+    .filter((x) => x.n)
+    .map((x) => `${x.n} ${x.label}`)
+    .join(" · "),
+);
 const draft = computed(() => {
   const d = loadGameDraft();
   return d && d.step >= 1 && d.step <= 4 ? d : null;
@@ -83,17 +89,27 @@ async function confirmReject() {
 
 <template>
   <page-meta :page-style="`overflow:${rejectOrder ? 'hidden' : 'visible'}`" />
+  <app-toast />
   <view class="pbody" v-if="data">
-    <view class="card" style="background:#FCEBEB;border-color:#E24B4A;padding:10px 12px">
-      <view class="row">
-        <text style="font-size:13px;font-weight:600;color:#A32D2D">共 {{ total }} 项待办</text>
+    <view class="todo-overview card" :class="{ clear: !total }">
+      <view class="todo-overview-top">
+        <view class="todo-overview-main">
+          <text class="todo-overview-label">{{ total ? "待处理" : "全部处理完毕" }}</text>
+          <view class="todo-overview-total">
+            <text class="todo-overview-num">{{ total }}</text>
+            <text class="todo-overview-unit">项</text>
+          </view>
+        </view>
+        <view v-if="total" class="todo-overview-brief">{{ summaryBrief }}</view>
+        <view v-else class="todo-overview-brief">当前没有需要跟进的订单或单据</view>
       </view>
     </view>
-    <view class="card" v-if="draft" style="background:#FAEEDA;border-color:#BA7517;padding:10px 12px">
-      <view class="between">
-        <text style="font-size:13px;font-weight:600;color:#BA7517">有 1 局未提交</text>
-        <button class="btn gold" style="padding:6px 12px;font-size:12px" @tap="go('/pages/s/game', true)">继续录入</button>
+    <view v-if="draft" class="todo-draft card" @tap="go('/pages/s/game', true)">
+      <view class="todo-draft-left">
+        <view class="todo-draft-dot" />
+        <text class="todo-draft-text">有 1 局未提交</text>
       </view>
+      <text class="todo-draft-link">继续录入 ›</text>
     </view>
     <view class="err" v-if="msg">{{ msg }}</view>
     <view class="stodo-tabs">
@@ -101,11 +117,12 @@ async function confirmReject() {
         v-for="d in defs"
         :key="d.k"
         class="stodo-tab"
-        :class="{ on: cur && cur.k === d.k }"
+        :class="{ on: cur && cur.k === d.k, empty: !d.n }"
         @tap="tab = d.k"
       >
-        {{ d.label }}
-        <text v-if="d.n" class="stodo-n">{{ d.n }}</text>
+        <app-icon class="stodo-tab-ic" :name="d.icon" :tone="d.tone" size="sm" shape="soft" />
+        <text class="stodo-tab-label">{{ d.label }}</text>
+        <text class="stodo-n" :class="{ zero: !d.n }">{{ d.n }}</text>
       </view>
     </view>
 
@@ -184,7 +201,7 @@ async function confirmReject() {
       <view class="empty" v-if="!data.making.length">暂无制作中</view>
     </view>
 
-    <view class="card" style="background:#FAF9F5">
+    <view class="card todo-stat-card">
       <view class="h2">我的今日</view>
       <view class="stat5">
         <view><view class="sb">¥{{ data.stat.amount }}</view><view class="tiny">今日收款</view></view>
@@ -193,7 +210,7 @@ async function confirmReject() {
         <view><view class="sb">{{ data.stat.games }}</view><view class="tiny">录局</view></view>
         <view><view class="sb">{{ data.stat.wds }}</view><view class="tiny">发分</view></view>
       </view>
-      <view class="between" v-if="data.shopAmt!=null" style="border-top:1px solid rgba(28,27,25,.12);margin-top:10px;padding-top:9px">
+      <view class="between todo-shop-amt" v-if="data.shopAmt!=null">
         <text class="tiny">全店今日营业额</text>
         <text class="gold" style="font-weight:700">¥{{ data.shopAmt }}</text>
       </view>
@@ -225,6 +242,127 @@ async function confirmReject() {
 </template>
 
 <style scoped>
+.todo-overview {
+  padding: 14px 12px 12px;
+  background: linear-gradient(180deg, #fff 0%, #faf9f5 100%);
+  border-color: rgba(28, 27, 25, 0.1);
+}
+.todo-overview:not(.clear) {
+  border-color: rgba(186, 117, 23, 0.18);
+  box-shadow: 0 4px 14px rgba(28, 27, 25, 0.06);
+}
+.todo-overview.clear {
+  background: #f7faf4;
+  border-color: #c5ddb0;
+}
+.todo-overview-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.todo-overview-main {
+  flex-shrink: 0;
+}
+.todo-overview-label {
+  display: block;
+  font-size: 12px;
+  color: #9c9a93;
+  line-height: 1.3;
+}
+.todo-overview-total {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  margin-top: 2px;
+}
+.todo-overview-num {
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1;
+  color: #1c1b19;
+  letter-spacing: -0.02em;
+}
+.todo-overview.clear .todo-overview-num {
+  color: #3b6d11;
+}
+.todo-overview-unit {
+  font-size: 13px;
+  font-weight: 500;
+  color: #6b6a65;
+}
+.todo-overview-brief {
+  flex: 1;
+  min-width: 0;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.65;
+  color: #6b6a65;
+}
+.stodo-tab-label {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+.stodo-tab.empty .stodo-tab-label {
+  color: #9c9a93;
+}
+.stodo-tab :deep(.app-icon) {
+  box-shadow: none;
+}
+.stodo-tab.on :deep(.app-icon) {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+}
+.stodo-n.zero {
+  background: #edede8;
+  color: #9c9a93;
+  min-width: 17px;
+}
+.stodo-tab.on .stodo-n.zero {
+  background: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.75);
+}
+.todo-draft {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  background: linear-gradient(135deg, #faf5ea, #fff8eb);
+  border-color: #e8d4a8;
+}
+.todo-draft-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.todo-draft-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ba7517;
+  flex-shrink: 0;
+}
+.todo-draft-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: #7a5310;
+}
+.todo-draft-link {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #ba7517;
+}
+.todo-stat-card {
+  background: linear-gradient(180deg, #faf9f5 0%, #fff 100%);
+  border-color: rgba(28, 27, 25, 0.08);
+}
+.todo-shop-amt {
+  border-top: 1px solid rgba(28, 27, 25, 0.08);
+  margin-top: 10px;
+  padding-top: 9px;
+}
 .reject-mask {
   position: fixed;
   inset: 0;
