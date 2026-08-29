@@ -82,6 +82,7 @@ const pendingWdr = computed(() =>
           <td class="tiny">{{ r.at || r.created }}</td>
           <td class="tiny">{{ r.grantAt || "—" }}</td>
         </tr>
+        <tr v-if="!shown.length"><td colspan="6" class="table-empty">当前筛选条件下无提分单</td></tr>
         </tbody>
       </table>
       <table class="tb2" v-else data-cols="lccccccl">
@@ -99,6 +100,7 @@ const pendingWdr = computed(() =>
           <td class="tiny">{{ r.op }}</td>
           <td><span class="pill">{{ r.status === "VOID" ? "已作废" : "正常" }}</span></td>
         </tr>
+        <tr v-if="!shown.length"><td colspan="8" class="table-empty">当前筛选条件下无对局记录</td></tr>
         </tbody>
       </table>
       <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />

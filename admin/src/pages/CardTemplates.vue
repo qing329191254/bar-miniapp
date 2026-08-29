@@ -53,7 +53,7 @@ onMounted(load);
       <section class="card list-card">
         <div class="list-title"><b>卡券模板列表</b><button class="btn" @click="openNew">＋ 新增卡券</button></div>
         <div class="tb-wrap"><table class="tb2"><thead><tr><th>名称</th><th>分类</th><th>积分</th><th>有效期</th><th>兑换页</th><th>上限/库存</th><th>操作</th></tr></thead>
-          <tbody><tr v-for="row in rows" :key="row.id"><td><b>{{ row.name }}</b></td><td class="tiny">{{ categoryName(row.cat) }}</td><td>{{ row.cost || "—" }}</td><td>{{ row.days }} 天</td><td class="tiny">{{ row.cost > 0 && row.exch !== false ? "是" : "否" }}</td><td class="tiny">{{ row.perLimit < 0 ? "不限" : row.perLimit }} / {{ row.stock < 0 ? "不限" : row.stock }}</td><td><button class="btn ghost mini" @click="openEdit(row)">编辑</button></td></tr></tbody>
+          <tbody><tr v-for="row in rows" :key="row.id"><td><b>{{ row.name }}</b></td><td class="tiny">{{ categoryName(row.cat) }}</td><td>{{ row.cost || "—" }}</td><td>{{ row.days }} 天</td><td class="tiny">{{ row.cost > 0 && row.exch !== false ? "是" : "否" }}</td><td class="tiny">{{ row.perLimit < 0 ? "不限" : row.perLimit }} / {{ row.stock < 0 ? "不限" : row.stock }}</td><td><button class="btn ghost mini" @click="openEdit(row)">编辑</button></td></tr><tr v-if="!rows.length"><td colspan="7" class="table-empty">暂无卡券模板，可点击右上角新增</td></tr></tbody>
         </table></div>
       </section>
       <section class="card edit-card">

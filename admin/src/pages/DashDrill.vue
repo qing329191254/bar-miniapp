@@ -263,6 +263,7 @@ watch([tablePage, tablePageSize], () => load());
                 <td><b>{{ t.n }} 张</b></td>
                 <td><b v-if="t.soon" style="color:#A32D2D">{{ t.soon }}</b><span v-else class="tiny">0</span></td>
               </tr>
+              <tr v-if="!data.byTpl?.length"><td colspan="4" class="table-empty">暂无卡券汇总数据</td></tr>
             </tbody>
           </table>
         </div>

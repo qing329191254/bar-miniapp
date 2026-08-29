@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { api } from "../api";
 import AppSelect from "../components/AppSelect.vue";
 
@@ -7,10 +7,19 @@ const meta = ref({ projects: [] as any[], tables: [] as any[] });
 const members = ref<any[]>([]);
 const search = ref("");
 const msg = ref("");
+const timeInput = ref<HTMLInputElement | null>(null);
+const searchArea = ref<HTMLElement | null>(null);
+
+function localDateTimeValue(date = new Date()) {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 const form = reactive({
   pid: 1,
   tid: null as number | null,
   round: "",
+  time: localDateTimeValue(),
   event: "",
   eventTouched: false,
   players: [] as { uid: number; nick: string; pts: number; sh: number }[],
@@ -18,6 +27,7 @@ const form = reactive({
 });
 
 onMounted(async () => {
+  document.addEventListener("pointerdown", closeSearchFromOutside);
   const r = await api<any>("/staff/projects");
   meta.value = r;
   if (r.projects[0]) form.pid = r.projects[0].id;
@@ -25,11 +35,14 @@ onMounted(async () => {
   if (!form.eventTouched) form.event = defaultEvent();
 });
 
+onBeforeUnmount(() => document.removeEventListener("pointerdown", closeSearchFromOutside));
+
 function defaultEvent() {
   const p = meta.value.projects.find((x) => x.id === form.pid);
-  const now = new Date();
+  const date = new Date(form.time);
+  const validDate = Number.isNaN(date.getTime()) ? new Date() : date;
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())} ${p?.name || "对局"}`;
+  return `${pad(validDate.getMonth() + 1)}-${pad(validDate.getDate())} ${pad(validDate.getHours())}:${pad(validDate.getMinutes())} ${p?.name || "对局"}`;
 }
 const hits = computed(() => {
   const kw = search.value.trim();
@@ -48,6 +61,13 @@ const tableOpts = computed(() => [
 function onPidChange() {
   if (!form.eventTouched) form.event = defaultEvent();
 }
+function onTimeChange() {
+  if (!form.eventTouched) form.event = defaultEvent();
+}
+function openTimePicker() {
+  timeInput.value?.focus({ preventScroll: true });
+  timeInput.value?.showPicker?.();
+}
 function added(id: number) {
   return form.players.some((p) => p.uid === id);
 }
@@ -55,6 +75,42 @@ function add(u: any) {
   if (added(u.id)) return;
   const shard = meta.value.projects.find((p) => p.id === form.pid)?.shard || 0;
   form.players.push({ uid: u.id, nick: u.nick, pts: 0, sh: shard });
+}
+function closeSearch() {
+  search.value = "";
+}
+function closeSearchFromOutside(event: PointerEvent) {
+  if (search.value && !searchArea.value?.contains(event.target as Node)) closeSearch();
+}
+function addFromResult(u: any) {
+  add(u);
+  closeSearch();
+}
+function addFirstHit() {
+  const first = hits.value.find((x) => !added(x.id));
+  if (!search.value.trim()) {
+    msg.value = "请先输入搜索关键词";
+  } else if (!first) {
+    msg.value = hits.value.length ? "匹配到的会员均已添加" : "未找到匹配会员";
+  } else {
+    add(first);
+    msg.value = `已添加 ${first.nick}`;
+    closeSearch();
+  }
+}
+function addAllHits() {
+  if (!search.value.trim()) {
+    msg.value = "请先输入搜索关键词";
+    return;
+  }
+  const pending = hits.value.filter((x) => !added(x.id));
+  if (!pending.length) {
+    msg.value = hits.value.length ? "匹配到的会员均已添加" : "未找到匹配会员";
+    return;
+  }
+  pending.forEach(add);
+  msg.value = `已批量添加 ${pending.length} 位玩家`;
+  closeSearch();
 }
 function remove(uid: number) {
   form.players = form.players.filter((p) => p.uid !== uid);
@@ -72,6 +128,7 @@ async function submit() {
         winners: Object.keys(form.winners).filter((k) => form.winners[Number(k)]).map(Number),
         event: form.event,
         round: (form.round || "").trim(),
+        time: form.time,
       },
     });
     msg.value = "提交成功，已入账";
@@ -85,13 +142,13 @@ async function submit() {
 
 <template>
   <div>
-    <div class="hdr">对局结果录入 <em>已并入个人冠军录入 · 所有玩家可填积分</em></div>
+    <div class="hdr game-hdr">对局结果录入 <em>已并入个人冠军录入 · 所有玩家可填积分</em></div>
     <p class="tiny" v-if="msg" style="color:#3B6D11">{{ msg }}</p>
     <div class="prod-grid">
       <div>
         <div class="card">
           <div class="st">基本信息</div>
-          <div class="cards" style="grid-template-columns:repeat(2,1fr)">
+          <div class="cards game-info-grid">
             <div>
               <div class="tiny">对局项目 *</div>
               <AppSelect v-model="form.pid" :options="projectOpts" @change="onPidChange" />
@@ -100,11 +157,13 @@ async function submit() {
               <div class="tiny">桌台（选填）</div>
               <AppSelect v-model="form.tid" :options="tableOpts" />
             </div>
-          </div>
-          <div class="cards" style="grid-template-columns:repeat(2,1fr);margin-top:8px">
             <div>
               <div class="tiny">局次</div>
               <input class="inp" v-model="form.round" placeholder="第 3 局" />
+            </div>
+            <div>
+              <div class="tiny game-time-label">对局时间（精确到分钟）</div>
+              <input ref="timeInput" class="inp game-time-input" type="datetime-local" v-model="form.time" @pointerdown.prevent="openTimePicker" @change="onTimeChange" />
             </div>
           </div>
           <div class="tiny">赛事名称</div>
@@ -112,13 +171,32 @@ async function submit() {
         </div>
         <div class="card">
           <div class="st">参与玩家 <em>已添加 {{ form.players.length }} 人</em></div>
-          <div class="row" style="gap:8px;margin-bottom:10px">
-            <input class="inp" style="flex:1;margin:0" placeholder="搜索昵称 / 手机尾号 / 会员号" v-model="search" />
-          </div>
-          <div class="card" v-if="search && hits.length" style="padding:6px 12px;margin-bottom:10px">
-            <div class="li" v-for="x in hits" :key="x.id" :style="{ opacity: added(x.id) ? .5 : 1, cursor: added(x.id) ? 'default' : 'pointer' }" @click="add(x)">
-              <div class="gr"><b>{{ x.nick }}</b><span class="tiny">{{ x.no }}</span></div>
-              <span class="tiny">{{ added(x.id) ? "已添加" : "添加" }}</span>
+          <div ref="searchArea" class="player-search">
+            <div class="row player-search-row">
+              <div class="search-input-wrap">
+                <input
+                  class="inp search-input"
+                  placeholder="搜索昵称 / 手机尾号 / 会员号"
+                  v-model="search"
+                  @keydown.enter.prevent="addFirstHit"
+                  @keydown.esc.prevent="closeSearch"
+                />
+                <button v-if="search" class="search-clear" type="button" title="清除并收起" @click="closeSearch">×</button>
+              </div>
+              <button class="btn ghost" type="button" @click="addFirstHit">添加</button>
+              <button class="btn ghost" type="button" @click="addAllHits">批量添加</button>
+            </div>
+            <div v-if="search.trim()" class="search-results">
+              <div class="search-results-head">
+                <span>{{ hits.length ? `找到 ${hits.length} 位会员` : "没有匹配的会员" }}</span>
+                <button type="button" @click="closeSearch">收起</button>
+              </div>
+              <div v-if="hits.length" class="search-results-list">
+                <div class="li search-result" v-for="x in hits" :key="x.id" :class="{ added: added(x.id) }" @click="!added(x.id) && addFromResult(x)">
+                  <div class="gr"><b>{{ x.nick }}</b><span class="tiny">{{ x.no }}</span></div>
+                  <span class="tiny">{{ added(x.id) ? "已添加" : "添加" }}</span>
+                </div>
+              </div>
             </div>
           </div>
           <table class="tb2" data-cols="lcccc">
@@ -133,16 +211,20 @@ async function submit() {
               <td><input type="checkbox" :checked="!!form.winners[p.uid]" @change="form.winners[p.uid] = ($event.target as HTMLInputElement).checked" /></td>
               <td class="tiny" style="cursor:pointer" @click="remove(p.uid)">移除</td>
             </tr>
+            <tr v-if="!form.players.length">
+              <td colspan="5" class="table-empty">暂无参与玩家，请搜索或从右侧快速添加</td>
+            </tr>
             </tbody>
           </table>
           <div class="row" style="margin-top:11px">
             <button class="btn ghost" @click="form.players=[];form.winners={}">清空</button>
-            <button class="btn" style="margin-left:auto" :disabled="!form.players.length" @click="submit">提交并入账</button>
+            <button class="btn pri submit-btn" style="margin-left:auto" :disabled="!form.players.length" @click="submit">提交并入账</button>
           </div>
         </div>
       </div>
       <div class="card">
         <div class="st">今日到店会员 <em>点击快速添加</em></div>
+        <div v-if="!members.filter(m=>m.role==='CUSTOMER').length" class="list-empty">暂无到店会员</div>
         <div style="display:flex;flex-wrap:wrap;gap:6px">
           <div
             v-for="x in members.filter(m=>m.role==='CUSTOMER').slice(0,15)"
@@ -156,3 +238,29 @@ async function submit() {
     </div>
   </div>
 </template>
+
+<style scoped>
+.game-hdr em{margin-left:auto;text-align:right}
+.game-info-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:8px}
+.game-time-label{color:var(--ink2);font-weight:500}
+.game-time-input{cursor:pointer;user-select:none;-webkit-user-select:none;caret-color:transparent;background:#FAF7F0;border-color:rgba(186,117,23,.5);box-shadow:inset 0 0 0 1px rgba(186,117,23,.08);transition:background .16s ease,border-color .16s ease,box-shadow .16s ease}
+.game-time-input:hover{background:#FFFDF8;border-color:rgba(186,117,23,.8)}
+.game-time-input:focus{background:#fff;border-color:var(--gold);box-shadow:0 0 0 3px rgba(186,117,23,.18)}
+.game-time-input::-webkit-calendar-picker-indicator{cursor:pointer;opacity:.78}
+.player-search{position:relative;margin-bottom:10px}
+.player-search-row{gap:8px}
+.search-input-wrap{position:relative;flex:1;min-width:0}
+.search-input{margin:0;padding-right:38px}
+.search-clear{position:absolute;right:7px;top:50%;width:28px;height:28px;transform:translateY(-50%);border:0;border-radius:7px;background:transparent;color:var(--ink3);font-size:20px;line-height:1;cursor:pointer}
+.search-clear:hover{background:var(--bg);color:var(--ink)}
+.search-results{position:absolute;z-index:12;top:calc(100% + 8px);left:0;right:0;background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 30px rgba(28,27,25,.14);overflow:hidden}
+.search-results-head{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;border-bottom:1px solid var(--line);background:#FAF9F5;color:var(--ink3);font-size:11px}
+.search-results-head button{border:0;background:transparent;color:var(--blue);font-size:12px;cursor:pointer}
+.search-results-list{max-height:min(360px,45vh);overflow:auto;padding:0 12px}
+.search-result{cursor:pointer}
+.search-result:hover{background:rgba(28,27,25,.035);margin:0 -12px;padding-left:12px;padding-right:12px}
+.search-result.added{opacity:.45;cursor:default}
+.submit-btn{padding:8px 20px}
+.submit-btn:disabled{background:#D8D6D0;color:#8C8981;opacity:1;cursor:not-allowed}
+@media(max-width:1100px){.game-info-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style>

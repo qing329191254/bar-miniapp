@@ -108,6 +108,7 @@ function fmt(n: number) {
           <td class="tiny">{{ fmt(x.shard.w) }} / {{ fmt(x.shard.t) }}</td>
           <td class="tiny" style="color:#185FA5">详情 ›</td>
         </tr>
+        <tr v-if="!shown.length"><td colspan="7" class="table-empty">{{ kw.trim() ? "没有匹配的会员" : "暂无会员数据" }}</td></tr>
         </tbody>
       </table>
       <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="memberTotal" />

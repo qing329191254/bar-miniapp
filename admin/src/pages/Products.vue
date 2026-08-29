@@ -102,6 +102,7 @@ async function save() {
               <td colspan="2"></td>
               <td><button class="btn ghost" @click="toggleOff(p, false)">重新上架</button></td>
             </tr>
+            <tr v-if="!online.length && !offline.length"><td colspan="6" class="table-empty">暂无商品，可点击右上角新增</td></tr>
             </tbody>
           </table>
         </div>
@@ -136,6 +137,7 @@ async function save() {
               </td>
               <td>{{ products.filter(p => p.cid === c.id && !p.offline).length }} 个</td>
             </tr>
+            <tr v-if="!catRows.length"><td colspan="2" class="table-empty">暂无商品分类</td></tr>
             </tbody>
           </table>
         </div>

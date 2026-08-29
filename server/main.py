@@ -163,6 +163,7 @@ class GameIn(BaseModel):
     winners: list[int] = []
     event: str = ""
     round: str = ""
+    time: str = ""
 
 
 class ProfileIn(BaseModel):
@@ -718,7 +719,7 @@ def staff_projects(staff: dict = Depends(staff_user), db: Session = Depends(get_
 @app.post("/api/staff/games")
 def api_game(body: GameIn, staff: dict = Depends(staff_user), db: Session = Depends(get_db)):
     try:
-        return L.submit_game(db, staff, body.projectId, body.tableId, body.players, body.winners, body.event, body.round)
+        return L.submit_game(db, staff, body.projectId, body.tableId, body.players, body.winners, body.event, body.round, body.time)
     except ValueError as e:
         fail(e)
 

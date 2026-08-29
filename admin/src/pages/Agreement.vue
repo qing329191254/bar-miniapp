@@ -128,6 +128,7 @@ onMounted(async () => {
                   <td><b>{{ count(h.v) }}</b> 人<div class="tiny">{{ count(h.v) ? '可下钻查看' : '暂无记录' }}</div></td>
                   <td><button class="btn ghost agreement-small" :disabled="!count(h.v)" @click="openVer = openVer === h.v ? null : h.v">{{ openVer === h.v ? '收起' : '查看名单' }}</button></td>
                 </tr>
+                <tr v-if="!history.length"><td colspan="4" class="table-empty">暂无协议版本记录</td></tr>
               </tbody>
             </table>
           </div>

@@ -954,9 +954,17 @@ def verify_confirm(sess: Session, code: str, staff: dict) -> dict:
     return verify_code_dict(vc)
 
 
-def submit_game(sess: Session, staff: dict, pid: int, table_id, players: list, winners: list, event: str, round: str = "") -> dict:
+def submit_game(sess: Session, staff: dict, pid: int, table_id, players: list, winners: list, event: str, round: str = "", game_time: str = "") -> dict:
     if not players:
         err("请至少选择 1 位玩家")
+    normalized_time = (game_time or "").strip().replace("T", " ")[:16]
+    if normalized_time:
+        try:
+            datetime.strptime(normalized_time, "%Y-%m-%d %H:%M")
+        except ValueError:
+            err("对局时间格式不正确")
+    else:
+        normalized_time = f"{today_str()} {clock()}"
     cf = setting(sess, "config")
     if cf.get("pointLimit"):
         lim = int(cf.get("pointVal") or 0)
@@ -985,7 +993,7 @@ def submit_game(sess: Session, staff: dict, pid: int, table_id, players: list, w
             wlt.shard_t += rec_players[-1]["sh"]
     rec = GameRecord(
         id=next_seq(sess, "rec"), pid=pid, pname=pj.name if pj else "",
-        table=tbl.name if tbl else "", round=(round or "").strip()[:32], time=f"{today_str()} {clock()}",
+        table=tbl.name if tbl else "", round=(round or "").strip()[:32], time=normalized_time,
         op=staff["nick"], op_uid=staff["id"], players=rec_players,
     )
     sess.add(rec)
@@ -996,7 +1004,7 @@ def submit_game(sess: Session, staff: dict, pid: int, table_id, players: list, w
             x = u(sess, uid)
             tm = team(sess, x.team_id) if x else None
             sess.add(Champ(
-                uid=uid, event=ev, date=today_str(), n=len(players),
+                uid=uid, event=ev, date=normalized_time[:10], n=len(players),
                 team_id=x.team_id if x else None,
                 team_name=tm.name if tm else "无战队", op=staff["nick"],
             ))

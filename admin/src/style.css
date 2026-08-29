@@ -88,6 +88,9 @@ th{font-weight:400;color:var(--ink3);font-size:11px;position:sticky;top:0;z-inde
 .tb2 th{text-align:left;font-weight:400;color:var(--ink3);font-size:11px;padding:7px 8px;border-bottom:1px solid var(--line);white-space:nowrap;position:sticky;top:0;z-index:3;background:#fff;box-shadow:0 1px 0 var(--line)}
 .tb2 td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
 .tb2 .tb-foot td{background:#FAF9F5;font-weight:600;border-bottom:none}
+.tb2 td.table-empty{height:88px;padding:24px 16px!important;text-align:center!important;color:var(--ink3)!important;background:#FCFBF8;font-size:12px}
+.tb2 td.table-empty::before{content:"—";display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;margin-right:8px;border-radius:50%;background:#EEECE6;color:var(--ink3);vertical-align:middle}
+.list-empty{padding:24px 16px;text-align:center;color:var(--ink3);font-size:12px;background:#FCFBF8;border-radius:8px}
 /* 列对齐：data-cols 用 l=左对齐 c=居中（数字/状态/操作）；默认文本列左、其余居中 */
 .tb2[data-cols] :is(thead,tbody,tfoot) tr > *{text-align:center}
 .tb2[data-cols="lcccc"] :is(thead,tbody,tfoot) tr > :nth-child(1),
@@ -126,6 +129,32 @@ th{font-weight:400;color:var(--ink3);font-size:11px;position:sticky;top:0;z-inde
 .tb2[data-cols="lccccccc"] :is(thead,tbody,tfoot) tr > :nth-child(n+2){text-align:center}
 .tb2[data-cols="lccclcccc"] :is(thead,tbody,tfoot) tr > :nth-child(1),
 .tb2[data-cols="lccclcccc"] :is(thead,tbody,tfoot) tr > :nth-child(4){text-align:left}
+/* 报表页：文本列左对齐，数字/状态列居中 */
+.tb2[data-cols="llllllcc"] :is(thead,tbody,tfoot) tr > :nth-child(-n+6){text-align:left}
+.tb2[data-cols="llcccc"] :is(thead,tbody,tfoot) tr > :nth-child(-n+2){text-align:left}
+.tb2[data-cols="llcll"] :is(thead,tbody,tfoot) tr > :nth-child(1),
+.tb2[data-cols="llcll"] :is(thead,tbody,tfoot) tr > :nth-child(2),
+.tb2[data-cols="llcll"] :is(thead,tbody,tfoot) tr > :nth-child(4),
+.tb2[data-cols="llcll"] :is(thead,tbody,tfoot) tr > :nth-child(5){text-align:left}
+.tb2[data-cols="llclc"] :is(thead,tbody,tfoot) tr > :nth-child(1),
+.tb2[data-cols="llclc"] :is(thead,tbody,tfoot) tr > :nth-child(2),
+.tb2[data-cols="llclc"] :is(thead,tbody,tfoot) tr > :nth-child(4){text-align:left}
+.tb2[data-cols="llccccc"] :is(thead,tbody,tfoot) tr > :nth-child(-n+2){text-align:left}
+.tb2[data-cols="llccccl"] :is(thead,tbody,tfoot) tr > :nth-child(1),
+.tb2[data-cols="llccccl"] :is(thead,tbody,tfoot) tr > :nth-child(2),
+.tb2[data-cols="llccccl"] :is(thead,tbody,tfoot) tr > :nth-child(7){text-align:left}
+.tb2[data-cols="lcccll"] :is(thead,tbody,tfoot) tr > :nth-child(1),
+.tb2[data-cols="lcccll"] :is(thead,tbody,tfoot) tr > :nth-child(5),
+.tb2[data-cols="lcccll"] :is(thead,tbody,tfoot) tr > :nth-child(6){text-align:left}
+.tb2[data-cols="llclllcc"] :is(thead,tbody,tfoot) tr > :nth-child(1),
+.tb2[data-cols="llclllcc"] :is(thead,tbody,tfoot) tr > :nth-child(2),
+.tb2[data-cols="llclllcc"] :is(thead,tbody,tfoot) tr > :nth-child(4),
+.tb2[data-cols="llclllcc"] :is(thead,tbody,tfoot) tr > :nth-child(5),
+.tb2[data-cols="llclllcc"] :is(thead,tbody,tfoot) tr > :nth-child(6){text-align:left}
+.tb2[data-cols="lcclclclc"] :is(thead,tbody,tfoot) tr > :nth-child(1),
+.tb2[data-cols="lcclclclc"] :is(thead,tbody,tfoot) tr > :nth-child(4),
+.tb2[data-cols="lcclclclc"] :is(thead,tbody,tfoot) tr > :nth-child(6),
+.tb2[data-cols="lcclclclc"] :is(thead,tbody,tfoot) tr > :nth-child(8){text-align:left}
 .tb2[data-cols] td.col-l{text-align:left!important}
 .tb2 th.col-op,
 .tb2 td.col-op{text-align:center!important}

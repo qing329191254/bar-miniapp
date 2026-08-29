@@ -178,7 +178,7 @@ watch([tablePage, tablePageSize], load);
           <div class="mtr"><div class="k">单均</div><div class="v">¥{{ fmt(body.summary?.avgOrder) }}</div><div class="tiny">{{ fmt(body.summary?.orders) }} 单 · 营业额÷订单数</div></div>
         </div>
         <div class="card table-card">
-          <table class="tb2 tb-even">
+          <table class="tb2 tb-even" data-cols="llllllcc">
             <thead><tr><th>日期</th><th>星期</th><th>金币消费</th><th>现场收款</th><th>营业额</th><th>充值额</th><th>订单</th><th>人次</th></tr></thead>
             <tbody>
               <tr v-for="r in body.rows || []" :key="r.d" :class="{ 'row-today': r.d === today }">
@@ -186,7 +186,8 @@ watch([tablePage, tablePageSize], load);
                 <td>¥{{ fmt(r.coin) }}</td><td>¥{{ fmt(r.offline) }}</td><td><b>¥{{ fmt(r.coin + r.offline) }}</b></td>
                 <td class="blue">¥{{ fmt(r.recharge) }}</td><td>{{ r.orders }}</td><td class="tiny">{{ r.guests }}</td>
               </tr>
-              <tr v-if="body.totals" class="total-row">
+              <tr v-if="!(body.rows || []).length"><td colspan="8" class="table-empty">所选范围内无营业数据</td></tr>
+              <tr v-if="body.totals && (body.rows || []).length" class="total-row">
                 <td>合计</td><td class="tiny">{{ body.summary?.days }} 天</td>
                 <td>¥{{ fmt(body.totals.coin) }}</td><td>¥{{ fmt(body.totals.offline) }}</td>
                 <td><b>¥{{ fmt(body.totals.biz) }}</b></td><td class="blue">¥{{ fmt(body.totals.recharge) }}</td>
@@ -218,14 +219,15 @@ watch([tablePage, tablePageSize], load);
           </div>
         </div>
         <div class="card table-card">
-          <table class="tb2 tb-even">
+          <table class="tb2 tb-even" data-cols="llcccc">
             <thead><tr><th>日期</th><th>星期</th><th>笔数</th><th>实收</th><th>赠送</th><th>笔均</th></tr></thead>
             <tbody>
               <tr v-for="r in body.rows || []" :key="r.d">
                 <td><b>{{ r.d }}</b></td><td class="tiny">{{ weekName(r.d) }}</td><td>{{ r.n }}</td>
                 <td><b>¥{{ fmt(r.amt) }}</b></td><td class="gold">{{ fmt(r.bns) }}</td><td class="tiny">¥{{ fmt(Math.round(r.amt / r.n)) }}</td>
               </tr>
-              <tr v-if="body.totals" class="total-row">
+              <tr v-if="!(body.rows || []).length"><td colspan="6" class="table-empty">所选范围内无充值数据</td></tr>
+              <tr v-if="body.totals && (body.rows || []).length" class="total-row">
                 <td>合计</td><td class="tiny">{{ body.summary?.paidCount }} 笔</td><td>{{ body.totals.n }}</td>
                 <td><b>¥{{ fmt(body.totals.amt) }}</b></td><td class="gold">{{ fmt(body.totals.bns) }}</td>
                 <td class="tiny">¥{{ fmt(body.totals.avg) }}</td>
@@ -264,14 +266,15 @@ watch([tablePage, tablePageSize], load);
           <div class="mtr"><div class="k">兑券消耗</div><div class="v">{{ fmt(body.summary?.costExch) }}</div><div class="tiny">累计口径</div></div>
         </div>
         <div class="card table-card">
-          <table class="tb2 tb-even">
+          <table class="tb2 tb-even" data-cols="llclc">
             <thead><tr><th>日期</th><th>星期</th><th>对局数</th><th>发放积分</th><th>占区间比</th></tr></thead>
             <tbody>
               <tr v-for="r in body.rows || []" :key="r.d">
                 <td><b>{{ r.d }}</b></td><td class="tiny">{{ weekName(r.d) }}</td><td>{{ r.games }}</td>
                 <td><b class="gold">{{ fmt(r.pts) }}</b></td><td class="tiny">{{ r.pct }}%</td>
               </tr>
-              <tr v-if="body.totals" class="total-row">
+              <tr v-if="!(body.rows || []).length"><td colspan="5" class="table-empty">所选范围内无积分发放记录</td></tr>
+              <tr v-if="body.totals && (body.rows || []).length" class="total-row">
                 <td>合计</td><td class="tiny">{{ body.summary?.gameCount }} 局</td><td>{{ body.totals.games }}</td>
                 <td><b class="gold">{{ fmt(body.totals.pts) }}</b></td><td class="tiny">{{ body.totals.pct }}%</td>
               </tr>
@@ -290,7 +293,7 @@ watch([tablePage, tablePageSize], load);
           <div class="mtr"><div class="k">区间核销</div><div class="v">{{ fmt(body.summary?.rangeVerifies) }}</div><div class="tiny">{{ data.rangeLabel }}</div></div>
         </div>
         <div class="card table-card">
-          <table class="tb2 tb-even">
+          <table class="tb2 tb-even" data-cols="llccccl">
             <thead><tr><th>卡券模板</th><th>类别</th><th>发放</th><th>已核销</th><th>未核销</th><th>已失效</th><th>核销率</th></tr></thead>
             <tbody>
               <tr v-for="r in body.rows || []" :key="r.id">
@@ -299,7 +302,8 @@ watch([tablePage, tablePageSize], load);
                 <td class="green">{{ r.used }}</td><td class="red">{{ r.unused }}</td><td class="tiny">{{ r.dead }}</td>
                 <td><b>{{ r.rate }}%</b><div class="rate-bar"><div class="rate-fill" :style="{ width: r.rate + '%' }" /></div></td>
               </tr>
-              <tr v-if="body.totals" class="total-row">
+              <tr v-if="!(body.rows || []).length"><td colspan="7" class="table-empty">暂无卡券发放与核销数据</td></tr>
+              <tr v-if="body.totals && (body.rows || []).length" class="total-row">
                 <td>合计</td><td class="tiny">{{ rowTotal }} 种</td><td>{{ body.totals.n }}</td>
                 <td class="green">{{ body.totals.used }}</td><td class="red">{{ body.totals.unused }}</td><td class="tiny">{{ body.totals.dead }}</td>
                 <td><b>{{ body.totals.rate }}%</b></td>
@@ -319,7 +323,7 @@ watch([tablePage, tablePageSize], load);
           <div class="mtr"><div class="k">发出碎片</div><div class="v purple">{{ fmt(body.summary?.sh) }}</div><div class="tiny">仅用于榜单评定</div></div>
         </div>
         <div class="card table-card">
-          <table class="tb2 tb-even">
+          <table class="tb2 tb-even" data-cols="lcccll">
             <thead><tr><th>对局项目</th><th>局数</th><th>人次</th><th>局均人数</th><th>发出积分</th><th>发出碎片</th></tr></thead>
             <tbody>
               <tr v-for="r in body.rows || []" :key="r.name">
@@ -327,7 +331,8 @@ watch([tablePage, tablePageSize], load);
                 <td class="tiny">{{ r.n ? (r.heads / r.n).toFixed(1) : 0 }}</td>
                 <td class="gold">{{ fmt(r.pts) }}</td><td class="purple">{{ fmt(r.sh) }}</td>
               </tr>
-              <tr v-if="body.totals" class="total-row">
+              <tr v-if="!(body.rows || []).length"><td colspan="6" class="table-empty">所选范围内无对局数据</td></tr>
+              <tr v-if="body.totals && (body.rows || []).length" class="total-row">
                 <td>合计</td><td>{{ body.totals.n }}</td><td>{{ body.totals.heads }}</td>
                 <td class="tiny">{{ body.totals.avgHeads }}</td>
                 <td class="gold">{{ fmt(body.totals.pts) }}</td><td class="purple">{{ fmt(body.totals.sh) }}</td>
@@ -347,7 +352,7 @@ watch([tablePage, tablePageSize], load);
           <div class="mtr"><div class="k">已注销</div><div class="v tiny">{{ body.summary?.gone }}</div></div>
         </div>
         <div class="card table-card">
-          <table class="tb2 tb-even">
+          <table class="tb2 tb-even" data-cols="llclllcc">
             <thead><tr><th>会员</th><th>区间消费</th><th>单数</th><th>金币余额</th><th>积分</th><th>本周碎片</th><th>未核销卡</th><th class="col-op">操作</th></tr></thead>
             <tbody>
               <tr v-for="r in body.rows || []" :key="r.id">
@@ -357,7 +362,8 @@ watch([tablePage, tablePageSize], load);
                 <td class="purple">{{ fmt(r.sh) }}</td><td class="tiny">{{ r.cards }}</td>
                 <td class="col-op"><button class="btn sm" @click="drill('/members')">详情</button></td>
               </tr>
-              <tr v-if="body.totals" class="total-row">
+              <tr v-if="!(body.rows || []).length"><td colspan="8" class="table-empty">当前筛选条件下无会员数据</td></tr>
+              <tr v-if="body.totals && (body.rows || []).length" class="total-row">
                 <td>合计</td><td><b>¥{{ fmt(body.totals.spend) }}</b></td><td>{{ body.totals.orders }}</td>
                 <td class="gold">{{ fmt(body.totals.coin) }}</td><td>{{ fmt(body.totals.pt) }}</td>
                 <td class="purple">{{ fmt(body.totals.sh) }}</td><td class="tiny">{{ body.totals.cards }}</td><td>—</td>
@@ -377,7 +383,7 @@ watch([tablePage, tablePageSize], load);
           <div class="mtr"><div class="k">发放提分</div><div class="v">{{ fmt(body.summary?.wds) }}</div></div>
         </div>
         <div class="card table-card">
-          <table class="tb2 tb-even">
+          <table class="tb2 tb-even" data-cols="lcclclclc">
             <thead><tr><th>员工</th><th>角色</th><th>接单</th><th>经手金额</th><th>核销</th><th>对局</th><th>发分</th><th>作业量</th><th class="col-op">操作</th></tr></thead>
             <tbody>
               <tr v-for="r in body.rows || []" :key="r.user.id">
@@ -388,7 +394,8 @@ watch([tablePage, tablePageSize], load);
                 <td>{{ r.wds }}</td><td><b>{{ r.acts }}</b></td>
                 <td class="col-op"><button class="btn sm" @click="openJob(r.user.id)">查看流水</button></td>
               </tr>
-              <tr v-if="body.totals" class="total-row">
+              <tr v-if="!(body.rows || []).length"><td colspan="9" class="table-empty">当前筛选条件下无员工作业数据</td></tr>
+              <tr v-if="body.totals && (body.rows || []).length" class="total-row">
                 <td>合计</td><td class="tiny">{{ rowTotal }} 人</td><td>{{ body.totals.orders }}</td>
                 <td><b>¥{{ fmt(body.totals.amount) }}</b></td><td>{{ body.totals.verifies }}</td>
                 <td>{{ body.totals.games }}<div class="tiny">{{ body.totals.heads }} 人次</div></td>
@@ -418,6 +425,7 @@ watch([tablePage, tablePageSize], load);
                 <td class="tiny">{{ r.desc }}</td>
                 <td class="col-op"><button class="btn sm" @click="drill(r.link)">逐户下钻</button></td>
               </tr>
+              <tr v-if="!(body.rows || []).length"><td colspan="4" class="table-empty">暂无负债数据</td></tr>
             </tbody>
           </table>
           <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
@@ -446,7 +454,8 @@ watch([tablePage, tablePageSize], load);
                 <td><b :class="{ red: r.dRc }">{{ diffCell(r.dRc) }}</b></td>
                 <td><span class="pill" :class="r.ok ? 'pill-ok' : 'pill-bad'">{{ r.ok ? "账平" : "有差异" }}</span></td>
               </tr>
-              <tr v-if="body.totals" class="total-row">
+              <tr v-if="!(body.rows || []).length"><td colspan="9" class="table-empty">所选范围内无对账数据</td></tr>
+              <tr v-if="body.totals && (body.rows || []).length" class="total-row">
                 <td>合计</td><td>¥{{ fmt(body.totals.sumCoin) }}</td><td class="tiny">¥{{ fmt(body.totals.flowCoin) }}</td>
                 <td><b :class="{ red: body.totals.dCoin }">{{ diffCell(body.totals.dCoin) }}</b></td>
                 <td>¥{{ fmt(body.totals.sumOffline) }}</td><td class="tiny">¥{{ fmt(body.totals.flowOffline) }}</td>

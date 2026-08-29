@@ -321,6 +321,7 @@ function hasOp(r: any) {
           <td>{{ it.h }}</td>
           <td style="white-space:pre-wrap;font-size:12px">{{ it.v }}</td>
         </tr>
+        <tr v-if="!kv.length"><td colspan="2" class="table-empty">暂无可展示数据</td></tr>
         </tbody>
       </table>
     </div>
