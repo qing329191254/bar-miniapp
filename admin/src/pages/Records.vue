@@ -4,12 +4,6 @@ import { useRoute } from "vue-router";
 import { api, DEFAULT_PAGE_SIZE, pageQs } from "../api";
 import AppPagination from "../components/AppPagination.vue";
 
-const RC: Record<string, [string, string]> = {
-  PENDING_PAY: ["待付款", "#185FA5"],
-  PAID: ["已到账", "#3B6D11"],
-  CLOSED: ["已关闭", "#9C9A93"],
-  CANCELLED: ["已取消", "#9C9A93"],
-};
 const WD: Record<string, [string, string]> = {
   PENDING_CONFIRM: ["待确认", "#BA7517"],
   GRANTED: ["已发放", "#3B6D11"],
@@ -29,7 +23,6 @@ const members = ref<any[]>([]);
 const status = ref("");
 
 const titles: Record<string, [string, string]> = {
-  recharges: ["充值记录", "资金流入不计营业额"],
   withdrawals: ["提分单管理", "本页只读 · 发放在商家移动端当面完成"],
   gameRecords: ["对局记录查询", "作废需店长以上"],
 };
@@ -76,22 +69,7 @@ const pendingWdr = computed(() =>
       </div>
     </div>
     <div class="card" style="padding:0;overflow-x:auto">
-      <table class="tb2" v-if="coll==='recharges'" data-cols="llcccc">
-        <thead>
-          <tr><th>单号</th><th>会员</th><th>金额</th><th>赠送</th><th>状态</th><th>时间</th></tr>
-        </thead>
-        <tbody>
-        <tr v-for="r in shown" :key="r.id">
-          <td><b>{{ r.no }}</b></td>
-          <td>{{ nick(r.uid) }}</td>
-          <td>¥{{ r.amount }}</td>
-          <td class="tiny">{{ r.bonus }}</td>
-          <td><span class="pill" :style="{ color: pill(RC, r.status)[1] }">{{ pill(RC, r.status)[0] }}</span></td>
-          <td class="tiny">{{ r.at || r.created }}</td>
-        </tr>
-        </tbody>
-      </table>
-      <table class="tb2" v-else-if="coll==='withdrawals'" data-cols="llcccc">
+      <table class="tb2" v-if="coll==='withdrawals'" data-cols="llcccc">
         <thead>
           <tr><th>单号</th><th>会员</th><th>积分数</th><th>状态</th><th>提交时间</th><th>发放时间</th></tr>
         </thead>

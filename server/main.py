@@ -795,11 +795,34 @@ def admin_void_game(gid: int, body: VoidGameIn, admin: dict = Depends(admin_user
     return L.void_game(db, gid, body.reason, body.voidCards, admin)
 
 
+@app.get("/api/admin/jobs-page")
+def admin_jobs_page(
+    preset: str = "7d",
+    date_from: str = Query("", alias="from"),
+    date_to: str = Query("", alias="to"),
+    op_uid: int = Query(0, alias="opUid"),
+    admin: dict = Depends(admin_user),
+    db: Session = Depends(get_db),
+):
+    return L.jobs_page(db, preset, date_from, date_to, op_uid)
+
+
 @app.get("/api/admin/jobs")
 def admin_jobs(preset: str = "7d", admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
-    staff = db.query(User).filter(User.role != "CUSTOMER").all()
-    keys = ("amount", "orders", "verifies", "games", "wds", "rcAmt", "odAmt")
-    return [{"user": L.public_user(db, s), **{k: L.job_stat(db, s.id, preset)[k] for k in keys}} for s in staff]
+    page = L.jobs_page(db, preset)
+    return page["rows"]
+
+
+@app.get("/api/admin/reports-page")
+def admin_reports_page(
+    preset: str = "7d",
+    date_from: str = Query("", alias="from"),
+    date_to: str = Query("", alias="to"),
+    tab: str = "biz",
+    admin: dict = Depends(admin_user),
+    db: Session = Depends(get_db),
+):
+    return L.reports_page(db, preset, date_from, date_to, tab, admin.get("role") == "BOSS")
 
 
 @app.get("/api/admin/jobs/{uid}")
@@ -830,6 +853,47 @@ def admin_orders_page(
     db: Session = Depends(get_db),
 ):
     return L.orders_page(db, preset, date_from, date_to, op_uid, status, page, page_size)
+
+
+@app.get("/api/admin/recharges-page")
+def admin_recharges_page(
+    preset: str = "all",
+    date_from: str = Query("", alias="from"),
+    date_to: str = Query("", alias="to"),
+    op_uid: int = Query(0, alias="opUid"),
+    member_uid: int = Query(0, alias="uid"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(15, ge=1, le=200, alias="pageSize"),
+    admin: dict = Depends(admin_user),
+    db: Session = Depends(get_db),
+):
+    return L.recharges_page(db, preset, date_from, date_to, op_uid, member_uid, page, page_size)
+
+
+@app.post("/api/admin/recharges/{rid}/confirm")
+def admin_confirm_recharge(rid: int, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    try:
+        if not cache.idem_begin(f"rc:{rid}"):
+            raise HTTPException(400, "请勿重复提交")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+    try:
+        return L.confirm_recharge(db, rid, admin)
+    except ValueError as e:
+        fail(e)
+
+
+@app.post("/api/admin/recharges/{rid}/reject")
+def admin_reject_recharge(rid: int, body: ReasonIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    reason = (body.reason or "").strip()
+    if len(reason) < 2:
+        raise HTTPException(400, "拒绝原因至少 2 个字")
+    try:
+        return L.reject_recharge(db, rid, reason, admin)
+    except ValueError as e:
+        fail(e)
 
 
 @app.get("/api/admin/daily-biz")

@@ -1090,9 +1090,10 @@ def job_stat(sess: Session, uid: int, preset="today", date_from: str = "", date_
     vfs.sort(key=lambda v: v.get("at") or "", reverse=True)
     gms.sort(key=lambda g: g.get("time") or "", reverse=True)
     r = flt_range(preset, date_from, date_to)
+    acts = len(ods) + len(rcs) + len(vfs) + len(gms)
     return {
         "amount": rc_amt + od_amt, "rcAmt": rc_amt, "odAmt": od_amt,
-        "orders": len(ods), "verifies": len(vfs), "games": len(gms), "heads": heads, "wds": wds,
+        "orders": len(ods), "verifies": len(vfs), "games": len(gms), "heads": heads, "wds": wds, "acts": acts,
         "rcs": rcs, "ods": ods, "vfs": vfs, "gms": gms,
         "range": {"from": r[0], "to": r[1], "label": range_label(preset, date_from, date_to)} if r else {"from": "", "to": "", "label": "全部时间"},
     }
@@ -1754,6 +1755,27 @@ def daily_biz_page(
 
 PAID_OD = ("MAKING", "FINISHED")
 PENDING_OD = ("PENDING_PAY", "PENDING_ACCEPT")
+PAID_RC = ("PAID",)
+
+
+def _enrich_recharges(sess: Session, rows: list[dict]) -> list[dict]:
+    uids = {r["uid"] for r in rows}
+    op_uids = {r.get("opUid") for r in rows if r.get("opUid")}
+    users = {
+        u.id: u
+        for u in sess.query(User).filter(User.id.in_(list(uids | op_uids))).all()
+    } if (uids | op_uids) else {}
+    out = []
+    for r in rows:
+        row = dict(r)
+        usr = users.get(row["uid"])
+        if usr:
+            row["tail"] = usr.tail or ""
+            row["nick"] = usr.nick
+        op = users.get(row.get("opUid") or 0)
+        row["opName"] = op.nick if op else None
+        out.append(row)
+    return out
 
 
 def _enrich_orders(sess: Session, rows: list[dict]) -> list[dict]:
@@ -1833,6 +1855,71 @@ def orders_page(
     }
 
 
+def recharges_page(
+    sess: Session,
+    preset: str = "all",
+    date_from: str = "",
+    date_to: str = "",
+    op_uid: int = 0,
+    member_uid: int = 0,
+    page: int = 1,
+    page_size: int = 15,
+) -> dict:
+    expire_timeouts(sess)
+    all_rows = _enrich_recharges(
+        sess,
+        [x.to_dict() for x in sess.query(Recharge).order_by(Recharge.id.desc()).all()],
+    )
+
+    def rc_time(r: dict) -> str:
+        return r.get("at") or r.get("created") or ""
+
+    rows = [
+        r for r in all_rows
+        if in_range(rc_time(r), preset, date_from, date_to)
+        and (not op_uid or (r.get("opUid") or 0) == op_uid)
+        and (not member_uid or r.get("uid") == member_uid)
+    ]
+    rows.sort(key=rc_time, reverse=True)
+    pending = [r for r in all_rows if r["status"] == "PENDING_PAY"]
+    pending.sort(key=rc_time)
+    paid = [r for r in rows if r["status"] in PAID_RC]
+    amt = sum(int(r.get("amount") or 0) for r in paid)
+    bns = sum(int(r.get("bonus") or 0) for r in paid)
+    by_op: dict[int, dict] = {}
+    for r in paid:
+        k = int(r.get("opUid") or 0)
+        slot = by_op.setdefault(k, {"opUid": k, "n": 0, "amt": 0, "name": r.get("opName") or "未指定"})
+        slot["n"] += 1
+        slot["amt"] += int(r.get("amount") or 0)
+    pg = paginate(rows, page, page_size)
+    staff = [public_user(sess, s) for s in sess.query(User).filter(User.role != "CUSTOMER").order_by(User.id).all()]
+    members = [
+        {"id": m.id, "nick": m.nick, "tail": m.tail or ""}
+        for m in sess.query(User).filter(User.role == "CUSTOMER").order_by(User.id.desc()).all()
+    ]
+    return {
+        "totalAll": len(all_rows),
+        "filtered": len(rows),
+        "rangeLabel": range_label(preset, date_from, date_to),
+        "summary": {
+            "paidAmount": amt,
+            "paidCount": len(paid),
+            "bonusTotal": bns,
+            "avgAmount": round(amt / len(paid)) if paid else 0,
+            "incomplete": sum(1 for r in rows if r["status"] not in PAID_RC),
+        },
+        "byOp": sorted(by_op.values(), key=lambda x: -x["amt"]),
+        "pending": pending,
+        "rows": pg["items"],
+        "rowTotal": pg["total"],
+        "page": pg["page"],
+        "pageSize": pg["pageSize"],
+        "staff": staff,
+        "members": members,
+    }
+
+
 def coin_adjust_page(sess: Session, page: int = 1, page_size: int = 15) -> dict:
     rows = sess.query(CoinAdjust).order_by(CoinAdjust.at.desc()).all()
     uids = {a.uid for a in rows}
@@ -1905,3 +1992,299 @@ def approve_coin_adjust(sess: Session, aid: int, action: str, admin: dict, reaso
             f"{nick} · {'+' if a.delta > 0 else ''}{a.delta} 已驳回 · 原因：{r}",
             a.uid, admin)
     return a.to_dict()
+
+
+def day_key(s: str) -> str:
+    return (s or "")[:10]
+
+
+def week_name(d: str) -> str:
+    try:
+        w = datetime.fromisoformat(d).weekday()
+        return ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][w]
+    except ValueError:
+        return "—"
+
+
+def pt_identity_check(sess: Session) -> dict:
+    wallets = (
+        sess.query(Wallet)
+        .join(User, User.id == Wallet.user_id)
+        .filter(User.role == "CUSTOMER")
+        .all()
+    )
+    end_av = sum(int(w.point_av or 0) for w in wallets)
+    end_fz = sum(int(w.point_fz or 0) for w in wallets)
+    gain = sum(int(w.point_mg or 0) for w in wallets)
+    end = end_av + end_fz
+    tpl_map = {t.id: t for t in sess.query(CardTpl).all()}
+    cost_exch = 0
+    for c in sess.query(Card).filter(Card.src == "EXCHANGE").all():
+        t = tpl_map.get(c.tpl)
+        if t:
+            cost_exch += int(t.cost or 0)
+    cost_wdr = sum(int(w.pts or 0) for w in sess.query(Withdrawal).filter(Withdrawal.status == "GRANTED").all())
+    cost = cost_exch + cost_wdr
+    ledger = dict(setting(sess, "ledger") or {})
+    cleared = int(ledger.get("ptCleared") or 0)
+    opening = int(ledger.get("ptOpening") or 0)
+    expect = opening + gain - cost - cleared
+    diff = end - expect
+    return {
+        "opening": opening, "gain": gain, "cost": cost, "costExch": cost_exch, "costWdr": cost_wdr,
+        "cleared": cleared, "end": end, "endAv": end_av, "endFz": end_fz, "expect": expect, "diff": diff,
+        "ok": diff == 0,
+    }
+
+
+def jobs_page(
+    sess: Session,
+    preset: str = "7d",
+    date_from: str = "",
+    date_to: str = "",
+    op_uid: int = 0,
+) -> dict:
+    staff_all = sess.query(User).filter(User.role != "CUSTOMER").order_by(User.id).all()
+    staff_filter = [s for s in staff_all if not op_uid or s.id == op_uid]
+    rows = []
+    tot = {"amount": 0, "orders": 0, "verifies": 0, "games": 0, "acts": 0}
+    for s in staff_filter:
+        st = job_stat(sess, s.id, preset, date_from, date_to)
+        tot["amount"] += st["amount"]
+        tot["orders"] += st["orders"]
+        tot["verifies"] += st["verifies"]
+        tot["games"] += st["games"]
+        tot["acts"] += st["acts"]
+        rows.append({"user": public_user(sess, s), **st})
+    rows.sort(key=lambda r: -r["acts"])
+    max_amt = max((r["amount"] for r in rows), default=0) or 1
+    staff = [public_user(sess, s) for s in staff_all]
+    return {
+        "rangeLabel": range_label(preset, date_from, date_to),
+        "summary": tot,
+        "maxAmount": max_amt,
+        "rows": rows,
+        "staff": staff,
+        "staffCount": len(staff_all),
+    }
+
+
+def _report_biz(sess: Session, preset: str, date_from: str, date_to: str, today: str) -> dict:
+    rows = [x.to_dict() for x in sess.query(DailyBiz).all() if in_range(x.d, preset, date_from, date_to)]
+    rows.sort(key=lambda x: x["d"], reverse=True)
+    s = {"coin": 0, "offline": 0, "recharge": 0, "orders": 0, "guests": 0}
+    for x in rows:
+        for k in s:
+            s[k] += int(x.get(k) or 0)
+    biz = s["coin"] + s["offline"]
+    return {
+        "summary": {
+            "biz": biz,
+            "avg": round(biz / len(rows)) if rows else 0,
+            "guests": s["guests"],
+            "avgOrder": round(biz / s["orders"]) if s["orders"] else 0,
+            "orders": s["orders"],
+            "days": len(rows),
+        },
+        "rows": rows,
+        "totals": {**s, "biz": biz},
+    }
+
+
+def _report_recharge(sess: Session, preset: str, date_from: str, date_to: str, _today: str) -> dict:
+    all_rc = [r.to_dict() for r in sess.query(Recharge).all() if in_range(r.at or r.created or "", preset, date_from, date_to)]
+    paid = [r for r in all_rc if r["status"] == "PAID"]
+    amt = sum(int(r.get("amount") or 0) for r in paid)
+    bns = sum(int(r.get("bonus") or 0) for r in paid)
+    by_day: dict[str, dict] = {}
+    for r in paid:
+        d = day_key(r.get("at") or r.get("created") or "")
+        slot = by_day.setdefault(d, {"d": d, "n": 0, "amt": 0, "bns": 0})
+        slot["n"] += 1
+        slot["amt"] += int(r.get("amount") or 0)
+        slot["bns"] += int(r.get("bonus") or 0)
+    by_tier: dict[int, int] = {}
+    for r in paid:
+        a = int(r.get("amount") or 0)
+        by_tier[a] = by_tier.get(a, 0) + 1
+    day_rows = sorted(by_day.values(), key=lambda x: x["d"], reverse=True)
+    return {
+        "summary": {
+            "amt": amt, "bns": bns, "paidCount": len(paid),
+            "bonusRate": round(bns / amt * 100, 1) if amt else 0,
+            "avg": round(amt / len(paid)) if paid else 0,
+            "incomplete": len(all_rc) - len(paid),
+        },
+        "byTier": [{"amount": int(k), "n": v} for k, v in sorted(by_tier.items(), key=lambda x: -x[0])],
+        "rows": day_rows,
+    }
+
+
+def _report_point(sess: Session, preset: str, date_from: str, date_to: str, _today: str) -> dict:
+    ident = pt_identity_check(sess)
+    games = [g.to_dict() for g in sess.query(GameRecord).all() if g.status != "VOID" and in_range(g.time or "", preset, date_from, date_to)]
+    by_day: dict[str, int] = {}
+    for g in games:
+        d = day_key(g.get("time") or "")
+        pts = sum(int(p.get("pts") or 0) for p in (g.get("players") or []))
+        by_day[d] = by_day.get(d, 0) + pts
+    days = sorted(by_day.keys(), reverse=True)
+    issued = sum(by_day.values())
+    wdr_in = [w for w in sess.query(Withdrawal).filter(Withdrawal.status == "GRANTED").all() if in_range(w.grant_at or w.at or "", preset, date_from, date_to)]
+    wdr_pts = sum(int(w.pts or 0) for w in wdr_in)
+    day_rows = [{"d": d, "games": sum(1 for g in games if day_key(g.get("time") or "") == d), "pts": by_day[d],
+                 "pct": round(by_day[d] / issued * 100, 1) if issued else 0} for d in days]
+    return {"identity": ident, "summary": {"issued": issued, "wdrPts": wdr_pts, "wdrCount": len(wdr_in), "endFz": ident["endFz"], "costExch": ident["costExch"], "gameCount": len(games)}, "rows": day_rows}
+
+
+def _report_card(sess: Session, preset: str, date_from: str, date_to: str, _today: str) -> dict:
+    tpls = {t.id: t for t in sess.query(CardTpl).all()}
+    rows = []
+    tot = {"n": 0, "used": 0, "unused": 0, "dead": 0}
+    for t in tpls.values():
+        cs = sess.query(Card).filter(Card.tpl == t.id).all()
+        if not cs:
+            continue
+        used = sum(1 for c in cs if c.status == "USED")
+        unused = sum(1 for c in cs if c.status == "UNUSED")
+        dead = sum(1 for c in cs if c.status in ("VOID", "EXPIRED"))
+        n = len(cs)
+        tot["n"] += n
+        tot["used"] += used
+        tot["unused"] += unused
+        tot["dead"] += dead
+        rows.append({"id": t.id, "name": t.name, "cat": t.cat, "cost": t.cost, "n": n, "used": used, "unused": unused, "dead": dead,
+                     "rate": round(used / n * 100) if n else 0})
+    rows.sort(key=lambda x: -x["n"])
+    vfs = [v for v in sess.query(VerifyLog).all() if in_range(v.at or "", preset, date_from, date_to)]
+    return {"summary": {**tot, "rate": round(tot["used"] / tot["n"] * 100) if tot["n"] else 0, "rangeVerifies": len(vfs)}, "rows": rows}
+
+
+def _report_game(sess: Session, preset: str, date_from: str, date_to: str, _today: str) -> dict:
+    games = [g.to_dict() for g in sess.query(GameRecord).all() if g.status != "VOID" and in_range(g.time or "", preset, date_from, date_to)]
+    voided = sum(1 for g in sess.query(GameRecord).all() if g.status == "VOID" and in_range(g.time or "", preset, date_from, date_to))
+    by_proj: dict[str, dict] = {}
+    for g in games:
+        k = g.get("pname") or "其他"
+        slot = by_proj.setdefault(k, {"name": k, "n": 0, "heads": 0, "pts": 0, "sh": 0})
+        slot["n"] += 1
+        players = g.get("players") or []
+        slot["heads"] += len(players)
+        slot["pts"] += sum(int(p.get("pts") or 0) for p in players)
+        slot["sh"] += sum(int(p.get("sh") or 0) for p in players)
+    rows = sorted(by_proj.values(), key=lambda x: -x["n"])
+    tot = {"n": 0, "heads": 0, "pts": 0, "sh": 0}
+    for r in rows:
+        for k in tot:
+            tot[k] += r[k]
+    return {"summary": {**tot, "voided": voided, "avgHeads": round(tot["heads"] / tot["n"], 1) if tot["n"] else 0}, "rows": rows}
+
+
+def _report_member(sess: Session, preset: str, date_from: str, date_to: str, _today: str) -> dict:
+    members = sess.query(User).filter(User.role == "CUSTOMER", User.status == "ACTIVE").all()
+    pending = sess.query(User).filter(User.role == "CUSTOMER", User.deact == "DEACTIVATE_PENDING", User.status == "ACTIVE").count()
+    gone = sess.query(User).filter(User.role == "CUSTOMER", User.status == "DEACTIVATED").count()
+    active_ids: set[int] = set()
+    for o in sess.query(Order).all():
+        if o.status in PAID_OD and in_range(o.at or "", preset, date_from, date_to):
+            active_ids.add(o.uid)
+    for g in sess.query(GameRecord).all():
+        if g.status != "VOID" and in_range(g.time or "", preset, date_from, date_to):
+            for p in (g.players or []):
+                if p.get("uid"):
+                    active_ids.add(int(p["uid"]))
+    rows = []
+    for m in members:
+        w = wallet_of(sess, m.id)
+        ods = [o for o in sess.query(Order).filter(Order.uid == m.id).all() if o.status in PAID_OD and in_range(o.at or "", preset, date_from, date_to)]
+        spend = sum(int(o.total or 0) for o in ods)
+        cards = sess.query(Card).filter(Card.uid == m.id, Card.status == "UNUSED").count()
+        rows.append({"id": m.id, "nick": m.nick, "no": m.no, "spend": spend, "orders": len(ods),
+                     "coin": w.coin_p + w.coin_b, "pt": w.point_av, "sh": shard_of(sess, m.id)["w"], "cards": cards})
+    rows.sort(key=lambda x: (-x["spend"], -x["coin"]))
+    tot_spend = sum(r["spend"] for r in rows)
+    return {"summary": {"total": len(members), "active": len(active_ids), "pending": pending, "gone": gone, "totSpend": tot_spend}, "rows": rows[:30], "rowTotal": len(rows)}
+
+
+def _report_staff(sess: Session, preset: str, date_from: str, date_to: str, _today: str) -> dict:
+    page = jobs_page(sess, preset, date_from, date_to, 0)
+    return {"summary": page["summary"], "rows": page["rows"], "maxAmount": page["maxAmount"]}
+
+
+def _report_liab(sess: Session, _preset: str, _date_from: str, _date_to: str, _today: str) -> dict:
+    wallets = sess.query(Wallet).join(User, User.id == Wallet.user_id).filter(User.role == "CUSTOMER", User.status == "ACTIVE").all()
+    coin_p = sum(int(w.coin_p or 0) for w in wallets)
+    coin_b = sum(int(w.coin_b or 0) for w in wallets)
+    ident = pt_identity_check(sess)
+    tpl_map = {t.id: t for t in sess.query(CardTpl).all()}
+    unused = sess.query(Card).filter(Card.status == "UNUSED").all()
+    card_pts = sum(int(tpl_map[c.tpl].cost or 0) for c in unused if c.tpl in tpl_map)
+    treasure = sum(1 for c in unused if c.tpl in tpl_map and tpl_map[c.tpl].cat == "OTHER")
+    rows = [
+        {"key": "coinP", "label": "未消费金币 · 本金", "display": f"¥{coin_p:,}", "color": "#A32D2D", "desc": "真实资金负债 · 顾客可要求退还", "link": "/liabCoin"},
+        {"key": "coinB", "label": "未消费金币 · 赠送", "display": f"¥{coin_b:,}", "color": "#BA7517", "desc": "营销负债 · 不可退不可提现", "link": "/liabCoin"},
+        {"key": "ptAv", "label": "未清零积分 · 可用", "display": f"{ident['endAv']:,}", "color": "#185FA5", "desc": "月末 24:00 清零后归零", "link": "/liabPoint"},
+        {"key": "ptFz", "label": "未清零积分 · 冻结", "display": f"{ident['endFz']:,}", "color": "#BA7517", "desc": "提分单待确认占用 · 不参与清零", "link": "/liabPoint"},
+        {"key": "cards", "label": "未核销卡券", "display": f"{len(unused)} 张", "color": "#534AB7", "desc": f"含 {treasure} 张宝箱卡（7 天有效）", "link": "/liabCard"},
+    ]
+    return {
+        "summary": {"coinTotal": coin_p + coin_b, "coinP": coin_p, "coinB": coin_b, "ptEnd": ident["end"], "cardCount": len(unused), "cardPts": card_pts},
+        "rows": rows,
+    }
+
+
+def _report_recon(sess: Session, preset: str, date_from: str, date_to: str, _today: str) -> dict:
+    daily = [x.to_dict() for x in sess.query(DailyBiz).all() if in_range(x.d, preset, date_from, date_to)]
+    daily.sort(key=lambda x: x["d"], reverse=True)
+    orders = [o.to_dict() for o in sess.query(Order).all() if o.status in PAID_OD]
+    recharges = [r.to_dict() for r in sess.query(Recharge).all() if r.status == "PAID"]
+    rows = []
+    tot = {"dCoin": 0, "dOffline": 0, "dRc": 0, "sumBiz": 0, "flowBiz": 0}
+    for x in daily:
+        d = x["d"]
+        ods = [o for o in orders if day_key(o.get("at") or "") == d]
+        coin = sum(int(o.get("paidPrincipal") or 0) for o in ods if o.get("payType") == "COIN")
+        offline = sum(int(o.get("total") or 0) for o in ods if o.get("payType") == "OFFLINE")
+        rc = sum(int(r.get("amount") or 0) for r in recharges if day_key(r.get("at") or "") == d)
+        d_coin = coin - int(x.get("coin") or 0)
+        d_off = offline - int(x.get("offline") or 0)
+        d_rc = rc - int(x.get("recharge") or 0)
+        sum_biz = int(x.get("coin") or 0) + int(x.get("offline") or 0)
+        flow_biz = coin + offline
+        tot["dCoin"] += d_coin
+        tot["dOffline"] += d_off
+        tot["dRc"] += d_rc
+        tot["sumBiz"] += sum_biz
+        tot["flowBiz"] += flow_biz
+        rows.append({"d": d, "sumCoin": x["coin"], "sumOffline": x["offline"], "sumRc": x["recharge"],
+                     "flowCoin": coin, "flowOffline": offline, "flowRc": rc,
+                     "dCoin": d_coin, "dOffline": d_off, "dRc": d_rc, "ok": not (d_coin or d_off or d_rc)})
+    bad = sum(1 for r in rows if not r["ok"])
+    return {"summary": {"days": len(rows), "bad": bad, "sumBiz": tot["sumBiz"], "flowBiz": tot["flowBiz"], **tot}, "rows": rows}
+
+
+def reports_page(
+    sess: Session,
+    preset: str = "7d",
+    date_from: str = "",
+    date_to: str = "",
+    tab: str = "biz",
+    is_boss: bool = True,
+) -> dict:
+    today = today_str()
+    if tab == "liab" and not is_boss:
+        tab = "biz"
+    builders = {
+        "biz": _report_biz,
+        "recharge": _report_recharge,
+        "point": _report_point,
+        "card": _report_card,
+        "game": _report_game,
+        "member": _report_member,
+        "staff": _report_staff,
+        "liab": _report_liab,
+        "recon": _report_recon,
+    }
+    fn = builders.get(tab) or _report_biz
+    body = fn(sess, preset, date_from, date_to, today)
+    return {"rangeLabel": range_label(preset, date_from, date_to), "tab": tab, "today": today, "body": body}
