@@ -123,6 +123,7 @@ th{font-weight:400;color:var(--ink3);font-size:11px;position:sticky;top:0;z-inde
 .tb2[data-cols="lccclcc"] :is(thead,tbody,tfoot) tr > :nth-child(1),
 .tb2[data-cols="lccclcc"] :is(thead,tbody,tfoot) tr > :nth-child(4){text-align:left}
 .tb2[data-cols="lccccccc"] :is(thead,tbody,tfoot) tr > :nth-child(1){text-align:left}
+.tb2[data-cols="lccccccc"] :is(thead,tbody,tfoot) tr > :nth-child(n+2){text-align:center}
 .tb2[data-cols] td.col-l{text-align:left!important}
 .tb-wrap{overflow:auto;min-height:0}
 .pill{font-size:11px;border-radius:20px;padding:2px 9px;display:inline-block}

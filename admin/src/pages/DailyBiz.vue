@@ -3,11 +3,13 @@ import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { api } from "../api";
 import BizTrendChart from "./BizTrendChart.vue";
+import { pickChartRows, chartModeHint, type BizMetric } from "./bizChartUtil";
 
 const router = useRouter();
 const preset = ref("7d");
 const dateFrom = ref("");
 const dateTo = ref("");
+const chartMetric = ref<BizMetric>("biz");
 const data = ref<any>(null);
 const loading = ref(true);
 const err = ref("");
@@ -32,6 +34,12 @@ function weekName(d: string) {
 function bizOf(row: { coin: number; offline: number }) {
   return Number(row.coin || 0) + Number(row.offline || 0);
 }
+function metricVal(row: any, metric: BizMetric) {
+  if (metric === "recharge") return row.recharge || 0;
+  if (metric === "orders") return row.orders || 0;
+  if (metric === "guests") return row.guests || 0;
+  return bizOf(row);
+}
 function back() {
   router.push("/dash");
 }
@@ -43,16 +51,32 @@ function setPreset(p: string) {
   }
   load();
 }
+function setChartMetric(m: BizMetric) {
+  chartMetric.value = m;
+}
 
 const rows = computed(() => data.value?.rows || []);
 const summary = computed(() => data.value?.summary || { biz: 0, avg: 0, recharge: 0, days: 0, coin: 0, offline: 0, orders: 0, guests: 0 });
 const peak = computed(() => data.value?.peak);
-const chartNote = computed(() => {
-  const n = data.value?.chart?.length || 0;
-  const total = rows.value.length;
-  if (!n) return "";
-  return n < total ? `仅显示最近 ${n} 天` : "区间全量";
+
+const chartRows = computed(() => pickChartRows(rows.value));
+const chartPeak = computed(() => {
+  if (!chartRows.value.length) return 0;
+  return Math.max(...chartRows.value.map((r) => metricVal(r, chartMetric.value)), 0);
 });
+const chartTitle = computed(() => {
+  const map: Record<BizMetric, string> = { biz: "营业趋势", recharge: "充值趋势", orders: "订单趋势", guests: "到店趋势" };
+  return map[chartMetric.value];
+});
+const chartNote = computed(() => {
+  const n = chartRows.value.length;
+  const total = rows.value.length;
+  const hint = chartModeHint(n);
+  if (!n) return "";
+  if (total > n) return `${hint} · 显示最近 ${n} 天`;
+  return hint;
+});
+const chartKey = computed(() => `${preset.value}-${dateFrom.value}-${dateTo.value}-${chartMetric.value}`);
 
 async function load() {
   loading.value = true;
@@ -109,7 +133,11 @@ onMounted(load);
 
     <template v-else-if="data">
       <div class="cards">
-        <div class="mtr">
+        <div
+          class="mtr mtr-metric"
+          :class="{ on: chartMetric === 'biz' }"
+          @click="setChartMetric('biz')"
+        >
           <div class="k">区间营业额</div>
           <div class="v">¥{{ fmt(summary.biz) }}</div>
           <div class="tiny">{{ summary.days }} 天合计</div>
@@ -119,7 +147,11 @@ onMounted(load);
           <div class="v">¥{{ fmt(summary.avg) }}</div>
           <div class="tiny">区间内平均</div>
         </div>
-        <div class="mtr">
+        <div
+          class="mtr mtr-metric"
+          :class="{ on: chartMetric === 'recharge' }"
+          @click="setChartMetric('recharge')"
+        >
           <div class="k">区间充值</div>
           <div class="v">¥{{ fmt(summary.recharge) }}</div>
           <div class="tiny">现金实收口径</div>
@@ -131,13 +163,26 @@ onMounted(load);
         </div>
       </div>
 
-      <div class="card chart-card">
-        <div class="st">营业趋势 <em>{{ chartNote }}</em></div>
-        <BizTrendChart :rows="data.chart || []" :peak-biz="peak?.biz || 0" />
-      </div>
+      <div class="biz-blocks">
+        <div class="card chart-card">
+          <div class="st">{{ chartTitle }} <em>{{ chartNote }}</em></div>
+          <div class="chart-body">
+            <BizTrendChart
+              :key="chartKey"
+              :rows="chartRows"
+              :metric="chartMetric"
+              :peak-val="chartPeak"
+            />
+          </div>
+        </div>
 
-      <div class="card table-card">
-        <table class="tb2 tb-even tb-biz" data-cols="lccccccc">
+        <div class="card table-card">
+        <table class="tb2 tb-biz" data-cols="lccccccc">
+          <colgroup>
+            <col style="width:14%" /><col style="width:9%" /><col style="width:14%" />
+            <col style="width:14%" /><col style="width:14%" /><col style="width:14%" />
+            <col style="width:10%" /><col style="width:11%" />
+          </colgroup>
           <thead>
             <tr>
               <th>日期</th><th>星期</th><th>金币消费</th><th>现场收款</th><th>营业额</th><th>充值额</th><th>订单数</th><th>到店人次</th>
@@ -145,35 +190,36 @@ onMounted(load);
           </thead>
           <tbody>
             <tr v-for="r in rows" :key="r.d" :class="{ 'row-today': r.d === data.today }">
-              <td>
+              <td class="col-date">
                 <b>{{ r.d }}</b>
                 <span v-if="r.d === data.today" class="pill today-pill">今日</span>
               </td>
-              <td class="mut">{{ weekName(r.d) }}</td>
-              <td>¥{{ fmt(r.coin) }}</td>
-              <td>¥{{ fmt(r.offline) }}</td>
-              <td><b>¥{{ fmt(bizOf(r)) }}</b></td>
-              <td class="recharge">¥{{ fmt(r.recharge) }}</td>
-              <td>{{ r.orders }}</td>
-              <td class="mut">{{ r.guests }}</td>
+              <td class="col-muted">{{ weekName(r.d) }}</td>
+              <td class="col-num">¥{{ fmt(r.coin) }}</td>
+              <td class="col-num">¥{{ fmt(r.offline) }}</td>
+              <td class="col-num"><b>¥{{ fmt(bizOf(r)) }}</b></td>
+              <td class="col-num col-recharge">¥{{ fmt(r.recharge) }}</td>
+              <td class="col-num">{{ r.orders }}</td>
+              <td class="col-muted">{{ r.guests }}</td>
             </tr>
             <tr v-if="!rows.length">
               <td colspan="8" class="tiny empty-row">所选时间范围内无营业记录</td>
             </tr>
           </tbody>
           <tfoot v-if="rows.length">
-            <tr class="tb-foot">
-              <td><b>合计</b></td>
-              <td class="mut">{{ summary.days }} 天</td>
-              <td>¥{{ fmt(summary.coin) }}</td>
-              <td>¥{{ fmt(summary.offline) }}</td>
-              <td><b>¥{{ fmt(summary.biz) }}</b></td>
-              <td class="recharge">¥{{ fmt(summary.recharge) }}</td>
-              <td>{{ summary.orders }}</td>
-              <td>{{ summary.guests }}</td>
+            <tr class="tb-foot biz-foot">
+              <td class="col-date"><b>合计</b></td>
+              <td class="col-muted">{{ summary.days }} 天</td>
+              <td class="col-num">¥{{ fmt(summary.coin) }}</td>
+              <td class="col-num">¥{{ fmt(summary.offline) }}</td>
+              <td class="col-num"><b>¥{{ fmt(summary.biz) }}</b></td>
+              <td class="col-num col-recharge">¥{{ fmt(summary.recharge) }}</td>
+              <td class="col-num">{{ summary.orders }}</td>
+              <td class="col-muted">{{ summary.guests }}</td>
             </tr>
           </tfoot>
         </table>
+        </div>
       </div>
 
       <div class="note">
@@ -205,30 +251,101 @@ onMounted(load);
   max-width: 150px;
   margin: 0;
 }
+.mtr-metric {
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.mtr-metric:hover {
+  border-color: rgba(55, 138, 221, 0.35);
+}
+.mtr-metric.on {
+  border-color: #378add;
+  box-shadow: 0 0 0 1px rgba(55, 138, 221, 0.2);
+}
 .peak-day {
   font-size: 17px;
 }
-.chart-card {
+.biz-blocks {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
   margin-bottom: 12px;
+}
+.biz-blocks .card {
+  margin-bottom: 0 !important;
+}
+.chart-card {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 10px;
+}
+.chart-body {
+  margin-top: auto;
+  padding-top: 6px;
 }
 .table-card {
   padding: 0;
   overflow: auto;
 }
-.tb-biz {
+:deep(.tb-biz) {
   table-layout: fixed;
+  font-size: 12px;
+  width: 100%;
+}
+:deep(.tb-biz th),
+:deep(.tb-biz td) {
+  vertical-align: middle;
+  padding: 9px 8px;
+}
+:deep(.tb-biz th) {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ink3);
+  padding-top: 7px;
+  padding-bottom: 7px;
+  background: #fff;
+}
+:deep(.tb-biz td) {
+  border-bottom: 1px solid var(--line);
+}
+.col-date {
+  text-align: left !important;
+}
+.col-date b {
+  font-weight: 500;
+}
+.col-num {
+  text-align: center !important;
+}
+.col-muted {
+  text-align: center !important;
+  color: var(--ink3);
+  font-size: 12px;
 }
 .row-today {
   background: var(--goldbg);
+}
+.row-today td {
+  border-bottom-color: rgba(186, 117, 23, 0.2);
 }
 .today-pill {
   background: var(--gold);
   color: #fff;
   margin-left: 5px;
   font-size: 11px;
+  vertical-align: middle;
+  padding: 2px 9px;
 }
-.recharge {
+.col-recharge {
   color: var(--blue);
+}
+.biz-foot td {
+  background: #faf9f5 !important;
+  font-weight: 600;
+  border-bottom: none;
+}
+.biz-foot .col-muted {
+  font-weight: 400;
 }
 .empty-row {
   text-align: center;

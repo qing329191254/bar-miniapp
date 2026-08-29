@@ -1,114 +1,331 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import * as echarts from "echarts/core";
-import { BarChart } from "echarts/charts";
+import { BarChart, LineChart } from "echarts/charts";
 import { GridComponent, TooltipComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
+import { type BizMetric, type BizRow, type ChartMode, chartMode } from "./bizChartUtil";
 
-echarts.use([BarChart, GridComponent, TooltipComponent, CanvasRenderer]);
+echarts.use([BarChart, LineChart, GridComponent, TooltipComponent, CanvasRenderer]);
 
-type Row = { d: string; coin: number; offline: number };
+type Row = BizRow;
 
-const props = defineProps<{ rows: Row[]; peakBiz?: number }>();
+const props = defineProps<{ rows: Row[]; metric: BizMetric; peakVal?: number }>();
 const el = ref<HTMLElement | null>(null);
 let chart: echarts.ECharts | null = null;
 let ro: ResizeObserver | null = null;
 
+const METRIC_LABEL: Record<BizMetric, string> = {
+  biz: "营业额",
+  recharge: "充值额",
+  orders: "订单数",
+  guests: "到店人次",
+};
+
+const MODE_HINT: Record<ChartMode, string> = {
+  single: "单日构成",
+  bar: "逐日对比",
+  line: "趋势折线",
+  "line-sparse": "长期趋势",
+};
+
+const modeHint = computed(() => MODE_HINT[mode.value]);
+
+function valOf(row: Row) {
+  switch (props.metric) {
+    case "recharge":
+      return Number(row.recharge || 0);
+    case "orders":
+      return Number(row.orders || 0);
+    case "guests":
+      return Number(row.guests || 0);
+    default:
+      return Number(row.coin || 0) + Number(row.offline || 0);
+  }
+}
+
+function fmt(n: number) {
+  return Number(n || 0).toLocaleString("en-US");
+}
+
+const mode = computed(() => chartMode(props.rows.length));
+const singleRow = computed(() => props.rows[0] || null);
+const isMoney = computed(() => props.metric === "biz" || props.metric === "recharge");
+
+function labelOf(row: Row) {
+  const n = props.rows.length;
+  if (n <= 14) return row.d.slice(5);
+  if (n <= 31) return row.d.slice(5);
+  const [, mo, da] = row.d.split("-");
+  return `${mo}/${da}`;
+}
+
 function barColor(v: number) {
-  const peak = props.peakBiz ?? Math.max(...props.rows.map((x) => x.coin + x.offline), 0);
+  const peak = props.peakVal ?? Math.max(...props.rows.map(valOf), 0);
   return v === peak && peak > 0 ? "#378ADD" : "#B5D4F4";
+}
+
+function tooltipHtml(row: Row, v: number) {
+  const label = METRIC_LABEL[props.metric];
+  const main = isMoney.value ? `¥${fmt(v)}` : fmt(v);
+  if (props.metric === "biz") {
+    return `${row.d}<br/>${label} ${main}<br/><span style="color:#9C9A93">金币 ¥${fmt(row.coin)} + 现场 ¥${fmt(row.offline)}</span>`;
+  }
+  return `${row.d}<br/>${label} ${main}`;
 }
 
 function option() {
   const rows = props.rows.length ? props.rows : [];
-  const labels = rows.map((x) => x.d.slice(5));
-  const vals = rows.map((x) => Number(x.coin || 0) + Number(x.offline || 0));
+  const labels = rows.map(labelOf);
+  const vals = rows.map(valOf);
   const max = Math.max(...vals, 1);
+  const m = mode.value;
 
-  return {
+  const base = {
     animationDuration: 400,
-    grid: { left: 0, right: 0, top: 8, bottom: 0, containLabel: true },
+    grid: { left: 8, right: 8, top: 8, bottom: 28, containLabel: false },
     tooltip: {
-      trigger: "axis",
-      axisPointer: { type: "shadow", shadowStyle: { color: "rgba(55,138,221,.08)" } },
+      trigger: "axis" as const,
       backgroundColor: "#fff",
       borderColor: "rgba(28,27,25,.12)",
       textStyle: { color: "#1C1B19", fontSize: 12 },
       formatter: (params: any) => {
         const p = Array.isArray(params) ? params[0] : params;
-        const row = rows[p.dataIndex] || { coin: 0, offline: 0, d: "" };
-        const n = Number(p.value || 0).toLocaleString("en-US");
-        return `${row.d}<br/>营业额 ¥${n}<br/><span style="color:#9C9A93">金币 ¥${Number(row.coin || 0).toLocaleString("en-US")} + 现场 ¥${Number(row.offline || 0).toLocaleString("en-US")}</span>`;
+        const row = rows[p.dataIndex];
+        if (!row) return "";
+        return tooltipHtml(row, valOf(row));
       },
     },
     xAxis: {
-      type: "category",
+      type: "category" as const,
       data: labels,
       axisLine: { show: true, lineStyle: { color: "rgba(28,27,25,.12)" } },
       axisTick: { show: false },
-      axisLabel: { color: "#9C9A93", fontSize: 9, margin: 8 },
+      axisLabel: {
+        color: "#9C9A93",
+        fontSize: m === "line-sparse" ? 8 : 9,
+        margin: 8,
+        interval: m === "line-sparse" ? Math.max(0, Math.floor(labels.length / 8) - 1) : 0,
+        rotate: m === "line-sparse" && labels.length > 40 ? 35 : 0,
+      },
     },
     yAxis: {
-      type: "value",
+      type: "value" as const,
       min: 0,
-      max: max * 1.15,
-      splitNumber: 4,
+      max: max * 1.12,
+      splitNumber: 3,
       axisLine: { show: false },
       axisTick: { show: false },
       axisLabel: { show: false },
-      splitLine: { show: false },
+      splitLine: { show: m !== "bar", lineStyle: { color: "rgba(28,27,25,.06)" } },
     },
+  };
+
+  if (m === "bar") {
+    return {
+      ...base,
+      tooltip: { ...base.tooltip, axisPointer: { type: "shadow", shadowStyle: { color: "rgba(55,138,221,.08)" } } },
+      series: [
+        {
+          type: "bar",
+          data: vals.map((v) => ({
+            value: v,
+            itemStyle: { color: barColor(v), borderRadius: [3, 3, 0, 0] },
+          })),
+          barMaxWidth: rows.length <= 4 ? 48 : 34,
+          barCategoryGap: rows.length <= 4 ? "36%" : "28%",
+          barMinHeight: 3,
+        },
+      ],
+    };
+  }
+
+  const peak = props.peakVal ?? Math.max(...vals, 0);
+  return {
+    ...base,
+    tooltip: { ...base.tooltip, axisPointer: { type: "line", lineStyle: { color: "rgba(55,138,221,.25)" } } },
     series: [
       {
-        type: "bar",
-        data: vals.map((v) => ({
+        type: "line",
+        data: vals.map((v, i) => ({
           value: v,
-          itemStyle: { color: barColor(v), borderRadius: [3, 3, 0, 0] },
+          symbol: m === "line-sparse" ? "none" : "circle",
+          symbolSize: v === peak && peak > 0 ? 8 : 5,
+          itemStyle: { color: v === peak && peak > 0 ? "#378ADD" : "#378ADD" },
         })),
-        barMaxWidth: 34,
-        barCategoryGap: "28%",
-        barMinHeight: 3,
+        smooth: m === "line-sparse" ? 0.35 : 0.25,
+        lineStyle: { width: m === "line-sparse" ? 2 : 2.5, color: "#378ADD" },
+        areaStyle: {
+          color: {
+            type: "linear",
+            x: 0,
+            y: 0,
+            x2: 0,
+            y2: 1,
+            colorStops: [
+              { offset: 0, color: "rgba(55,138,221,.18)" },
+              { offset: 1, color: "rgba(55,138,221,.02)" },
+            ],
+          },
+        },
+        showSymbol: m !== "line-sparse",
       },
     ],
   };
 }
 
 function render() {
-  chart?.setOption(option(), true);
-  chart?.resize();
+  if (mode.value === "single" || !el.value) return;
+  if (!chart) chart = echarts.init(el.value);
+  chart.setOption(option(), true);
+  chart.resize();
+}
+
+function disposeChart() {
+  ro?.disconnect();
+  ro = null;
+  chart?.dispose();
+  chart = null;
 }
 
 onMounted(() => {
-  if (!el.value) return;
+  if (mode.value === "single" || !el.value) return;
   chart = echarts.init(el.value);
   render();
   ro = new ResizeObserver(() => chart?.resize());
   ro.observe(el.value);
 });
 
-watch(() => [props.rows, props.peakBiz], render, { deep: true });
+watch(
+  () => [props.rows, props.metric, props.peakVal, mode.value],
+  () => {
+    if (mode.value === "single") {
+      disposeChart();
+      return;
+    }
+    if (!el.value) return;
+    if (!chart) {
+      chart = echarts.init(el.value);
+      ro = new ResizeObserver(() => chart?.resize());
+      ro.observe(el.value);
+    }
+    render();
+  },
+  { deep: true },
+);
 
-onBeforeUnmount(() => {
-  ro?.disconnect();
-  chart?.dispose();
-  chart = null;
-});
+onBeforeUnmount(disposeChart);
 </script>
 
 <template>
-  <div v-if="rows.length" ref="el" class="biz-chart"></div>
-  <div v-else class="mut empty-chart">所选区间无数据</div>
+  <div v-if="!rows.length" class="mut empty-chart">所选区间无数据</div>
+
+  <!-- 1 天：构成条，贴底展示 -->
+  <div v-else-if="mode === 'single' && singleRow" class="single-wrap">
+    <div class="single-head">
+      <span class="single-date">{{ singleRow.d }}</span>
+      <b class="single-val">{{ isMoney ? "¥" : "" }}{{ fmt(valOf(singleRow)) }}</b>
+    </div>
+    <template v-if="metric === 'biz'">
+      <div class="single-bar">
+        <div
+          v-if="singleRow.coin > 0"
+          class="seg seg-coin"
+          :style="{ flex: singleRow.coin || 1 }"
+          :title="`金币 ¥${fmt(singleRow.coin)}`"
+        />
+        <div
+          v-if="singleRow.offline > 0"
+          class="seg seg-offline"
+          :style="{ flex: singleRow.offline || 1 }"
+          :title="`现场 ¥${fmt(singleRow.offline)}`"
+        />
+      </div>
+      <div class="single-legend">
+        <span><i class="dot dot-coin" />金币 ¥{{ fmt(singleRow.coin) }}</span>
+        <span><i class="dot dot-offline" />现场 ¥{{ fmt(singleRow.offline) }}</span>
+      </div>
+    </template>
+    <p v-else class="single-note">{{ METRIC_LABEL[metric] }} · 单日无可拆分项，详见下表</p>
+  </div>
+
+  <div v-else ref="el" class="biz-chart" :class="`mode-${mode}`"></div>
 </template>
 
 <style scoped>
 .biz-chart {
   width: 100%;
-  height: 130px;
+  height: 110px;
+  flex: none;
+}
+.biz-chart.mode-line,
+.biz-chart.mode-line-sparse {
+  height: 128px;
 }
 .empty-chart {
   padding: 26px;
   text-align: center;
   color: var(--ink3);
   font-size: 12px;
+}
+.single-wrap {
+  padding: 4px 2px 2px;
+}
+.single-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.single-date {
+  font-size: 12px;
+  color: var(--ink3);
+}
+.single-val {
+  font-size: 22px;
+  font-weight: 600;
+}
+.single-bar {
+  display: flex;
+  height: 12px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #f1efe8;
+}
+.seg-coin {
+  background: #378add;
+}
+.seg-offline {
+  background: #b5d4f4;
+}
+.single-legend {
+  display: flex;
+  gap: 16px;
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--ink2);
+}
+.single-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.dot-coin {
+  background: #378add;
+}
+.dot-offline {
+  background: #b5d4f4;
+}
+.single-note {
+  font-size: 11px;
+  color: var(--ink3);
+  margin: 8px 0 0;
 }
 </style>

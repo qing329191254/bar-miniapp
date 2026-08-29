@@ -1027,6 +1027,23 @@ def in_range(time_str: str, preset: str, date_from: str = "", date_to: str = "")
     return r[0] <= d <= r[1]
 
 
+def pad_daily_biz_range(rows: list[dict], preset: str, date_from: str = "", date_to: str = "") -> list[dict]:
+    """Bounded presets show every calendar day in range; missing closings become zero rows."""
+    r = flt_range(preset, date_from, date_to)
+    if not r:
+        return rows
+    start = date.fromisoformat(r[0])
+    end = date.fromisoformat(r[1])
+    by_d = {x["d"]: x for x in rows}
+    out: list[dict] = []
+    d = end
+    while d >= start:
+        key = d.isoformat()
+        out.append(by_d.get(key) or {"d": key, "coin": 0, "offline": 0, "recharge": 0, "orders": 0, "guests": 0})
+        d -= timedelta(days=1)
+    return out
+
+
 def job_stat(sess: Session, uid: int, preset="today", date_from: str = "", date_to: str = "") -> dict:
     ods = [o.to_dict() for o in sess.query(Order).filter(Order.op_uid == uid).all() if in_range(o.at or "", preset, date_from, date_to)]
     rcs = [r.to_dict() for r in sess.query(Recharge).filter(Recharge.op_uid == uid, Recharge.status == "PAID").all() if in_range(r.at or "", preset, date_from, date_to)]
@@ -1552,6 +1569,7 @@ def exec_deactivation(sess: Session, did: int, action: str, reason: str, admin: 
 def daily_biz_page(sess: Session, preset: str = "7d", date_from: str = "", date_to: str = "") -> dict:
     all_rows = sess.query(DailyBiz).order_by(DailyBiz.d.desc()).all()
     rows = [x.to_dict() for x in all_rows if in_range(x.d, preset, date_from, date_to)]
+    rows = pad_daily_biz_range(rows, preset, date_from, date_to)
     s = {"coin": 0, "offline": 0, "recharge": 0, "orders": 0, "guests": 0}
     for x in rows:
         s["coin"] += x["coin"]
@@ -1561,7 +1579,8 @@ def daily_biz_page(sess: Session, preset: str = "7d", date_from: str = "", date_
         s["guests"] += x["guests"]
     biz = s["coin"] + s["offline"]
     avg = round(biz / len(rows)) if rows else 0
-    peak = max(rows, key=lambda x: x["coin"] + x["offline"], default=None)
+    data_rows = [x for x in rows if x["coin"] + x["offline"] > 0]
+    peak = max(data_rows, key=lambda x: x["coin"] + x["offline"], default=None)
     peak_biz = (peak["coin"] + peak["offline"]) if peak else 0
     chart = list(reversed(rows[:14]))
     return {
