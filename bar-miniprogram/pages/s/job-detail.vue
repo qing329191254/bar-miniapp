@@ -18,6 +18,10 @@ const PRESETS = [
   ["all", "全部"],
   ["custom", "自定义"],
 ];
+const PRESET_ROWS = [
+  PRESETS.slice(0, 4),
+  PRESETS.slice(4),
+];
 const ODST = {
   PENDING_PAY: ["待付款", "gold"],
   PENDING_ACCEPT: ["待接单", "blue"],
@@ -46,17 +50,36 @@ const memberMap = computed(() => {
   return m;
 });
 const multiDay = computed(() => {
-  const r = stat.value?.range;
-  if (r?.from && r?.to) return r.from !== r.to;
-  return !["today", "yday"].includes(preset.value);
+  const r = activeRange.value;
+  if (!r) return preset.value !== "today" && preset.value !== "yday";
+  return r.from !== r.to;
 });
-const rangeLabel = computed(() => stat.value?.range?.label || clientRangeLabel());
+const rangeLabel = computed(() => {
+  const r = activeRange.value;
+  if (!r) return "全部时间";
+  return r.from === r.to ? r.from : `${r.from} ~ ${r.to}`;
+});
 
-const orders = computed(() => stat.value?.ods || []);
+function filterByRange(list, getTime) {
+  const r = activeRange.value;
+  if (!r) return list;
+  return list.filter((x) => {
+    const d = dayOf(getTime(x));
+    return d && d >= r.from && d <= r.to;
+  });
+}
+
+const activeRange = computed(() => clientFltRange());
+
+const orders = computed(() => filterByRange(stat.value?.ods || [], (o) => o.at));
 const paidOrders = computed(() => orders.value.filter((o) => PAID_OD.includes(o.status)));
-const recharges = computed(() => stat.value?.rcs || []);
-const verifies = computed(() => stat.value?.vfs || []);
-const games = computed(() => stat.value?.gms || []);
+const recharges = computed(() => filterByRange(stat.value?.rcs || [], (r) => r.at));
+const verifies = computed(() => filterByRange(stat.value?.vfs || [], (v) => v.at));
+const games = computed(() => filterByRange(stat.value?.gms || [], (g) => g.time));
+
+const payRcAmt = computed(() => recharges.value.reduce((s, r) => s + Number(r.amount || 0), 0));
+const payOdAmt = computed(() => paidOrders.value.reduce((s, o) => s + Number(o.total || 0), 0));
+const payTotal = computed(() => payRcAmt.value + payOdAmt.value);
 
 const acceptPaidAmt = computed(() => paidOrders.value.reduce((s, o) => s + Number(o.total || 0), 0));
 const verifyByTpl = computed(() => {
@@ -113,32 +136,40 @@ function shiftDay(base, days) {
   const p = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
-function clientRangeLabel() {
+function clientFltRange() {
   const t = businessTodayStr();
   switch (preset.value) {
     case "today":
-      return t;
-    case "yday":
-      return shiftDay(t, -1);
+      return { from: t, to: t };
+    case "yday": {
+      const y = shiftDay(t, -1);
+      return { from: y, to: y };
+    }
     case "7d":
-      return `${shiftDay(t, -6)} ~ ${t}`;
+      return { from: shiftDay(t, -6), to: t };
     case "30d":
-      return `${shiftDay(t, -29)} ~ ${t}`;
+      return { from: shiftDay(t, -29), to: t };
     case "month":
-      return `${t.slice(0, 7)}-01 ~ ${t}`;
+      return { from: `${t.slice(0, 7)}-01`, to: t };
     case "all":
-      return "全部时间";
+      return null;
     case "custom":
       if (customFrom.value && customTo.value) {
-        return customFrom.value === customTo.value ? customFrom.value : `${customFrom.value} ~ ${customTo.value}`;
+        let from = customFrom.value;
+        let to = customTo.value;
+        if (from > to) [from, to] = [to, from];
+        return { from, to };
       }
-      return "自定义";
+      return null;
     default:
-      return "今天";
+      return { from: t, to: t };
   }
 }
 function dayOf(s) {
   return String(s || "").slice(0, 10);
+}
+function fmt(n) {
+  return Number(n || 0).toLocaleString("en-US");
 }
 function weekName(d) {
   const dt = new Date(`${d}T12:00:00`);
@@ -185,6 +216,10 @@ function setPreset(p) {
   if (p !== "custom") {
     customFrom.value = "";
     customTo.value = "";
+  } else {
+    const t = businessTodayStr();
+    customFrom.value = t;
+    customTo.value = t;
   }
   preset.value = p;
 }
@@ -203,6 +238,9 @@ function jobsQuery() {
   return q;
 }
 async function load() {
+  if (preset.value === "custom" && (!customFrom.value || !customTo.value)) {
+    return;
+  }
   loading.value = true;
   try {
     stat.value = await api(`/staff/jobs?${jobsQuery()}`);
@@ -222,26 +260,26 @@ async function load() {
         <view class="h2 sec-title">时间范围</view>
         <text class="sec-hint">{{ rangeLabel }}</text>
       </view>
-      <view class="chip-row">
-        <text
-          v-for="p in PRESETS"
-          :key="p[0]"
-          class="chip"
-          :class="{ on: preset === p[0] }"
-          @tap="setPreset(p[0])"
-        >{{ p[1] }}</text>
+      <view class="chip-grid">
+        <view v-for="(row, ri) in PRESET_ROWS" :key="ri" class="chip-line">
+          <text
+            v-for="p in row"
+            :key="p[0]"
+            class="chip chip-cell"
+            :class="{ on: preset === p[0] }"
+            @tap="setPreset(p[0])"
+          >{{ p[1] }}</text>
+        </view>
       </view>
       <view v-if="preset === 'custom'" class="custom-range">
         <view class="custom-row">
           <text class="custom-lbl">起</text>
-          <picker mode="date" :value="customFrom" @change="onCustomFrom">
-            <view class="custom-inp">{{ customFrom || "选择开始日期" }}</view>
+          <picker mode="date" class="custom-pick" :value="customFrom" @change="onCustomFrom">
+            <view class="custom-inp">{{ customFrom || "开始日期" }}</view>
           </picker>
-        </view>
-        <view class="custom-row">
-          <text class="custom-lbl">止</text>
-          <picker mode="date" :value="customTo" @change="onCustomTo">
-            <view class="custom-inp">{{ customTo || "选择结束日期" }}</view>
+          <text class="custom-sep">至</text>
+          <picker mode="date" class="custom-pick" :value="customTo" @change="onCustomTo">
+            <view class="custom-inp">{{ customTo || "结束日期" }}</view>
           </picker>
         </view>
       </view>
@@ -303,16 +341,16 @@ async function load() {
           <view class="h2 sec-title">{{ rangeLabel }} 收款合计</view>
           <text class="sec-hint">充值 + 点单</text>
         </view>
-        <view class="sum-big">¥{{ fmt(stat.amount) }}</view>
+        <view class="sum-big">¥{{ fmt(payTotal) }}</view>
         <view class="pay-grid">
           <view class="pay-box blue">
             <view class="tiny blue-t">充值总数</view>
-            <view class="pay-num blue-t">¥{{ fmt(stat.rcAmt) }}</view>
+            <view class="pay-num blue-t">¥{{ fmt(payRcAmt) }}</view>
             <view class="tiny blue-t">{{ recharges.length }} 笔</view>
           </view>
           <view class="pay-box gold">
             <view class="tiny gold-t">点单总数</view>
-            <view class="pay-num gold-t">¥{{ fmt(stat.odAmt) }}</view>
+            <view class="pay-num gold-t">¥{{ fmt(payOdAmt) }}</view>
             <view class="tiny gold-t">{{ paidOrders.length }} 笔</view>
           </view>
         </view>
@@ -333,7 +371,7 @@ async function load() {
       <view class="card">
         <view class="sec-head">
           <view class="h2 sec-title">充值收款</view>
-          <text class="sec-hint">{{ recharges.length }} 笔 · ¥{{ fmt(stat.rcAmt) }}</text>
+          <text class="sec-hint">{{ recharges.length }} 笔 · ¥{{ fmt(payRcAmt) }}</text>
         </view>
         <view v-if="recharges.length">
           <view class="li" v-for="r in recharges" :key="r.id">
@@ -352,7 +390,7 @@ async function load() {
       <view class="card">
         <view class="sec-head">
           <view class="h2 sec-title">点单收款</view>
-          <text class="sec-hint">{{ paidOrders.length }} 笔 · ¥{{ fmt(stat.odAmt) }}</text>
+          <text class="sec-hint">{{ paidOrders.length }} 笔 · ¥{{ fmt(payOdAmt) }}</text>
         </view>
         <view v-if="paidOrders.length">
           <view class="li" v-for="o in paidOrders" :key="o.id">
@@ -484,50 +522,67 @@ async function load() {
 .flt-card {
   padding: 11px 12px;
 }
-.chip-row {
+.chip-grid {
   display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
+  flex-direction: column;
+  gap: 6px;
+}
+.chip-line {
+  display: flex;
+  gap: 6px;
 }
 .chip {
   border: 1px solid rgba(28, 27, 25, 0.12);
   background: #fff;
-  border-radius: 99px;
-  padding: 5px 9px;
+  border-radius: 10px;
+  padding: 7px 4px;
   font-size: 11.5px;
   color: #6b6a65;
+  box-sizing: border-box;
+}
+.chip-cell {
+  flex: 1;
+  text-align: center;
+  min-width: 0;
 }
 .chip.on {
   background: #1c1b19;
   color: #fff;
   border-color: #1c1b19;
+  font-weight: 500;
 }
 .custom-range {
   margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(28, 27, 25, 0.08);
 }
 .custom-row {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 6px;
-}
-.custom-row:first-child {
-  margin-top: 8px;
 }
 .custom-lbl {
-  width: 16px;
   flex-shrink: 0;
   font-size: 11px;
   color: #9c9a93;
 }
-.custom-inp {
+.custom-sep {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: #9c9a93;
+}
+.custom-pick {
   flex: 1;
-  padding: 6px 8px;
+  min-width: 0;
+}
+.custom-inp {
+  padding: 7px 8px;
   font-size: 12px;
   border-radius: 8px;
   border: 1px solid rgba(28, 27, 25, 0.12);
   background: #fff;
   color: #1c1b19;
+  text-align: center;
 }
 .sec-head {
   display: flex;
