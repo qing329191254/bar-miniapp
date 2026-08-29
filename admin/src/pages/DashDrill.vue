@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { api, pageQs } from "../api";
+import { api, DEFAULT_PAGE_SIZE, pageQs } from "../api";
 import AppPagination from "../components/AppPagination.vue";
 import PointTrendChart from "./PointTrendChart.vue";
 
@@ -12,7 +12,7 @@ const data = ref<any>(null);
 const loading = ref(true);
 const err = ref("");
 const tablePage = ref(1);
-const tablePageSize = ref(50);
+const tablePageSize = ref(DEFAULT_PAGE_SIZE);
 const voidPreview = ref<any>(null);
 const voidReason = ref("");
 const voidCards = ref(true);

@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { api, pageQs } from "../api";
+import { api, DEFAULT_PAGE_SIZE, pageQs } from "../api";
 import AppPagination from "../components/AppPagination.vue";
 
 const rows = ref<any[]>([]);
 const rowTotal = ref(0);
 const statusCounts = ref<Record<string, number>>({});
 const tablePage = ref(1);
-const tablePageSize = ref(50);
+const tablePageSize = ref(DEFAULT_PAGE_SIZE);
 const members = ref<any[]>([]);
 const status = ref("");
 const now = ref(Date.now());

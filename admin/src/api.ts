@@ -41,6 +41,8 @@ export async function api<T = any>(
   return data as T;
 }
 
+export const DEFAULT_PAGE_SIZE = 15;
+
 export type PageResult<T> = { items: T[]; total: number; page: number; pageSize: number };
 
 export function pageQs(page: number, pageSize: number, extra?: Record<string, string | number | undefined>) {

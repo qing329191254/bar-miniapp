@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { api } from "../api";
+import { api, DEFAULT_PAGE_SIZE } from "../api";
 import AppPagination from "../components/AppPagination.vue";
 import { usePagination } from "../composables/usePagination";
 
@@ -29,7 +29,7 @@ const selectedLogs = computed(() => {
     .map((x) => ({ ...x, user: memberMap.value.get(x.uid) }))
     .filter((x) => !key || String(x.user?.nick || "").toLowerCase().includes(key) || String(x.user?.no || "").includes(key) || String(x.uid).includes(key));
 });
-const logsPg = usePagination(selectedLogs, 50);
+const logsPg = usePagination(selectedLogs, DEFAULT_PAGE_SIZE);
 
 function count(ver: number) {
   return logs.value.filter((x) => x.doc === tab.value && Number(x.ver) === Number(ver)).length;

@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { api, pageQs } from "../api";
+import { api, DEFAULT_PAGE_SIZE, pageQs } from "../api";
 import AppPagination from "../components/AppPagination.vue";
 
 const dailyPoints = ref(0), rules = ref<any[]>([]), members = ref<any[]>([]), memberTotal = ref(0);
 const membersPage = ref(1);
-const membersPageSize = ref(50);
+const membersPageSize = ref(DEFAULT_PAGE_SIZE);
 const tpls = ref<any[]>([]);
 const selectedId = ref<number | null>(null), showCreate = ref(false), saving = ref(false), msg = ref("");
 const createForm = ref({ days: null as number | null, pts: 0 });

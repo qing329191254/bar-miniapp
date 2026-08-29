@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
-import { api, pageQs } from "../api";
+import { api, DEFAULT_PAGE_SIZE, pageQs } from "../api";
 import AppPagination from "../components/AppPagination.vue";
 
 const OD: Record<string, [string, string]> = {
@@ -32,7 +32,7 @@ const coll = computed(() => String(route.params.coll || route.path.replace("/", 
 const rows = ref<any[]>([]);
 const rowTotal = ref(0);
 const tablePage = ref(1);
-const tablePageSize = ref(50);
+const tablePageSize = ref(DEFAULT_PAGE_SIZE);
 const pendingItems = ref<any[]>([]);
 const members = ref<any[]>([]);
 const status = ref("");

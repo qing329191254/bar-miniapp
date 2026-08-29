@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { api, pageQs, savedUser } from "../api";
+import { api, DEFAULT_PAGE_SIZE, pageQs, savedUser } from "../api";
 import AppPagination from "../components/AppPagination.vue";
 
 const router = useRouter();
 const data = ref<any>(null);
 const loading = ref(true);
 const tablePage = ref(1);
-const tablePageSize = ref(50);
+const tablePageSize = ref(DEFAULT_PAGE_SIZE);
 const err = ref("");
 const msg = ref("");
 const dlg = ref<null | { mode: "approve" | "reject"; row: any }>(null);

@@ -4,11 +4,11 @@ import { computed } from "vue";
 const props = defineProps<{ page: number; pageSize: number; total: number }>();
 const emit = defineEmits<{ "update:page": [number]; "update:pageSize": [number] }>();
 
-const sizes = [20, 50, 100];
+const sizes = [15, 30, 50];
 const totalPages = computed(() => Math.max(1, Math.ceil(props.total / props.pageSize) || 1));
 const from = computed(() => (props.total ? (props.page - 1) * props.pageSize + 1 : 0));
 const to = computed(() => Math.min(props.page * props.pageSize, props.total));
-const show = computed(() => props.total > props.pageSize);
+const show = computed(() => props.total > 0);
 
 function setPage(p: number) {
   emit("update:page", Math.min(Math.max(1, p), totalPages.value));

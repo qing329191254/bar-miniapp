@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
-import { api, pageQs, savedUser } from "../api";
+import { api, DEFAULT_PAGE_SIZE, pageQs, savedUser } from "../api";
 import AppPagination from "../components/AppPagination.vue";
 
 type Col = { k: string; h: string; kind?: string };
@@ -161,7 +161,7 @@ const route = useRoute();
 const rows = ref<any>(null);
 const rowTotal = ref(0);
 const tablePage = ref(1);
-const tablePageSize = ref(50);
+const tablePageSize = ref(DEFAULT_PAGE_SIZE);
 const members = ref<any[]>([]);
 const tpls = ref<any[]>([]);
 const msg = ref("");

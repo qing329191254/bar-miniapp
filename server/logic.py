@@ -58,10 +58,10 @@ def now_ms() -> int:
     return int(time.time() * 1000)
 
 
-def paginate(items: list, page: int = 1, page_size: int = 50) -> dict:
+def paginate(items: list, page: int = 1, page_size: int = 15) -> dict:
     """Slice a list for table pagination. page_size clamped to 1..200."""
     total = len(items)
-    page_size = max(1, min(int(page_size or 50), 200))
+    page_size = max(1, min(int(page_size or 15), 200))
     page = max(1, int(page or 1))
     start = (page - 1) * page_size
     return {
@@ -1183,7 +1183,7 @@ def job_detail(
     date_from: str = "",
     date_to: str = "",
     page: int = 1,
-    page_size: int = 50,
+    page_size: int = 15,
     tab: str = "all",
 ) -> dict:
     user = sess.get(User, uid)
@@ -1335,7 +1335,7 @@ def point_today_ratio(sess: Session) -> dict:
     return {"today": today_pts, "avg": avg, "ratio": ratio, "threshold": threshold, "over": ratio >= threshold}
 
 
-def liab_coin_detail(sess: Session, page: int = 1, page_size: int = 50) -> dict:
+def liab_coin_detail(sess: Session, page: int = 1, page_size: int = 15) -> dict:
     rows = []
     for u in custs(sess):
         w = wallet_of(sess, u.id)
@@ -1360,7 +1360,7 @@ def liab_coin_detail(sess: Session, page: int = 1, page_size: int = 50) -> dict:
     }
 
 
-def liab_point_detail(sess: Session, page: int = 1, page_size: int = 50) -> dict:
+def liab_point_detail(sess: Session, page: int = 1, page_size: int = 15) -> dict:
     rows = []
     neg = []
     for u in custs(sess):
@@ -1386,7 +1386,7 @@ def liab_point_detail(sess: Session, page: int = 1, page_size: int = 50) -> dict
     }
 
 
-def liab_card_detail(sess: Session, page: int = 1, page_size: int = 50) -> dict:
+def liab_card_detail(sess: Session, page: int = 1, page_size: int = 15) -> dict:
     cards = sess.query(Card).filter_by(status="UNUSED").all()
     tpl_map = {r.id: {"name": r.name, "cat": r.cat} for r in sess.query(CardTpl.id, CardTpl.name, CardTpl.cat).all()}
     by_tpl: dict[str, dict] = {}
@@ -1422,7 +1422,7 @@ def liab_card_detail(sess: Session, page: int = 1, page_size: int = 50) -> dict:
     }
 
 
-def point_alert_detail(sess: Session, page: int = 1, page_size: int = 50) -> dict:
+def point_alert_detail(sess: Session, page: int = 1, page_size: int = 15) -> dict:
     base = point_today_ratio(sess)
     today = today_str()
     by_day: dict[str, int] = {}
@@ -1599,7 +1599,7 @@ def deact_live(sess: Session, uid: int) -> dict:
             "shardW": sh["w"], "cards": cards}
 
 
-def deactivation_page(sess: Session, page: int = 1, page_size: int = 50) -> dict:
+def deactivation_page(sess: Session, page: int = 1, page_size: int = 15) -> dict:
     rows = sess.query(Deactivation).order_by(Deactivation.created.desc()).all()
     uids = {d.uid for d in rows}
     members = {
@@ -1715,7 +1715,7 @@ def daily_biz_page(
     date_from: str = "",
     date_to: str = "",
     page: int = 1,
-    page_size: int = 50,
+    page_size: int = 15,
 ) -> dict:
     all_rows = sess.query(DailyBiz).order_by(DailyBiz.d.desc()).all()
     rows = [x.to_dict() for x in all_rows if in_range(x.d, preset, date_from, date_to)]
@@ -1752,7 +1752,7 @@ def daily_biz_page(
     }
 
 
-def coin_adjust_page(sess: Session, page: int = 1, page_size: int = 50) -> dict:
+def coin_adjust_page(sess: Session, page: int = 1, page_size: int = 15) -> dict:
     rows = sess.query(CoinAdjust).order_by(CoinAdjust.at.desc()).all()
     uids = {a.uid for a in rows}
     staff_ids = {a.adjust_by for a in rows}

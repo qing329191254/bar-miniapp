@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { api, pageQs } from "../api";
+import { api, DEFAULT_PAGE_SIZE, pageQs } from "../api";
 import BizTrendChart from "./BizTrendChart.vue";
 import { buildChartSlice, type BizMetric } from "./bizChartUtil";
 import AppPagination from "../components/AppPagination.vue";
@@ -85,7 +85,7 @@ function setChartMetric(m: BizMetric) {
 }
 
 const tablePage = ref(1);
-const tablePageSize = ref(50);
+const tablePageSize = ref(DEFAULT_PAGE_SIZE);
 
 const rows = computed(() => data.value?.rows || []);
 const rowTotal = computed(() => data.value?.rowTotal ?? 0);

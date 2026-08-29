@@ -1,6 +1,7 @@
 import { computed, ref, watch, type ComputedRef, type Ref } from "vue";
+import { DEFAULT_PAGE_SIZE } from "../api";
 
-export function usePagination<T>(source: Ref<T[]> | ComputedRef<T[]>, defaultSize = 50) {
+export function usePagination<T>(source: Ref<T[]> | ComputedRef<T[]>, defaultSize = DEFAULT_PAGE_SIZE) {
   const page = ref(1);
   const pageSize = ref(defaultSize);
   const total = computed(() => source.value.length);

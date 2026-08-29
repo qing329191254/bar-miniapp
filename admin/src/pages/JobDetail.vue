@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { api, pageQs } from "../api";
+import { api, DEFAULT_PAGE_SIZE, pageQs } from "../api";
 import AppPagination from "../components/AppPagination.vue";
 
 const route = useRoute();
@@ -15,7 +15,7 @@ const data = ref<any>(null);
 const loading = ref(true);
 const err = ref("");
 const feedPage = ref(1);
-const feedPageSize = ref(50);
+const feedPageSize = ref(DEFAULT_PAGE_SIZE);
 
 const PRESETS: [string, string][] = [
   ["today", "今天"],

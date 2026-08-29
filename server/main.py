@@ -742,7 +742,7 @@ def admin_dash(admin: dict = Depends(admin_user), db: Session = Depends(get_db))
 @app.get("/api/admin/liab/coin")
 def admin_liab_coin(
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200, alias="pageSize"),
+    page_size: int = Query(15, ge=1, le=200, alias="pageSize"),
     admin: dict = Depends(admin_user),
     db: Session = Depends(get_db),
 ):
@@ -754,7 +754,7 @@ def admin_liab_coin(
 @app.get("/api/admin/liab/point")
 def admin_liab_point(
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200, alias="pageSize"),
+    page_size: int = Query(15, ge=1, le=200, alias="pageSize"),
     admin: dict = Depends(admin_user),
     db: Session = Depends(get_db),
 ):
@@ -766,7 +766,7 @@ def admin_liab_point(
 @app.get("/api/admin/liab/cards")
 def admin_liab_cards(
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200, alias="pageSize"),
+    page_size: int = Query(15, ge=1, le=200, alias="pageSize"),
     admin: dict = Depends(admin_user),
     db: Session = Depends(get_db),
 ):
@@ -778,7 +778,7 @@ def admin_liab_cards(
 @app.get("/api/admin/alert/points")
 def admin_alert_points(
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200, alias="pageSize"),
+    page_size: int = Query(15, ge=1, le=200, alias="pageSize"),
     admin: dict = Depends(admin_user),
     db: Session = Depends(get_db),
 ):
@@ -810,7 +810,7 @@ def admin_job_detail(
     date_to: str = Query("", alias="to"),
     tab: str = "all",
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200, alias="pageSize"),
+    page_size: int = Query(15, ge=1, le=200, alias="pageSize"),
     admin: dict = Depends(admin_user),
     db: Session = Depends(get_db),
 ):
@@ -823,7 +823,7 @@ def daily_biz_page(
     date_from: str = Query("", alias="from"),
     date_to: str = Query("", alias="to"),
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200, alias="pageSize"),
+    page_size: int = Query(15, ge=1, le=200, alias="pageSize"),
     admin: dict = Depends(admin_user),
     db: Session = Depends(get_db),
 ):
@@ -833,7 +833,7 @@ def daily_biz_page(
 @app.get("/api/admin/coin-adjust")
 def coin_adjust_page(
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200, alias="pageSize"),
+    page_size: int = Query(15, ge=1, le=200, alias="pageSize"),
     admin: dict = Depends(admin_user),
     db: Session = Depends(get_db),
 ):
@@ -853,7 +853,7 @@ def coin_adjust(aid: int, action: str, body: ReasonIn = ReasonIn(), admin: dict 
 @app.get("/api/admin/deactivation")
 def deactivation_list(
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200, alias="pageSize"),
+    page_size: int = Query(15, ge=1, le=200, alias="pageSize"),
     admin: dict = Depends(admin_user),
     db: Session = Depends(get_db),
 ):
@@ -1074,7 +1074,7 @@ def save_settlement_config(body: PatchIn, admin: dict = Depends(admin_user), db:
 def admin_list(
     coll: str,
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=0, le=200, alias="pageSize"),
+    page_size: int = Query(15, ge=0, le=200, alias="pageSize"),
     status: str = "",
     kw: str = "",
     admin: dict = Depends(admin_user),
@@ -1204,7 +1204,7 @@ def _sign_rule_item(item: dict, db: Session, ignore_id: int | None = None, allow
 @app.get("/api/admin/signin-overview")
 def signin_overview(
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200, alias="pageSize"),
+    page_size: int = Query(15, ge=1, le=200, alias="pageSize"),
     admin: dict = Depends(admin_user),
     db: Session = Depends(get_db),
 ):
