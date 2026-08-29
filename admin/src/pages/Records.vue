@@ -175,7 +175,7 @@ const pendingWdr = computed(() =>
         </thead>
         <tbody>
         <tr v-for="r in shown.slice(0,80)" :key="r.id">
-          <td><b>{{ r.pname }}</b></td>
+          <td><b>{{ r.pname }}</b><div v-if="r.round" class="tiny">{{ r.round }}</div></td>
           <td>{{ r.table || "—" }}</td>
           <td class="tiny">{{ r.time }}</td>
           <td>{{ (r.players || []).length }}</td>

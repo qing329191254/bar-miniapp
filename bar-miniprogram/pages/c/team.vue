@@ -35,7 +35,7 @@ onLoad(async (options) => {
       <view v-if="!data.records.length" class="empty">暂无战队夺冠记录</view>
       <view v-for="(item,index) in data.records" :key="item.date+'-'+index" class="champ-row"><view class="crown">冠</view><view><view class="champ-title">{{ item.event }}</view><view class="champ-meta">{{ item.date }}<text v-if="item.n"> · 参赛 {{ item.n }} 人</text> · {{ item.nick }}</view><view v-if="item.teamName && item.teamName !== data.team.name" class="champ-note">获奖时战队：{{ item.teamName }}（该成员后调入本队）</view></view></view>
     </view>
-    <view class="team-note">战队冠军数为当前队员的个人冠军实时聚合，成员调队会同时改变两个战队的数字；夺冠记录保留“获奖时战队”快照，已发放的历史奖励不受调队影响。</view>
+    <view class="team-note">战队夺冠数为队员个人冠军之和，成员换队后数字会同步更新。下方记录展示获奖时的战队信息。</view>
   </view>
 </template>
 

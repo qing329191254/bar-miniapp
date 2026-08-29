@@ -940,7 +940,7 @@ def verify_confirm(sess: Session, code: str, staff: dict) -> dict:
     return verify_code_dict(vc)
 
 
-def submit_game(sess: Session, staff: dict, pid: int, table_id, players: list, winners: list, event: str) -> dict:
+def submit_game(sess: Session, staff: dict, pid: int, table_id, players: list, winners: list, event: str, round: str = "") -> dict:
     if not players:
         err("请至少选择 1 位玩家")
     cf = setting(sess, "config")
@@ -971,7 +971,7 @@ def submit_game(sess: Session, staff: dict, pid: int, table_id, players: list, w
             wlt.shard_t += rec_players[-1]["sh"]
     rec = GameRecord(
         id=next_seq(sess, "rec"), pid=pid, pname=pj.name if pj else "",
-        table=tbl.name if tbl else "", round="", time=f"{today_str()} {clock()}",
+        table=tbl.name if tbl else "", round=(round or "").strip()[:32], time=f"{today_str()} {clock()}",
         op=staff["nick"], op_uid=staff["id"], players=rec_players,
     )
     sess.add(rec)

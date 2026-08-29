@@ -187,7 +187,7 @@ async function confirmReject() {
     <view class="card" style="background:#FAF9F5">
       <view class="h2">我的今日</view>
       <view class="stat5">
-        <view><view class="sb">¥{{ data.stat.amount }}</view><view class="tiny">我经手</view></view>
+        <view><view class="sb">¥{{ data.stat.amount }}</view><view class="tiny">今日收款</view></view>
         <view><view class="sb">{{ data.stat.orders }}</view><view class="tiny">接单</view></view>
         <view><view class="sb">{{ data.stat.verifies }}</view><view class="tiny">核销</view></view>
         <view><view class="sb">{{ data.stat.games }}</view><view class="tiny">录局</view></view>

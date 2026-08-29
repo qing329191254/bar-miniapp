@@ -71,6 +71,7 @@ async function submit() {
         players: form.players,
         winners: Object.keys(form.winners).filter((k) => form.winners[Number(k)]).map(Number),
         event: form.event,
+        round: (form.round || "").trim(),
       },
     });
     msg.value = "提交成功，已入账";
@@ -98,6 +99,12 @@ async function submit() {
             <div>
               <div class="tiny">桌台（选填）</div>
               <AppSelect v-model="form.tid" :options="tableOpts" />
+            </div>
+          </div>
+          <div class="cards" style="grid-template-columns:repeat(2,1fr);margin-top:8px">
+            <div>
+              <div class="tiny">局次</div>
+              <input class="inp" v-model="form.round" placeholder="第 3 局" />
             </div>
           </div>
           <div class="tiny">赛事名称</div>

@@ -336,7 +336,7 @@ async function doSign() {
           @tap="doSign"
         >{{ signedToday ? "今日已签到" : "签到" }}</button>
         <view class="note sign-note">
-          签到积分直接入库，同样受<text style="font-weight:600">月底清零</text>约束。漏签不可补签，<text style="font-weight:600">断签后连续天数从 1 重新累计</text>。
+          签到积分立即到账，同样受<text style="font-weight:600">月底清零</text>约束。漏签不可补签，<text style="font-weight:600">断签后连续天数从 1 重新累计</text>。
         </view>
         <view class="err" v-if="msg">{{ msg }}</view>
       </scroll-view>

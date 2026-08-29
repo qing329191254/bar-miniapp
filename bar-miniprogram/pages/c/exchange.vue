@@ -116,7 +116,7 @@ onShow(load);
   <view class="pbody" v-if="data">
     <view v-if="notice" class="exchange-notice">{{ notice }}</view>
     <view v-for="g in GROUPS" :key="g.cat">
-      <view class="st exchange-head"><text class="exchange-title">{{ g.title }}</text><text class="st-sub">有效期按卡券配置</text></view>
+      <view class="st exchange-head"><text class="exchange-title">{{ g.title }}</text><text class="st-sub">有效期以卡券说明为准</text></view>
       <view class="card" v-if="tplsOf(g.cat).length">
         <view class="li exch-li" v-for="t in tplsOf(g.cat)" :key="t.id">
           <view class="ph-lg">卡</view>
@@ -132,7 +132,7 @@ onShow(load);
         </view>
       </view>
     </view>
-    <view class="note">宝箱卡属「其他卡」，不出现在兑换页。兑换 N 张时积分扣减 = N × 单价，不足则整单失败。</view>
+    <view class="note">宝箱卡需到店核销领取，不在此页兑换。一次兑换多张时，积分需足够支付全部数量。</view>
     <view class="err" v-if="msg">{{ msg }}</view>
 
     <view v-if="dlg" class="mask" @tap="closeDlg">

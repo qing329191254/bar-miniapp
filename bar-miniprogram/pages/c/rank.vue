@@ -104,10 +104,10 @@ const color = computed(() =>
     <tab-bar current="rank" />
     <view v-if="showMetric" class="metric-mask" @tap.self="showMetric = false">
       <view class="metric-sheet">
-        <view class="metric-title">统计口径 <text @tap="showMetric = false">关闭</text></view>
+        <view class="metric-title">统计方式 <text @tap="showMetric = false">关闭</text></view>
         <view class="metric-option" :class="{ selected: dim === 'WEEK' }" @tap="chooseMetric('WEEK')"><view class="metric-name">当周新增 <text v-if="dim === 'WEEK'">✓</text></view><text>周一 00:00 重置</text></view>
         <view class="metric-option" :class="{ selected: dim !== 'WEEK' }" @tap="chooseMetric('MONTH')"><view class="metric-name">{{ kind === 'SHARD' ? '历史累计' : kind === 'CHAMPION' ? '累计冠军' : '当月累计' }} <text v-if="dim !== 'WEEK'">✓</text></view><text>{{ metricHint('MONTH') }}</text></view>
-        <view class="metric-tip">统计口径由后台「榜单与奖励规则」统一配置。不同榜单的累计规则不同，榜单数据均实时读取门店业务数据。</view>
+        <view class="metric-tip">不同榜单可按当周或累计查看。碎片榜可看历史累计，积分榜与冠军榜规则以门店设置为准。</view>
       </view>
     </view>
   </view>

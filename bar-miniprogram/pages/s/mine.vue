@@ -82,7 +82,7 @@ function openDetail(kind) {
       <view class="li" style="border-bottom:none">
         <view class="gr">
           <view style="font-weight:500">今日发分</view>
-          <view class="li-sub">提分单确认发放 · 与 Web 员工作业记录同一口径实算 · 明细见 Web 提分单管理</view>
+          <view class="li-sub">店员当面确认后发放 · 可在管理后台查看提分单明细</view>
         </view>
         <text class="li-val">{{ todo.stat.wds }} 笔</text>
       </view>

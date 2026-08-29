@@ -15,7 +15,7 @@ onShow(async () => { data.value = await api("/champions"); });
       <view class="summary-divider"></view>
       <view class="summary-cell"><text class="summary-num number-display">{{ data.month }}</text><text>本月夺冠</text></view>
     </view>
-    <view class="section-head"><text>夺冠记录</text><text class="section-sub">商家后台录入</text></view>
+    <view class="section-head"><text>夺冠记录</text><text class="section-sub">店员录入</text></view>
     <view class="record-card">
       <view v-if="!records.length" class="empty">暂无冠军记录，参与对局后由店员录入</view>
       <view v-for="(item, index) in records" :key="item.date + '-' + index" class="record-row">

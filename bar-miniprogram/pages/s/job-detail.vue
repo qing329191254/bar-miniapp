@@ -295,7 +295,7 @@ async function load() {
           </view>
           <view style="text-align:right">
             <view class="tiny">其中已收款金额</view>
-            <view class="sum-gold">¥{{ fmt(acceptPaidAmt) }}</view>
+            <view class="sum-gold number-display">¥{{ fmt(acceptPaidAmt) }}</view>
           </view>
         </view>
       </view>
@@ -311,7 +311,7 @@ async function load() {
               <view class="row">
                 <text class="item-title">{{ userLabel(o.uid, o.nick) }}</text>
                 <text class="pill" :style="{ background: odStyle(o.status).bg, color: odStyle(o.status).color }">{{ odStyle(o.status).label }}</text>
-                <text class="item-amt gold">¥{{ fmt(o.total) }}</text>
+                <text class="item-amt gold number-display">¥{{ fmt(o.total) }}</text>
               </view>
               <view class="item-sub">{{ o.no }} · {{ o.tableName || "未指定桌台" }} · {{ tm(o.at) }}</view>
               <view class="item-sub" v-if="o.items?.length">{{ itemNames(o.items) }}</view>
@@ -323,7 +323,7 @@ async function load() {
             <view class="row">
               <text class="item-title">{{ userLabel(o.uid, o.nick) }}</text>
               <text class="pill" :style="{ background: odStyle(o.status).bg, color: odStyle(o.status).color }">{{ odStyle(o.status).label }}</text>
-              <text class="item-amt gold">¥{{ fmt(o.total) }}</text>
+              <text class="item-amt gold number-display">¥{{ fmt(o.total) }}</text>
             </view>
             <view class="item-sub">{{ o.no }} · {{ o.tableName || "未指定桌台" }} · {{ tm(o.at) }}</view>
             <view class="item-sub" v-if="o.items?.length">{{ itemNames(o.items) }}</view>
@@ -331,7 +331,7 @@ async function load() {
         </template>
       </template>
       <view v-else class="empty">所选时间范围内暂无接单</view>
-      <view class="note">仅统计本人经手（接单或确认收款）的订单，按下单时间倒序。金额只计已收款状态（制作中 / 已完成）。</view>
+      <view class="note">仅统计您本人接单或确认收款的订单，按下单时间倒序。金额只计已收款订单（制作中 / 已完成）。</view>
     </template>
 
     <!-- 收款 -->
@@ -341,16 +341,16 @@ async function load() {
           <view class="h2 sec-title">{{ rangeLabel }} 收款合计</view>
           <text class="sec-hint">充值 + 点单</text>
         </view>
-        <view class="sum-big">¥{{ fmt(payTotal) }}</view>
+        <view class="sum-big number-display">¥{{ fmt(payTotal) }}</view>
         <view class="pay-grid">
           <view class="pay-box blue">
             <view class="tiny blue-t">充值总数</view>
-            <view class="pay-num blue-t">¥{{ fmt(payRcAmt) }}</view>
+            <view class="pay-num blue-t number-display">¥{{ fmt(payRcAmt) }}</view>
             <view class="tiny blue-t">{{ recharges.length }} 笔</view>
           </view>
           <view class="pay-box gold">
             <view class="tiny gold-t">点单总数</view>
-            <view class="pay-num gold-t">¥{{ fmt(payOdAmt) }}</view>
+            <view class="pay-num gold-t number-display">¥{{ fmt(payOdAmt) }}</view>
             <view class="tiny gold-t">{{ paidOrders.length }} 笔</view>
           </view>
         </view>
@@ -365,7 +365,7 @@ async function load() {
             <view style="font-weight:500">{{ d.d.slice(5) }} {{ weekName(d.d) }}</view>
             <view class="li-sub">充值 ¥{{ fmt(d.rc) }} · 点单 ¥{{ fmt(d.od) }}</view>
           </view>
-          <text style="font-weight:600">¥{{ fmt(d.total) }}</text>
+          <text class="number-display" style="font-weight:600">¥{{ fmt(d.total) }}</text>
         </view>
       </view>
       <view class="card">
@@ -380,7 +380,7 @@ async function load() {
               <view class="li-sub">{{ r.no }} · {{ tm(r.at) }}</view>
             </view>
             <view style="text-align:right">
-              <view style="font-weight:600;color:#185FA5">¥{{ fmt(r.amount) }}</view>
+              <view class="number-display" style="font-weight:600;color:#185FA5">¥{{ fmt(r.amount) }}</view>
               <view class="tiny">赠 {{ fmt(r.bonus) }}</view>
             </view>
           </view>
@@ -398,12 +398,12 @@ async function load() {
               <view style="font-weight:500">{{ userLabel(o.uid, o.nick) }}</view>
               <view class="li-sub">{{ o.no }} · {{ tm(o.at) }} · {{ o.payType === "COIN" ? "金币" : "现场" }}</view>
             </view>
-            <text style="font-weight:600;color:#BA7517">¥{{ fmt(o.total) }}</text>
+            <text class="number-display" style="font-weight:600;color:#BA7517">¥{{ fmt(o.total) }}</text>
           </view>
         </view>
         <view v-else class="empty-inline">所选范围无点单收款</view>
       </view>
-      <view class="note">口径：充值按实收现金额计（赠送金币不计收入）；点单按订单实付额计。两项相加即「我经手金额」。</view>
+      <view class="note">收款合计 = 充值实收现金 + 点单实付金额。充值赠送金币不计入您的收款统计。</view>
     </template>
 
     <!-- 核销 -->
@@ -429,7 +429,7 @@ async function load() {
       </view>
       <view class="card">
         <view class="sec-head">
-          <view class="h2 sec-title">核销流水</view>
+          <view class="h2 sec-title">核销记录</view>
           <text class="sec-hint">{{ verifies.length }} 条</text>
         </view>
         <template v-if="verifies.length">
@@ -459,7 +459,7 @@ async function load() {
         </template>
         <view v-else class="empty-inline">所选时间范围内暂无核销</view>
       </view>
-      <view class="note">核销流水不可修改，如需撤销请联系店长在 Web 端处理。</view>
+      <view class="note">核销记录提交后不可修改，如需撤销请联系店长在管理后台处理。</view>
     </template>
 
     <!-- 对局 -->
@@ -472,11 +472,11 @@ async function load() {
         <view class="pay-grid">
           <view class="pay-box purple">
             <view class="tiny purple-t">发出碎片</view>
-            <view class="pay-num purple-t">{{ fmt(gameShs) }}</view>
+            <view class="pay-num purple-t number-display">{{ fmt(gameShs) }}</view>
           </view>
           <view class="pay-box gold">
             <view class="tiny gold-t">发出积分</view>
-            <view class="pay-num gold-t">{{ fmt(gamePts) }}</view>
+            <view class="pay-num gold-t number-display">{{ fmt(gamePts) }}</view>
           </view>
         </view>
       </view>
@@ -492,6 +492,7 @@ async function load() {
               <view class="row">
                 <text class="item-title">{{ gm.pname }}</text>
                 <text v-if="gm.table" class="pill table-pill">{{ gm.table }}</text>
+                <text v-if="gm.round" class="pill table-pill">{{ gm.round }}</text>
                 <text class="tiny" style="margin-left:auto">{{ tm(gm.time) }}</text>
               </view>
               <view class="item-sub">{{ (gm.players || []).map((p) => p.nick + (p.pts ? '（冠军 +' + fmt(p.pts) + ' 分）' : '')).join('、') }}</view>
@@ -504,6 +505,7 @@ async function load() {
             <view class="row">
               <text class="item-title">{{ gm.pname }}</text>
               <text v-if="gm.table" class="pill table-pill">{{ gm.table }}</text>
+              <text v-if="gm.round" class="pill table-pill">{{ gm.round }}</text>
               <text class="tiny" style="margin-left:auto">{{ tm(gm.time) }}</text>
             </view>
             <view class="item-sub">{{ (gm.players || []).map((p) => p.nick + (p.pts ? '（冠军 +' + fmt(p.pts) + ' 分）' : '')).join('、') }}</view>
@@ -512,7 +514,7 @@ async function load() {
         </template>
       </template>
       <view v-else class="empty">所选时间范围内暂无对局录入</view>
-      <view class="note">对局录入后立即入账，C 端积分 / 碎片 / 榜单同步更新。录错需店长在 Web 端「对局记录查询」撤销。</view>
+      <view class="note">提交后会员的积分、碎片与榜单会立即更新。录错需店长在管理后台「对局记录查询」中撤销。</view>
     </template>
   </view>
   <view v-else-if="loading" class="pbody empty">加载中…</view>

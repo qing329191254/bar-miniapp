@@ -189,7 +189,7 @@ function isTreasure(tpl) {
           {{ c.card?.srcDesc }} · {{ c.card?.expire || (c.tpl?.days ? c.tpl.days + ' 天' : '') }} 到期
         </view>
         <view v-if="isTreasure(c.tpl) && c.tpl?.prize" class="verify-prize">
-          <view class="tiny">奖品说明（仅店员可见）</view>
+          <view class="tiny">奖品说明</view>
           <text class="verify-prize-text">{{ c.tpl.prize }}</text>
         </view>
         <view v-else-if="c.tpl?.ruleText?.length" class="verify-rules">

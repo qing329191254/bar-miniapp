@@ -25,6 +25,7 @@ const wiz = reactive({
   winners: {},
   event: "",
   eventTouched: false,
+  round: "",
   last: null,
 });
 
@@ -119,6 +120,7 @@ function resetWiz(step = 0) {
     winners: {},
     event: "",
     eventTouched: false,
+    round: "",
     last: null,
   });
   search.value = "";
@@ -161,6 +163,7 @@ function combo(pid, tid) {
     winners: {},
     event: "",
     eventTouched: false,
+    round: "",
     last: null,
   });
   msg.value = "";
@@ -263,6 +266,7 @@ async function submit() {
         })),
         winners: wiz.players.filter((id) => wiz.winners[id]),
         event: wiz.event,
+        round: (wiz.round || "").trim(),
       },
     });
     clearGameDraft();
@@ -307,6 +311,7 @@ function reuse() {
     winners: {},
     event: "",
     eventTouched: false,
+    round: "",
     last: null,
   });
   splitTotal.value = "";
@@ -325,7 +330,7 @@ function hasDraft() {
     <!-- 开始 -->
     <view v-if="wiz.step === 0" class="card" style="text-align:center;padding:34px 14px">
       <view style="font-size:15px;font-weight:600">录入对局</view>
-      <view class="tiny" style="margin:6px 0 14px">目标：30 秒录完一局（2 次点击 + 1 次输入）</view>
+      <view class="tiny" style="margin:6px 0 14px">选项目 → 选玩家 → 填分数 → 确认提交</view>
       <button class="btn block" @tap="startWiz">开始录入</button>
     </view>
 
@@ -333,9 +338,9 @@ function hasDraft() {
     <view v-else-if="wiz.step === 5">
       <view class="payok">
         <view class="ring">✓</view>
-        <view style="font-size:17px;font-weight:600">提交成功，已立即入账</view>
+        <view style="font-size:17px;font-weight:600">提交成功，奖励已发放</view>
         <view class="tiny" style="margin-top:4px">{{ wiz.last.n }} 人 · 积分 {{ fmt(wiz.last.tp) }} · 碎片 {{ fmt(wiz.last.ts) }}</view>
-        <view class="tiny">C 端用户立即可见<text v-if="wiz.last.champ"> · 冠军已记入荣誉</text></view>
+        <view class="tiny">会员立即可见<text v-if="wiz.last.champ"> · 冠军已记入荣誉</text></view>
       </view>
       <button class="btn block" style="margin-top:14px" @tap="reuse">再录一局（沿用项目、桌台与玩家）</button>
       <button class="btn ghost block" style="margin-top:8px" @tap="go('/pages/s/todo', true)">返回待办</button>
@@ -393,6 +398,11 @@ function hasDraft() {
             <view class="tiny" :style="{ color: busy(t.id) ? '#A32D2D' : '#9C9A93' }">{{ busy(t.id) ? "占用" : "空" }}</view>
           </view>
         </view>
+        <view class="sec-head" style="margin-top:12px">
+          <text>局次</text>
+          <text class="hint">选填</text>
+        </view>
+        <input class="round-input" v-model="wiz.round" placeholder="第 3 局" />
         <button class="btn block wiz-primary" style="margin-top:12px" :disabled="!wiz.projectId" @tap="next">下一步 · 选玩家</button>
       </view>
 
@@ -400,7 +410,7 @@ function hasDraft() {
       <view v-if="wiz.step === 2" class="step2-layout">
         <view class="step2-top">
           <view v-if="project" class="card" style="background:#FAF9F5;padding:10px 12px;margin-bottom:12px">
-            <view class="tiny">已选 {{ project.name }}{{ table ? " · " + table.name : "" }}，请选择参与玩家</view>
+            <view class="tiny">已选 {{ project.name }}{{ table ? " · " + table.name : "" }}{{ wiz.round ? " · " + wiz.round : "" }}，请选择参与玩家</view>
           </view>
           <view class="card" style="border-color:#1C1B19;padding:11px 12px">
             <view class="pick-summary">
@@ -452,7 +462,7 @@ function hasDraft() {
         <view class="card" style="background:#EEEDFE;border-color:#534AB7">
           <view class="sec-head" style="color:#26215C;margin-bottom:7px">
             <text>全员碎片</text>
-            <text class="hint purple">一键铺满 · 快捷值取自项目配置</text>
+            <text class="hint purple">一键铺满 · 快捷值由门店设置</text>
           </view>
           <view class="row shard-row">
             <button
@@ -518,7 +528,7 @@ function hasDraft() {
       <view v-if="wiz.step === 4">
         <view class="card">
           <view class="h2">对局汇总</view>
-          <view class="li"><view class="gr"><view style="font-weight:500">项目 / 桌台</view><view class="tiny">桌台为选填项</view></view><text style="font-weight:600">{{ project?.name }}{{ table ? " · " + table.name + " 桌" : "" }}</text></view>
+          <view class="li"><view class="gr"><view style="font-weight:500">项目 / 桌台</view><view class="tiny">桌台为选填项</view></view><text style="font-weight:600">{{ project?.name }}{{ table ? " · " + table.name + " 桌" : "" }}{{ wiz.round ? " · " + wiz.round : "" }}</text></view>
           <view class="li"><view class="gr"><view style="font-weight:500">时间</view></view><text style="font-weight:600">{{ confirmTime || nowTimeLabel() }}</text></view>
           <view class="li"><view class="gr"><view style="font-weight:500">参与人数</view></view><text style="font-weight:600">{{ wiz.players.length }} 人</text></view>
           <view class="li"><view class="gr"><view style="font-weight:500">积分总额</view><view class="tiny">{{ winCount }} 名冠军</view></view><text style="font-weight:600;color:#185FA5">{{ fmt(totalPts) }}</text></view>
@@ -546,7 +556,7 @@ function hasDraft() {
           </view>
         </view>
         <view class="card" style="background:#FCEBEB;border-color:#E24B4A;padding:10px 12px">
-          <view class="tiny" style="color:#A32D2D;line-height:1.7"><text style="font-weight:600">提交后立即入账，用户可见。</text>录错需由店长在电脑端作废，作废记入日志。</view>
+          <view class="tiny" style="color:#A32D2D;line-height:1.7"><text style="font-weight:600">提交后会员立即可见。</text>录错需店长在管理后台撤销。</view>
         </view>
         <button class="btn block wiz-primary" style="margin-bottom:8px" :disabled="submitting" @tap="submit">确认提交</button>
         <view class="row">
@@ -717,6 +727,17 @@ button.wiz-primary {
 }
 button.wiz-primary[disabled] {
   opacity: 0.4;
+}
+.round-input {
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid rgba(28, 27, 25, 0.12);
+  border-radius: 10px;
+  background: #fff;
+  font-size: 13px;
+  color: #1c1b19;
+  box-sizing: border-box;
 }
 .sec-head {
   display: flex;

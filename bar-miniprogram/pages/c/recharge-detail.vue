@@ -103,7 +103,7 @@ function viewMyCoins() {
       <view class="guide-title">到吧台出示此单号</view>
       <view>1. 向店员报单号后四位 <text class="strong">{{ noTail }}</text></view>
       <view>2. 付现金或扫店内收款码</view>
-      <view>3. <text class="strong">店员在后台确认后金币立即到账</text></view>
+      <view>3. <text class="strong">店员确认收款后金币立即到账</text></view>
       <view>4. 到账后本页自动跳转</view>
     </view>
 
@@ -113,7 +113,7 @@ function viewMyCoins() {
     </view>
     <view v-if="msg" class="err">{{ msg }}</view>
   </view>
-  <view v-else class="empty-detail">正在读取充值单…</view>
+  <view v-else class="empty-detail">正在加载充值单…</view>
   <app-toast />
 </template>
 
