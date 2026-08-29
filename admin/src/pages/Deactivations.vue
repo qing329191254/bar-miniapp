@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { api } from "../api";
+import { api, pageQs } from "../api";
+import AppPagination from "../components/AppPagination.vue";
 
 const router = useRouter();
 const data = ref<any>(null);
 const loading = ref(true);
+const tablePage = ref(1);
+const tablePageSize = ref(50);
 const err = ref("");
 
 const ST: Record<string, [string, string, string]> = {
@@ -32,19 +35,23 @@ function openDetail(id: number) {
 }
 
 const list = computed(() => data.value?.list || []);
+const listTotal = computed(() => data.value?.listTotal ?? 0);
 const summary = computed(() => data.value?.summary || { total: 0, pending: 0, rejected: 0, done: 0, refundTotal: 0 });
 
 async function load() {
   loading.value = true;
   err.value = "";
   try {
-    data.value = await api("/admin/deactivation");
+    const params = pageQs(tablePage.value, tablePageSize.value);
+    data.value = await api(`/admin/deactivation?${params}`);
   } catch (e: any) {
     err.value = e?.message || "加载失败";
   } finally {
     loading.value = false;
   }
 }
+
+watch([tablePage, tablePageSize], () => load());
 
 onMounted(load);
 </script>
@@ -117,6 +124,7 @@ onMounted(load);
             </tr>
           </tbody>
         </table>
+        <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="listTotal" />
       </div>
 
       <div class="note rd">

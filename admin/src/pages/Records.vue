@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
-import { api } from "../api";
+import { api, pageQs } from "../api";
+import AppPagination from "../components/AppPagination.vue";
 
 const OD: Record<string, [string, string]> = {
   PENDING_ACCEPT: ["待接单", "#BA7517"],
@@ -29,6 +30,10 @@ const WD: Record<string, [string, string]> = {
 const route = useRoute();
 const coll = computed(() => String(route.params.coll || route.path.replace("/", "")));
 const rows = ref<any[]>([]);
+const rowTotal = ref(0);
+const tablePage = ref(1);
+const tablePageSize = ref(50);
+const pendingItems = ref<any[]>([]);
 const members = ref<any[]>([]);
 const status = ref("");
 const msg = ref("");
@@ -44,12 +49,19 @@ const titles: Record<string, [string, string]> = {
 };
 
 onMounted(load);
-watch(() => route.fullPath, () => { status.value = ""; load(); });
+watch(() => route.fullPath, () => { status.value = ""; tablePage.value = 1; load(); });
+watch([tablePage, tablePageSize], () => load());
+watch(status, () => { tablePage.value = 1; load(); });
 
 async function load() {
   const c = coll.value;
-  rows.value = await api("/admin/" + c);
-  if (!members.value.length) members.value = await api("/admin/members");
+  const params = new URLSearchParams(pageQs(tablePage.value, tablePageSize.value));
+  if (status.value) params.set("status", status.value);
+  const res = await api<any>(`/admin/${c}?${params}`);
+  rows.value = res.items || [];
+  rowTotal.value = res.total ?? rows.value.length;
+  pendingItems.value = res.pendingItems || [];
+  if (!members.value.length) members.value = await api("/admin/members?pageSize=0");
 }
 function canRefund(order: any) {
   if (order.payType === "COIN") return ["MAKING", "FINISHED"].includes(order.status);
@@ -95,13 +107,9 @@ function fmt(n: number) {
 function pill(map: Record<string, [string, string]>, s: string) {
   return map[s] || [s, "#9C9A93"];
 }
-const shown = computed(() => {
-  let list = rows.value || [];
-  if (status.value) list = list.filter((r) => r.status === status.value);
-  return list;
-});
+const shown = computed(() => rows.value || []);
 const pendingWdr = computed(() =>
-  coll.value === "withdrawals" ? rows.value.filter((w) => w.status === "PENDING_CONFIRM") : [],
+  coll.value === "withdrawals" ? pendingItems.value : [],
 );
 </script>
 
@@ -127,7 +135,7 @@ const pendingWdr = computed(() =>
           <tr><th>单号</th><th>会员</th><th>桌台</th><th>金额</th><th>支付</th><th>状态</th><th>时间</th><th>操作</th></tr>
         </thead>
         <tbody>
-        <tr v-for="r in shown.slice(0,80)" :key="r.id">
+        <tr v-for="r in shown" :key="r.id">
           <td><b>{{ r.no }}</b></td>
           <td>{{ r.nick || nick(r.uid) }}</td>
           <td class="tiny">{{ r.tableName || "—" }}</td>
@@ -144,7 +152,7 @@ const pendingWdr = computed(() =>
           <tr><th>单号</th><th>会员</th><th>金额</th><th>赠送</th><th>状态</th><th>时间</th></tr>
         </thead>
         <tbody>
-        <tr v-for="r in shown.slice(0,80)" :key="r.id">
+        <tr v-for="r in shown" :key="r.id">
           <td><b>{{ r.no }}</b></td>
           <td>{{ nick(r.uid) }}</td>
           <td>¥{{ r.amount }}</td>
@@ -159,7 +167,7 @@ const pendingWdr = computed(() =>
           <tr><th>单号</th><th>会员</th><th>积分数</th><th>状态</th><th>提交时间</th><th>发放时间</th></tr>
         </thead>
         <tbody>
-        <tr v-for="r in shown.slice(0,80)" :key="r.id">
+        <tr v-for="r in shown" :key="r.id">
           <td><b>{{ r.no }}</b></td>
           <td>{{ nick(r.uid) }}</td>
           <td>{{ fmt(r.pts) }}</td>
@@ -174,7 +182,7 @@ const pendingWdr = computed(() =>
           <tr><th>项目</th><th>桌台</th><th>时间</th><th>人数</th><th>积分</th><th>碎片</th><th>录入</th><th>状态</th></tr>
         </thead>
         <tbody>
-        <tr v-for="r in shown.slice(0,80)" :key="r.id">
+        <tr v-for="r in shown" :key="r.id">
           <td><b>{{ r.pname }}</b><div v-if="r.round" class="tiny">{{ r.round }}</div></td>
           <td>{{ r.table || "—" }}</td>
           <td class="tiny">{{ r.time }}</td>
@@ -186,6 +194,7 @@ const pendingWdr = computed(() =>
         </tr>
         </tbody>
       </table>
+      <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
     </div>
 
     <div v-if="refundTarget" class="refund-mask" @click.self="closeRefund">

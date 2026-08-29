@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { api } from "../api";
+import { api, pageQs } from "../api";
+import AppPagination from "../components/AppPagination.vue";
 import PointTrendChart from "./PointTrendChart.vue";
 
 const props = defineProps<{ kind?: "coin" | "point" | "card" | "alert" }>();
@@ -10,6 +11,8 @@ const router = useRouter();
 const data = ref<any>(null);
 const loading = ref(true);
 const err = ref("");
+const tablePage = ref(1);
+const tablePageSize = ref(50);
 const voidPreview = ref<any>(null);
 const voidReason = ref("");
 const voidCards = ref(true);
@@ -33,6 +36,13 @@ const meta = computed(() => ({
   card: { title: "未核销卡券明细", api: "/admin/liab/cards" },
   alert: { title: "积分录入异常审计", api: "/admin/alert/points" },
 }[kind.value]));
+
+const liabRows = computed(() => (kind.value !== "alert" ? data.value?.rows || [] : []));
+const rowTotal = computed(() => {
+  if (kind.value === "alert") return data.value?.gamesTotal ?? 0;
+  return data.value?.rowTotal ?? liabRows.value.length;
+});
+const alertGames = computed(() => (kind.value === "alert" ? data.value?.games || [] : []));
 
 function fmt(n: number) {
   return Number(n || 0).toLocaleString("en-US");
@@ -85,12 +95,14 @@ const pointTrend = computed(() => {
   return last10Days().map((d) => map.get(d) || { d, pts: 0, today: d === today });
 });
 
-async function load() {
+async function load(resetPage = false) {
+  if (resetPage) tablePage.value = 1;
   loading.value = true;
   err.value = "";
   data.value = null;
   try {
-    data.value = await api(meta.value.api);
+    const params = pageQs(tablePage.value, tablePageSize.value);
+    data.value = await api(`${meta.value.api}?${params}`);
   } catch (e: any) {
     err.value = e?.message || "加载失败";
   } finally {
@@ -138,8 +150,9 @@ async function submitVoid() {
   }
 }
 
-onMounted(load);
-watch(kind, load);
+onMounted(() => load());
+watch(kind, () => load(true));
+watch([tablePage, tablePageSize], () => load());
 </script>
 
 <template>
@@ -171,7 +184,7 @@ watch(kind, load);
           <table class="tb2 tb-even tb-even-7" data-cols="lcccccc">
             <thead><tr><th>会员</th><th>会员号</th><th>本金余额</th><th>赠送余额</th><th>合计</th><th>占比</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="r in data.rows" :key="r.uid">
+              <tr v-for="r in liabRows" :key="r.uid">
                 <td><b>{{ r.nick }}</b></td><td class="tiny">{{ r.no }}</td>
                 <td>¥{{ fmt(r.principal) }}</td><td style="color:#BA7517">¥{{ fmt(r.bonus) }}</td>
                 <td><b>¥{{ fmt(r.total) }}</b></td><td class="tiny">{{ r.pct }}%</td>
@@ -191,6 +204,7 @@ watch(kind, load);
               </tr>
             </tfoot>
           </table>
+          <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
         </div>
         <div class="note rd">这是负债不是利润。未消费金币是顾客已付但尚未享受服务的钱。赠送部分不可退不可提现。</div>
       </template>
@@ -210,7 +224,7 @@ watch(kind, load);
           <table class="tb2 tb-even tb-even-7" data-cols="lcccccc">
             <thead><tr><th>会员</th><th>会员号</th><th>可用积分</th><th>冻结中</th><th>本月获得</th><th>累计已提</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="r in data.rows" :key="r.uid">
+              <tr v-for="r in liabRows" :key="r.uid">
                 <td><b>{{ r.nick }}</b></td><td class="tiny">{{ r.no }}</td>
                 <td><b style="color:#185FA5">{{ fmt(r.av) }}</b></td>
                 <td>{{ r.fz ? fmt(r.fz) : "—" }}</td>
@@ -220,6 +234,7 @@ watch(kind, load);
               <tr v-if="!data.rows.length"><td colspan="7" class="tiny" style="text-align:center;padding:26px">暂无持有积分的会员</td></tr>
             </tbody>
           </table>
+          <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
         </div>
         <div class="note"><b>清零规则：</b>每月最后一日 24:00 清零可用积分（<b>不清冻结额</b>——冻结的是用户已发起提取待兑付的部分，属用户资产，系统单方面清掉等于没收）。负余额一并归零。<b>月末会出现兑券挤兑</b>，卡券库存与每人上限须提前配置到位。</div>
       </template>
@@ -248,7 +263,7 @@ watch(kind, load);
           <table class="tb2" data-cols="llllcc">
             <thead><tr><th>卡号</th><th>卡券名称</th><th>持有会员</th><th>来源</th><th>剩余有效期</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="r in data.rows" :key="r.id" :style="r.daysLeft <= 3 ? 'background:#FDF0F0' : ''">
+              <tr v-for="r in liabRows" :key="r.id" :style="r.daysLeft <= 3 ? 'background:#FDF0F0' : ''">
                 <td class="tiny">{{ r.no }}</td><td><b>{{ r.tplName }}</b></td>
                 <td>{{ r.nick }} {{ r.tail }}</td><td class="tiny">{{ r.srcDesc || r.src || "—" }}</td>
                 <td><b v-if="r.daysLeft <= 3" style="color:#A32D2D">{{ r.daysLeft }} 天</b><span v-else>{{ r.daysLeft }} 天</span></td>
@@ -257,6 +272,7 @@ watch(kind, load);
               <tr v-if="!data.rows.length"><td colspan="6" class="tiny" style="text-align:center;padding:26px">暂无未核销卡券</td></tr>
             </tbody>
           </table>
+          <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
         </div>
         <div class="note"><b>宝箱卡内容 C 端不展示</b>，仅店员核销页可见——否则同一张钻石宝箱不同店员给的东西会不一样。7 天有效期叠加订阅消息一次性授权，部分顾客会错过，对策为卡包角标 + 首页副标题 + 临期红标，并持续监控核销率。</div>
       </template>
@@ -295,7 +311,7 @@ watch(kind, load);
           <table class="tb2 tb-even tb-even-7" data-cols="clclccc">
             <thead><tr><th>时间</th><th>项目</th><th>桌台</th><th>玩家与得分</th><th>积分</th><th>录入人</th><th>操作</th></tr></thead>
             <tbody>
-              <tr v-for="g in data.games" :key="g.id">
+              <tr v-for="g in alertGames" :key="g.id">
                 <td class="tiny">{{ String(g.time || "").slice(11) || "—" }}</td>
                 <td><b>{{ g.pname }}</b></td><td class="tiny">{{ g.table || "—" }}</td>
                 <td class="tiny">{{ gamePlayers(g) }}</td>
@@ -306,6 +322,7 @@ watch(kind, load);
               <tr v-if="!data.games?.length"><td colspan="7" class="tiny" style="text-align:center;padding:22px">今日暂无对局录入</td></tr>
             </tbody>
           </table>
+          <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
         </div>
         <div class="note"><b>倍数为实算值</b>（今日发放量 ÷ 历史有记录日的日均），不是写死的演示数字。倍数偏高不等于作弊——周末大场次、赛事日天然会高，故此页提供按录入人归集与逐条明细，供人工判断而非自动处置。<b>作废会产生负余额</b>（分已被消费时），处理前请阅读作废影响预览。</div>
       </template>

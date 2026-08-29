@@ -740,29 +740,49 @@ def admin_dash(admin: dict = Depends(admin_user), db: Session = Depends(get_db))
 
 
 @app.get("/api/admin/liab/coin")
-def admin_liab_coin(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+def admin_liab_coin(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200, alias="pageSize"),
+    admin: dict = Depends(admin_user),
+    db: Session = Depends(get_db),
+):
     if admin["role"] != "BOSS":
         raise HTTPException(403, "仅老板可见")
-    return L.liab_coin_detail(db)
+    return L.liab_coin_detail(db, page, page_size)
 
 
 @app.get("/api/admin/liab/point")
-def admin_liab_point(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+def admin_liab_point(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200, alias="pageSize"),
+    admin: dict = Depends(admin_user),
+    db: Session = Depends(get_db),
+):
     if admin["role"] != "BOSS":
         raise HTTPException(403, "仅老板可见")
-    return L.liab_point_detail(db)
+    return L.liab_point_detail(db, page, page_size)
 
 
 @app.get("/api/admin/liab/cards")
-def admin_liab_cards(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+def admin_liab_cards(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200, alias="pageSize"),
+    admin: dict = Depends(admin_user),
+    db: Session = Depends(get_db),
+):
     if admin["role"] != "BOSS":
         raise HTTPException(403, "仅老板可见")
-    return L.liab_card_detail(db)
+    return L.liab_card_detail(db, page, page_size)
 
 
 @app.get("/api/admin/alert/points")
-def admin_alert_points(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
-    return L.point_alert_detail(db)
+def admin_alert_points(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200, alias="pageSize"),
+    admin: dict = Depends(admin_user),
+    db: Session = Depends(get_db),
+):
+    return L.point_alert_detail(db, page, page_size)
 
 
 @app.get("/api/admin/games/{gid}/void-preview")
@@ -788,10 +808,13 @@ def admin_job_detail(
     preset: str = "today",
     date_from: str = Query("", alias="from"),
     date_to: str = Query("", alias="to"),
+    tab: str = "all",
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200, alias="pageSize"),
     admin: dict = Depends(admin_user),
     db: Session = Depends(get_db),
 ):
-    return L.job_detail(db, uid, preset, date_from, date_to)
+    return L.job_detail(db, uid, preset, date_from, date_to, page, page_size, tab)
 
 
 @app.get("/api/admin/daily-biz")
@@ -799,15 +822,22 @@ def daily_biz_page(
     preset: str = "7d",
     date_from: str = Query("", alias="from"),
     date_to: str = Query("", alias="to"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200, alias="pageSize"),
     admin: dict = Depends(admin_user),
     db: Session = Depends(get_db),
 ):
-    return L.daily_biz_page(db, preset, date_from, date_to)
+    return L.daily_biz_page(db, preset, date_from, date_to, page, page_size)
 
 
 @app.get("/api/admin/coin-adjust")
-def coin_adjust_page(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
-    return L.coin_adjust_page(db)
+def coin_adjust_page(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200, alias="pageSize"),
+    admin: dict = Depends(admin_user),
+    db: Session = Depends(get_db),
+):
+    return L.coin_adjust_page(db, page, page_size)
 
 
 @app.post("/api/admin/coin-adjust/{aid}/{action}")
@@ -821,8 +851,13 @@ def coin_adjust(aid: int, action: str, body: ReasonIn = ReasonIn(), admin: dict 
 
 
 @app.get("/api/admin/deactivation")
-def deactivation_list(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
-    return L.deactivation_page(db)
+def deactivation_list(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200, alias="pageSize"),
+    admin: dict = Depends(admin_user),
+    db: Session = Depends(get_db),
+):
+    return L.deactivation_page(db, page, page_size)
 
 
 @app.get("/api/admin/deactivation/{did}")
@@ -1036,20 +1071,52 @@ def save_settlement_config(body: PatchIn, admin: dict = Depends(admin_user), db:
 
 
 @app.get("/api/admin/{coll}")
-def admin_list(coll: str, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
-    if coll == "members":
-        return [L.public_user(db, x) for x in db.query(User).all()]
-    if coll == "staff":
-        return [L.public_user(db, x) for x in db.query(User).filter(User.role != "CUSTOMER")]
+def admin_list(
+    coll: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=0, le=200, alias="pageSize"),
+    status: str = "",
+    kw: str = "",
+    admin: dict = Depends(admin_user),
+    db: Session = Depends(get_db),
+):
     if coll in ("agreements", "content", "config", "cfg", "push"):
         return L.setting(db, coll)
+    if coll == "members":
+        q = db.query(User).filter(User.role == "CUSTOMER")
+        if kw:
+            like = f"%{kw}%"
+            q = q.filter((User.nick.like(like)) | (User.no.like(like)) | (User.tail.like(like)))
+        items = [L.public_user(db, x) for x in q.order_by(User.id.desc()).all()]
+        if page_size <= 0:
+            return items
+        return L.paginate(items, page, page_size)
+    if coll == "staff":
+        items = [L.public_user(db, x) for x in db.query(User).filter(User.role != "CUSTOMER").order_by(User.id.desc()).all()]
+        if page_size <= 0:
+            return items
+        return L.paginate(items, page, page_size)
     if coll not in COLL_MAP:
         raise HTTPException(404, "unknown collection")
     model, meth = COLL_MAP[coll]
-    rows = db.query(model).all()
+    rows = db.query(model).order_by(model.id.desc()).all()
     if meth:
-        return [getattr(x, meth)() for x in rows]
-    return [{"id": x.id, "name": x.name} for x in rows]
+        items = [getattr(x, meth)() for x in rows]
+    else:
+        items = [{"id": x.id, "name": x.name} for x in rows]
+    if status:
+        items = [x for x in items if x.get("status") == status]
+    if page_size <= 0:
+        return items
+    pg = L.paginate(items, page, page_size)
+    if coll == "withdrawals":
+        all_rows = [getattr(x, meth)() for x in rows] if meth else items
+        pg["statusCounts"] = {
+            s: sum(1 for x in all_rows if x.get("status") == s)
+            for s in ("PENDING_CONFIRM", "GRANTED", "REJECTED", "CANCELLED", "CLOSED_TIMEOUT")
+        }
+        pg["pendingItems"] = [x for x in all_rows if x.get("status") == "PENDING_CONFIRM"][:30]
+    return pg
 
 
 @app.put("/api/admin/card-templates/{tid}")
@@ -1135,13 +1202,29 @@ def _sign_rule_item(item: dict, db: Session, ignore_id: int | None = None, allow
 
 
 @app.get("/api/admin/signin-overview")
-def signin_overview(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+def signin_overview(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200, alias="pageSize"),
+    admin: dict = Depends(admin_user),
+    db: Session = Depends(get_db),
+):
     config = L.setting(db, "config") or {}
     members = []
-    for user in db.query(User).filter(User.role == "CUSTOMER").all():
+    for user in db.query(User).filter(User.role == "CUSTOMER").order_by(User.id.desc()).all():
         wallet = L.wallet_of(db, user.id)
         members.append({"id": user.id, "nick": user.nick, "streak": wallet.sign_streak or 0})
-    return {"signPoints": int(config.get("signPoints") or 0), "rules": [r.to_dict() for r in db.query(SignRule).order_by(SignRule.days)], "members": members}
+    rules = [r.to_dict() for r in db.query(SignRule).order_by(SignRule.days)]
+    for rule in rules:
+        rule["qualified"] = sum(1 for m in members if m["streak"] >= rule["days"])
+    pg = L.paginate(members, page, page_size)
+    return {
+        "signPoints": int(config.get("signPoints") or 0),
+        "rules": rules,
+        "members": pg["items"],
+        "memberTotal": pg["total"],
+        "page": pg["page"],
+        "pageSize": pg["pageSize"],
+    }
 
 
 @app.post("/api/admin/sign-rules")

@@ -1,32 +1,64 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { api } from "../api";
+import { api, pageQs } from "../api";
+import AppPagination from "../components/AppPagination.vue";
 
 const route = useRoute();
 const router = useRouter();
 const members = ref<any[]>([]);
+const memberTotal = ref(0);
+const tablePage = ref(1);
+const tablePageSize = ref(50);
 const cards = ref<any[]>([]);
 const champs = ref<any[]>([]);
 const wdrs = ref<any[]>([]);
 const kw = ref("");
 const uid = computed(() => Number(route.query.uid || 0));
 
+async function loadMembers() {
+  const params = new URLSearchParams(pageQs(tablePage.value, tablePageSize.value));
+  if (kw.value.trim()) params.set("kw", kw.value.trim());
+  const res = await api<any>(`/admin/members?${params}`);
+  if (Array.isArray(res)) {
+    members.value = res;
+    memberTotal.value = res.length;
+  } else {
+    members.value = res.items || [];
+    memberTotal.value = res.total ?? members.value.length;
+  }
+}
+
 onMounted(async () => {
-  members.value = await api("/admin/members");
-  cards.value = await api("/admin/cards");
-  champs.value = await api("/admin/champs");
-  wdrs.value = await api("/admin/withdrawals");
+  await loadMembers();
+  if (uid.value) {
+    const hit = members.value.find((x) => x.id === uid.value);
+    if (!hit) {
+      const all = await api<any[]>("/admin/members?pageSize=0");
+      members.value = all;
+      memberTotal.value = all.length;
+    }
+  }
+  cards.value = await api("/admin/cards?pageSize=0");
+  champs.value = await api("/admin/champs?pageSize=0");
+  wdrs.value = await api("/admin/withdrawals?pageSize=0");
 });
 
-const shown = computed(() =>
-  members.value.filter(
-    (x) =>
-      x.role === "CUSTOMER" &&
-      (!kw.value || x.nick.includes(kw.value) || String(x.no).includes(kw.value) || String(x.tail).includes(kw.value)),
-  ),
-);
-const me = computed(() => members.value.find((x) => x.id === uid.value));
+watch([tablePage, tablePageSize], () => loadMembers());
+let kwTimer: number | undefined;
+watch(kw, () => {
+  window.clearTimeout(kwTimer);
+  kwTimer = window.setTimeout(() => {
+    tablePage.value = 1;
+    loadMembers();
+  }, 300);
+});
+
+const shown = computed(() => members.value.filter((x) => x.role === "CUSTOMER"));
+const me = computed(() => {
+  if (!uid.value) return null;
+  return members.value.find((x) => x.id === uid.value) || null;
+});
 function fmt(n: number) {
   return Number(n || 0).toLocaleString("en-US");
 }
@@ -59,7 +91,7 @@ function fmt(n: number) {
     </div>
   </div>
   <div v-else>
-    <div class="hdr">会员列表 <em>{{ shown.length }} 人 · 点击查看详情</em></div>
+    <div class="hdr">会员列表 <em>{{ memberTotal }} 人 · 点击查看详情</em></div>
     <input class="inp" style="max-width:260px;margin-bottom:11px" placeholder="搜索昵称 / 会员号 / 手机尾号" v-model="kw" />
     <div class="card" style="padding:0;overflow-x:auto">
       <table class="tb2" data-cols="lcccccc">
@@ -78,6 +110,7 @@ function fmt(n: number) {
         </tr>
         </tbody>
       </table>
+      <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="memberTotal" />
     </div>
   </div>
 </template>

@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { api, savedUser } from "../api";
+import { api, pageQs, savedUser } from "../api";
+import AppPagination from "../components/AppPagination.vue";
 
 const router = useRouter();
 const data = ref<any>(null);
 const loading = ref(true);
+const tablePage = ref(1);
+const tablePageSize = ref(50);
 const err = ref("");
 const msg = ref("");
 const dlg = ref<null | { mode: "approve" | "reject"; row: any }>(null);
@@ -49,20 +52,24 @@ function back() {
   router.push("/dash");
 }
 
-const pending = computed(() => (data.value?.list || []).filter((a: any) => a.status === "PENDING"));
+const pending = computed(() => data.value?.pendingList || []);
 const list = computed(() => data.value?.list || []);
+const listTotal = computed(() => data.value?.listTotal ?? 0);
 
 async function load() {
   loading.value = true;
   err.value = "";
   try {
-    data.value = await api("/admin/coin-adjust");
+    const params = pageQs(tablePage.value, tablePageSize.value);
+    data.value = await api(`/admin/coin-adjust?${params}`);
   } catch (e: any) {
     err.value = e?.message || "加载失败";
   } finally {
     loading.value = false;
   }
 }
+
+watch([tablePage, tablePageSize], () => load());
 
 function openApprove(row: any) {
   dlg.value = { mode: "approve", row };
@@ -173,6 +180,7 @@ onMounted(load);
             </tr>
           </tbody>
         </table>
+        <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="listTotal" />
       </div>
 
       <div class="note">

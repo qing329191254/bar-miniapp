@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { api } from "../api";
+import { api, pageQs } from "../api";
+import AppPagination from "../components/AppPagination.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -13,6 +14,8 @@ const tab = ref("all");
 const data = ref<any>(null);
 const loading = ref(true);
 const err = ref("");
+const feedPage = ref(1);
+const feedPageSize = ref(50);
 
 const PRESETS: [string, string][] = [
   ["today", "今天"],
@@ -75,60 +78,11 @@ function setPreset(p: string) {
     dateFrom.value = "";
     dateTo.value = "";
   }
-  load();
+  load(true);
 }
 
-const feed = computed<FeedItem[]>(() => {
-  if (!data.value) return [];
-  const members = data.value.members || {};
-  const mb = (id: number) => memberLabel(members, id);
-  const items: FeedItem[] = [
-    ...(data.value.ods || []).map((o: any) => {
-      const stm = ODST[o.status] || [o.status, "#6B6A65", "#F5F4F0"];
-      const itemsText = (o.items || []).map((i: any) => `${i.name}${i.qty > 1 ? "×" + i.qty : ""}`).join("、");
-      return {
-        t: o.at,
-        kind: "order",
-        title: `接单 · ${o.no}`,
-        sub: `${mb(o.uid)} · ${o.tableName || "未指定桌台"} · ${itemsText || "—"}`,
-        val: `¥${fmt(o.total)}`,
-        color: "#BA7517",
-        pill: stm as [string, string, string],
-      };
-    }),
-    ...(data.value.rcs || []).map((r: any) => ({
-      t: r.at,
-      kind: "recharge",
-      title: `确认充值 · ${r.no}`,
-      sub: `${mb(r.uid)} · 赠送 ${fmt(r.bonus)} 金币`,
-      val: `¥${fmt(r.amount)}`,
-      color: "#185FA5",
-      pill: ["已到账", "#3B6D11", "#EAF3DE"] as [string, string, string],
-    })),
-    ...(data.value.vfs || []).map((v: any) => ({
-      t: v.at,
-      kind: "verify",
-      title: `核销 · ${v.tplName}`,
-      sub: `${mb(v.uid)} · 卡号 ${v.cardNo}`,
-      val: "1 张",
-      color: "#534AB7",
-      pill: ["已核销", "#534AB7", "#EEEDFE"] as [string, string, string],
-    })),
-    ...(data.value.gms || []).map((g: any) => ({
-      t: g.time,
-      kind: "game",
-      title: `对局录入 · ${g.pname}`,
-      sub: `${g.table ? g.table + " · " : ""}${g.round ? g.round + " · " : ""}${(g.players || [])
-        .map((p: any) => p.nick + (p.pts ? "（冠军）" : ""))
-        .join("、")}`,
-      val: `${(g.players || []).length} 人`,
-      color: "#3B6D11",
-      pill: ["已入账", "#3B6D11", "#EAF3DE"] as [string, string, string],
-    })),
-  ];
-  const filtered = tab.value === "all" ? items : items.filter((x) => x.kind === tab.value);
-  return filtered.sort((a, b) => String(b.t).localeCompare(String(a.t)));
-});
+const feed = computed<FeedItem[]>(() => data.value?.feed || []);
+const feedTotal = computed(() => data.value?.feedTotal ?? 0);
 
 const dayGroups = computed(() => {
   const map = new Map<string, FeedItem[]>();
@@ -145,7 +99,7 @@ const tabs = computed(() => {
   return [
     ["all", `全部 ${st.acts || 0}`],
     ["order", `接单 ${st.orders || 0}`],
-    ["recharge", `充值 ${(data.value?.rcs || []).length}`],
+    ["recharge", `充值 ${st.rcCount || 0}`],
     ["verify", `核销 ${st.verifies || 0}`],
     ["game", `对局 ${st.games || 0}`],
   ] as [string, string][];
@@ -153,16 +107,17 @@ const tabs = computed(() => {
 
 const today = fmtDay(new Date());
 
-async function load() {
+async function load(resetPage = false) {
+  if (resetPage) feedPage.value = 1;
   loading.value = true;
   err.value = "";
   try {
-    const q = new URLSearchParams({ preset: preset.value });
+    const params = new URLSearchParams(pageQs(feedPage.value, feedPageSize.value, { preset: preset.value, tab: tab.value }));
     if (preset.value === "custom") {
-      if (dateFrom.value) q.set("from", dateFrom.value);
-      if (dateTo.value) q.set("to", dateTo.value);
+      if (dateFrom.value) params.set("from", dateFrom.value);
+      if (dateTo.value) params.set("to", dateTo.value);
     }
-    data.value = await api(`/admin/jobs/${uid.value}?${q}`);
+    data.value = await api(`/admin/jobs/${uid.value}?${params}`);
   } catch (e: any) {
     err.value = e?.message || "加载失败";
     data.value = null;
@@ -171,8 +126,10 @@ async function load() {
   }
 }
 
-onMounted(load);
-watch(uid, load);
+onMounted(() => load());
+watch(uid, () => load(true));
+watch(tab, () => load(true));
+watch([feedPage, feedPageSize], () => load());
 </script>
 
 <template>
@@ -235,7 +192,7 @@ watch(uid, load);
       </div>
 
       <div class="card">
-        <div class="st">流水分类 <em>共 {{ feed.length }} 条</em></div>
+        <div class="st">流水分类 <em>共 {{ feedTotal }} 条</em></div>
         <div class="flt-chips">
           <span v-for="[k, label] in tabs" :key="k" class="chip" :class="{ on: tab === k }" @click="tab = k">{{ label }}</span>
         </div>
@@ -263,6 +220,7 @@ watch(uid, load);
           </table>
         </div>
       </template>
+      <AppPagination v-if="feedTotal" v-model:page="feedPage" v-model:page-size="feedPageSize" :total="feedTotal" class="job-feed-pg" />
       <div v-else class="card"><p class="tiny" style="padding:30px;text-align:center">所选时间范围与分类下无作业流水</p></div>
 
       <div class="note">
@@ -292,5 +250,8 @@ watch(uid, load);
 }
 .job-day-card {
   padding-bottom: 4px;
+}
+.job-feed-pg {
+  margin-bottom: 12px;
 }
 </style>

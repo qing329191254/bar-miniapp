@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { api } from "../api";
+import { api, pageQs } from "../api";
 import BizTrendChart from "./BizTrendChart.vue";
-import { pickChartRows, chartModeHint, type BizMetric } from "./bizChartUtil";
+import { buildChartSlice, type BizMetric } from "./bizChartUtil";
+import AppPagination from "../components/AppPagination.vue";
 
 const router = useRouter();
 const preset = ref("7d");
@@ -12,7 +13,11 @@ const dateTo = ref("");
 const chartMetric = ref<BizMetric>("biz");
 const data = ref<any>(null);
 const loading = ref(true);
+const refreshing = ref(false);
 const err = ref("");
+
+let loadSeq = 0;
+let loadCtrl: AbortController | null = null;
 
 const PRESETS: [string, string][] = [
   ["today", "今天"],
@@ -44,22 +49,52 @@ function back() {
   router.push("/dash");
 }
 function setPreset(p: string) {
+  if (p !== "custom" && p === preset.value) return;
   preset.value = p;
   if (p !== "custom") {
     dateFrom.value = "";
     dateTo.value = "";
+    load(true);
   }
-  load();
+}
+function onCustomDateChange() {
+  clampCustomDates();
+  if (preset.value === "custom" && dateFrom.value && dateTo.value) load(true);
+}
+function clampCustomDates() {
+  const cap = data.value?.today || todayMax();
+  if (dateTo.value && dateTo.value > cap) dateTo.value = cap;
+  if (dateFrom.value && dateFrom.value > cap) dateFrom.value = cap;
+  if (dateFrom.value && dateTo.value && dateFrom.value > dateTo.value) {
+    dateFrom.value = dateTo.value;
+  }
+}
+function todayMax() {
+  return new Date().toISOString().slice(0, 10);
+}
+function openDatePicker(e: Event) {
+  const el = e.currentTarget as HTMLInputElement;
+  try {
+    el.showPicker?.();
+  } catch {
+    /* already open or unsupported */
+  }
 }
 function setChartMetric(m: BizMetric) {
   chartMetric.value = m;
 }
 
+const tablePage = ref(1);
+const tablePageSize = ref(50);
+
 const rows = computed(() => data.value?.rows || []);
+const rowTotal = computed(() => data.value?.rowTotal ?? 0);
 const summary = computed(() => data.value?.summary || { biz: 0, avg: 0, recharge: 0, days: 0, coin: 0, offline: 0, orders: 0, guests: 0 });
 const peak = computed(() => data.value?.peak);
 
-const chartRows = computed(() => pickChartRows(rows.value));
+const chartSlice = computed(() => buildChartSlice(data.value?.chartRows || data.value?.rows || [], data.value?.today || ""));
+const chartRows = computed(() => chartSlice.value.rows);
+const chartGranularity = computed(() => chartSlice.value.granularity);
 const chartPeak = computed(() => {
   if (!chartRows.value.length) return 0;
   return Math.max(...chartRows.value.map((r) => metricVal(r, chartMetric.value)), 0);
@@ -68,34 +103,50 @@ const chartTitle = computed(() => {
   const map: Record<BizMetric, string> = { biz: "营业趋势", recharge: "充值趋势", orders: "订单趋势", guests: "到店趋势" };
   return map[chartMetric.value];
 });
-const chartNote = computed(() => {
-  const n = chartRows.value.length;
-  const total = rows.value.length;
-  const hint = chartModeHint(n);
-  if (!n) return "";
-  if (total > n) return `${hint} · 显示最近 ${n} 天`;
-  return hint;
-});
-const chartKey = computed(() => `${preset.value}-${dateFrom.value}-${dateTo.value}-${chartMetric.value}`);
+const chartNote = computed(() => chartSlice.value.hint);
 
-async function load() {
-  loading.value = true;
+function resetTablePage() {
+  tablePage.value = 1;
+}
+
+async function load(resetPage = false) {
+  if (resetPage) resetTablePage();
+  loadCtrl?.abort();
+  loadCtrl = new AbortController();
+  const ctrl = loadCtrl;
+  const seq = ++loadSeq;
+  const initial = !data.value;
+
+  if (initial) loading.value = true;
+  refreshing.value = true;
   err.value = "";
   try {
-    const q = new URLSearchParams({ preset: preset.value });
+    const params = new URLSearchParams(pageQs(tablePage.value, tablePageSize.value, { preset: preset.value }));
     if (preset.value === "custom") {
-      if (dateFrom.value) q.set("from", dateFrom.value);
-      if (dateTo.value) q.set("to", dateTo.value);
+      if (dateFrom.value) params.set("from", dateFrom.value);
+      if (dateTo.value) params.set("to", dateTo.value);
     }
-    data.value = await api(`/admin/daily-biz?${q}`);
+    const next = await api(`/admin/daily-biz?${params}`, { signal: ctrl.signal });
+    if (seq !== loadSeq) return;
+    data.value = next;
   } catch (e: any) {
+    if (e?.name === "AbortError") {
+      if (seq === loadSeq) refreshing.value = false;
+      return;
+    }
+    if (seq !== loadSeq) return;
     err.value = e?.message || "加载失败";
   } finally {
-    loading.value = false;
+    if (seq === loadSeq) {
+      loading.value = false;
+      refreshing.value = false;
+    }
   }
 }
 
 onMounted(load);
+onBeforeUnmount(() => loadCtrl?.abort());
+watch([tablePage, tablePageSize], () => load());
 </script>
 
 <template>
@@ -108,7 +159,7 @@ onMounted(load);
 
     <div class="card flt-card">
       <div class="st">筛选 <em>当前范围：{{ data?.rangeLabel || "…" }}</em></div>
-      <div class="flt-chips">
+      <div class="flt-chips" :class="{ refreshing }">
         <span
           v-for="[p, label] in PRESETS"
           :key="p"
@@ -119,19 +170,21 @@ onMounted(load);
       </div>
       <div v-if="preset === 'custom'" class="flt-custom">
         <span class="tiny">起</span>
-        <input v-model="dateFrom" type="date" class="inp flt-date" @change="load" />
+        <input v-model="dateFrom" type="date" class="inp flt-date" :max="data?.today || todayMax()" @click="openDatePicker" @change="onCustomDateChange" />
         <span class="tiny">止</span>
-        <input v-model="dateTo" type="date" class="inp flt-date" @change="load" />
+        <input v-model="dateTo" type="date" class="inp flt-date" :max="data?.today || todayMax()" @click="openDatePicker" @change="onCustomDateChange" />
+        <span v-if="!dateFrom || !dateTo" class="tiny flt-custom-hint">请选择起止日期</span>
       </div>
     </div>
 
-    <div v-if="loading" class="card"><p class="tiny" style="padding:24px;text-align:center">加载中…</p></div>
-    <div v-else-if="err" class="card" style="background:#FCEBEB;border-color:#E24B4A">
+    <div v-if="loading && !data" class="card"><p class="tiny" style="padding:24px;text-align:center">加载中…</p></div>
+    <div v-else-if="err && !data" class="card" style="background:#FCEBEB;border-color:#E24B4A">
       <p style="color:#A32D2D;padding:16px">{{ err }}</p>
       <button class="btn sm ghost" style="margin:0 16px 16px" @click="load">重试</button>
     </div>
 
     <template v-else-if="data">
+      <p v-if="err" class="load-err">{{ err }} <button class="btn sm ghost" @click="load">重试</button></p>
       <div class="cards">
         <div
           class="mtr mtr-metric"
@@ -168,10 +221,10 @@ onMounted(load);
           <div class="st">{{ chartTitle }} <em>{{ chartNote }}</em></div>
           <div class="chart-body">
             <BizTrendChart
-              :key="chartKey"
               :rows="chartRows"
               :metric="chartMetric"
               :peak-val="chartPeak"
+              :granularity="chartGranularity"
             />
           </div>
         </div>
@@ -219,6 +272,7 @@ onMounted(load);
             </tr>
           </tfoot>
         </table>
+        <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
         </div>
       </div>
 
@@ -239,12 +293,27 @@ onMounted(load);
   flex-wrap: wrap;
   gap: 6px;
 }
+.flt-chips.refreshing {
+  opacity: 0.72;
+  pointer-events: none;
+}
+.load-err {
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #a32d2d;
+  background: #fcebeb;
+  border-radius: 8px;
+}
 .flt-custom {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-top: 10px;
   flex-wrap: wrap;
+}
+.flt-custom-hint {
+  color: var(--ink3);
 }
 .flt-date {
   width: auto;

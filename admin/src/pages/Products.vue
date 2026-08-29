@@ -11,9 +11,14 @@ const edit = ref<any>(null);
 const msg = ref("");
 
 async function load() {
-  products.value = await api("/admin/products");
-  cats.value = await api("/admin/cats");
-  tpls.value = await api("/admin/cardTpls");
+  const [p, c, t] = await Promise.all([
+    api<any>("/admin/products?pageSize=0"),
+    api<any>("/admin/cats?pageSize=0"),
+    api<any>("/admin/cardTpls?pageSize=0"),
+  ]);
+  products.value = Array.isArray(p) ? p : p.items || [];
+  cats.value = Array.isArray(c) ? c : c.items || [];
+  tpls.value = Array.isArray(t) ? t : t.items || [];
 }
 onMounted(load);
 

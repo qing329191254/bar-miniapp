@@ -20,7 +20,10 @@ export function clearSession() {
   localStorage.removeItem(USER_KEY);
 }
 
-export async function api<T = any>(path: string, opts: { method?: string; body?: unknown } = {}): Promise<T> {
+export async function api<T = any>(
+  path: string,
+  opts: { method?: string; body?: unknown; signal?: AbortSignal } = {},
+): Promise<T> {
   const res = await fetch("/api" + path, {
     method: opts.method || "GET",
     headers: {
@@ -28,6 +31,7 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
       ...(token() ? { Authorization: "Bearer " + token() } : {}),
     },
     body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+    signal: opts.signal,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -35,6 +39,18 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
     throw new Error(typeof d === "string" ? d : res.statusText);
   }
   return data as T;
+}
+
+export type PageResult<T> = { items: T[]; total: number; page: number; pageSize: number };
+
+export function pageQs(page: number, pageSize: number, extra?: Record<string, string | number | undefined>) {
+  const q = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  if (extra) {
+    for (const [k, v] of Object.entries(extra)) {
+      if (v !== undefined && v !== null && v !== "") q.set(k, String(v));
+    }
+  }
+  return q.toString();
 }
 
 export async function uploadFile(file: File): Promise<string> {

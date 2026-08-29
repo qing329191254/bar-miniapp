@@ -58,6 +58,20 @@ def now_ms() -> int:
     return int(time.time() * 1000)
 
 
+def paginate(items: list, page: int = 1, page_size: int = 50) -> dict:
+    """Slice a list for table pagination. page_size clamped to 1..200."""
+    total = len(items)
+    page_size = max(1, min(int(page_size or 50), 200))
+    page = max(1, int(page or 1))
+    start = (page - 1) * page_size
+    return {
+        "items": items[start:start + page_size],
+        "total": total,
+        "page": page,
+        "pageSize": page_size,
+    }
+
+
 def fmt_hm(ts: float | None = None) -> str:
     return datetime.fromtimestamp((ts or time.time()), BUSINESS_TZ).strftime("%m-%d %H:%M")
 
@@ -1016,7 +1030,17 @@ def range_label(preset: str, date_from: str = "", date_to: str = "") -> str:
     r = flt_range(preset, date_from, date_to)
     if not r:
         return "全部时间"
-    return r[0] if r[0] == r[1] else f"{r[0]} ~ {r[1]}"
+    start, end = r[0], r[1]
+    today = today_str()
+    capped = end > today
+    if capped:
+        end = today
+    if start > end:
+        start = end
+    label = start if start == end else f"{start} ~ {end}"
+    if capped and preset == "custom":
+        label += "（截至今日）"
+    return label
 
 
 def in_range(time_str: str, preset: str, date_from: str = "", date_to: str = "") -> bool:
@@ -1029,11 +1053,17 @@ def in_range(time_str: str, preset: str, date_from: str = "", date_to: str = "")
 
 def pad_daily_biz_range(rows: list[dict], preset: str, date_from: str = "", date_to: str = "") -> list[dict]:
     """Bounded presets show every calendar day in range; missing closings become zero rows."""
+    if preset == "custom" and not (date_from and date_to):
+        return rows
     r = flt_range(preset, date_from, date_to)
     if not r:
         return rows
     start = date.fromisoformat(r[0])
-    end = date.fromisoformat(r[1])
+    end = min(date.fromisoformat(r[1]), business_today())
+    if start > end:
+        return rows
+    if (end - start).days + 1 > 400:
+        return rows
     by_d = {x["d"]: x for x in rows}
     out: list[dict] = []
     d = end
@@ -1068,7 +1098,94 @@ def job_stat(sess: Session, uid: int, preset="today", date_from: str = "", date_
     }
 
 
-def job_detail(sess: Session, uid: int, preset="today", date_from: str = "", date_to: str = "") -> dict:
+_ODST = {
+    "PENDING_PAY": ("待付款", "#BA7517", "#FAEEDA"),
+    "PENDING_ACCEPT": ("待接单", "#185FA5", "#E6F1FB"),
+    "MAKING": ("制作中", "#534AB7", "#EEEDFE"),
+    "FINISHED": ("已完成", "#3B6D11", "#EAF3DE"),
+    "CANCELLED": ("已取消", "#6B6A65", "#F5F4F0"),
+    "CLOSED": ("已关闭", "#6B6A65", "#F5F4F0"),
+    "REFUNDED": ("已退款", "#A32D2D", "#FCEBEB"),
+}
+
+
+def _job_member_label(members: dict, uid: int) -> str:
+    m = members.get(uid) or {}
+    nick = m.get("nick") or "—"
+    tail = m.get("tail") or ""
+    return f"{nick} {tail}".strip() or "—"
+
+
+def build_job_feed(st: dict, members: dict, tab: str = "all") -> list[dict]:
+    mb = lambda uid: _job_member_label(members, uid)
+    items: list[dict] = []
+    for o in st["ods"]:
+        stm = _ODST.get(o["status"]) or (o["status"], "#6B6A65", "#F5F4F0")
+        items_text = "、".join(
+            f"{i.get('name')}{'×' + str(i['qty']) if int(i.get('qty') or 1) > 1 else ''}"
+            for i in (o.get("items") or [])
+        )
+        items.append({
+            "t": o.get("at") or "",
+            "kind": "order",
+            "title": f"接单 · {o.get('no') or '—'}",
+            "sub": f"{mb(o.get('uid'))} · {o.get('tableName') or '未指定桌台'} · {items_text or '—'}",
+            "val": f"¥{o.get('total') or 0:,}",
+            "color": "#BA7517",
+            "pill": list(stm),
+        })
+    for r in st["rcs"]:
+        items.append({
+            "t": r.get("at") or "",
+            "kind": "recharge",
+            "title": f"确认充值 · {r.get('no') or '—'}",
+            "sub": f"{mb(r.get('uid'))} · 赠送 {r.get('bonus') or 0:,} 金币",
+            "val": f"¥{r.get('amount') or 0:,}",
+            "color": "#185FA5",
+            "pill": ["已到账", "#3B6D11", "#EAF3DE"],
+        })
+    for v in st["vfs"]:
+        items.append({
+            "t": v.get("at") or "",
+            "kind": "verify",
+            "title": f"核销 · {v.get('tplName') or '—'}",
+            "sub": f"{mb(v.get('uid'))} · 卡号 {v.get('cardNo') or '—'}",
+            "val": "1 张",
+            "color": "#534AB7",
+            "pill": ["已核销", "#534AB7", "#EEEDFE"],
+        })
+    for g in st["gms"]:
+        players = g.get("players") or []
+        sub_players = "、".join(
+            f"{p.get('nick') or '—'}{'（冠军）' if p.get('pts') else ''}" for p in players
+        )
+        prefix = f"{g.get('table') or ''} · " if g.get("table") else ""
+        prefix += f"{g.get('round') or ''} · " if g.get("round") else ""
+        items.append({
+            "t": g.get("time") or "",
+            "kind": "game",
+            "title": f"对局录入 · {g.get('pname') or '—'}",
+            "sub": f"{prefix}{sub_players}",
+            "val": f"{len(players)} 人",
+            "color": "#3B6D11",
+            "pill": ["已入账", "#3B6D11", "#EAF3DE"],
+        })
+    if tab != "all":
+        items = [x for x in items if x["kind"] == tab]
+    items.sort(key=lambda x: x["t"], reverse=True)
+    return items
+
+
+def job_detail(
+    sess: Session,
+    uid: int,
+    preset="today",
+    date_from: str = "",
+    date_to: str = "",
+    page: int = 1,
+    page_size: int = 50,
+    tab: str = "all",
+) -> dict:
     user = sess.get(User, uid)
     if not user or user.role not in ("STAFF", "MANAGER", "BOSS"):
         err("员工不存在")
@@ -1082,16 +1199,22 @@ def job_detail(sess: Session, uid: int, preset="today", date_from: str = "", dat
         m.id: {"nick": m.nick, "tail": m.tail or ""}
         for m in sess.query(User).filter(User.id.in_(list(uids))).all()
     } if uids else {}
+    feed_all = build_job_feed(st, members, tab)
+    pg = paginate(feed_all, page, page_size)
     return {
         "user": public_user(sess, user),
         "members": members,
         "stat": {
             "amount": st["amount"], "rcAmt": st["rcAmt"], "odAmt": st["odAmt"],
             "orders": st["orders"], "verifies": st["verifies"], "games": st["games"],
+            "rcCount": len(st["rcs"]),
             "heads": st["heads"], "wds": st["wds"], "acts": acts, "pts": pts, "shs": shs,
             "paidOrders": len(paid), "range": st["range"],
         },
-        "ods": st["ods"], "rcs": st["rcs"], "vfs": st["vfs"], "gms": st["gms"],
+        "feed": pg["items"],
+        "feedTotal": pg["total"],
+        "page": pg["page"],
+        "pageSize": pg["pageSize"],
     }
 
 
@@ -1212,7 +1335,7 @@ def point_today_ratio(sess: Session) -> dict:
     return {"today": today_pts, "avg": avg, "ratio": ratio, "threshold": threshold, "over": ratio >= threshold}
 
 
-def liab_coin_detail(sess: Session) -> dict:
+def liab_coin_detail(sess: Session, page: int = 1, page_size: int = 50) -> dict:
     rows = []
     for u in custs(sess):
         w = wallet_of(sess, u.id)
@@ -1227,13 +1350,17 @@ def liab_coin_detail(sess: Session) -> dict:
     top5 = sum(r["total"] for r in rows[:5])
     for r in rows:
         r["pct"] = round(r["total"] / tot * 100, 1) if tot else 0
+    pg = paginate(rows, page, page_size)
     return {
         "summary": {"total": tot, "principal": tot_p, "bonus": tot_b, "members": len(rows), "top5Pct": round(top5 / tot * 100) if tot else 0},
-        "rows": rows,
+        "rows": pg["items"],
+        "rowTotal": pg["total"],
+        "page": pg["page"],
+        "pageSize": pg["pageSize"],
     }
 
 
-def liab_point_detail(sess: Session) -> dict:
+def liab_point_detail(sess: Session, page: int = 1, page_size: int = 50) -> dict:
     rows = []
     neg = []
     for u in custs(sess):
@@ -1248,14 +1375,18 @@ def liab_point_detail(sess: Session) -> dict:
     tot_fz = sum(r["fz"] for r in rows)
     costs = [int(r[0] or 0) for r in sess.query(CardTpl.cost).filter(CardTpl.cost > 0).all()]
     min_cost = min(costs) if costs else 0
+    pg = paginate(rows, page, page_size)
     return {
         "summary": {"av": tot_av, "fz": tot_fz, "members": len(rows), "maxRedeem": int(tot_av / min_cost) if min_cost else 0, "minCost": min_cost, "negCount": len(neg), "month": current_month()},
-        "rows": rows,
+        "rows": pg["items"],
+        "rowTotal": pg["total"],
+        "page": pg["page"],
+        "pageSize": pg["pageSize"],
         "neg": neg,
     }
 
 
-def liab_card_detail(sess: Session) -> dict:
+def liab_card_detail(sess: Session, page: int = 1, page_size: int = 50) -> dict:
     cards = sess.query(Card).filter_by(status="UNUSED").all()
     tpl_map = {r.id: {"name": r.name, "cat": r.cat} for r in sess.query(CardTpl.id, CardTpl.name, CardTpl.cat).all()}
     by_tpl: dict[str, dict] = {}
@@ -1280,14 +1411,18 @@ def liab_card_detail(sess: Session) -> dict:
         list_rows.append({**c.to_dict(), "tplName": name, "cat": cat, "nick": u.nick if u else "—", "tail": (u.tail or "") if u else ""})
     list_rows.sort(key=lambda x: x["daysLeft"])
     by_tpl_list = [{"name": k, **v} for k, v in sorted(by_tpl.items(), key=lambda x: -x[1]["n"])]
+    pg = paginate(list_rows, page, page_size)
     return {
         "summary": {"total": len(cards), "soon": soon, "treasure": treasure, "members": len(by_user)},
         "byTpl": by_tpl_list,
-        "rows": list_rows,
+        "rows": pg["items"],
+        "rowTotal": pg["total"],
+        "page": pg["page"],
+        "pageSize": pg["pageSize"],
     }
 
 
-def point_alert_detail(sess: Session) -> dict:
+def point_alert_detail(sess: Session, page: int = 1, page_size: int = 50) -> dict:
     base = point_today_ratio(sess)
     today = today_str()
     by_day: dict[str, int] = {}
@@ -1315,11 +1450,15 @@ def point_alert_detail(sess: Session) -> dict:
             slot["pts"] += int(p.get("pts") or 0)
             slot["sh"] += int(p.get("sh") or 0)
     today_games.sort(key=lambda x: x.get("time") or "", reverse=True)
+    pg = paginate(today_games, page, page_size)
     return {
         **base,
         "trend": trend,
         "byOp": [{"opUid": k, **v} for k, v in sorted(by_op.items(), key=lambda x: -x[1]["pts"])],
-        "games": today_games,
+        "games": pg["items"],
+        "gamesTotal": pg["total"],
+        "page": pg["page"],
+        "pageSize": pg["pageSize"],
     }
 
 
@@ -1460,7 +1599,7 @@ def deact_live(sess: Session, uid: int) -> dict:
             "shardW": sh["w"], "cards": cards}
 
 
-def deactivation_page(sess: Session) -> dict:
+def deactivation_page(sess: Session, page: int = 1, page_size: int = 50) -> dict:
     rows = sess.query(Deactivation).order_by(Deactivation.created.desc()).all()
     uids = {d.uid for d in rows}
     members = {
@@ -1474,8 +1613,12 @@ def deactivation_page(sess: Session) -> dict:
         if d.status == "PENDING":
             refund_tot += live["coinP"]
         out.append({**d.to_dict(), "live": live})
+    pg = paginate(out, page, page_size)
     return {
-        "list": out,
+        "list": pg["items"],
+        "listTotal": pg["total"],
+        "page": pg["page"],
+        "pageSize": pg["pageSize"],
         "members": members,
         "summary": {
             "total": len(rows),
@@ -1566,7 +1709,14 @@ def exec_deactivation(sess: Session, did: int, action: str, reason: str, admin: 
     return d.to_dict()
 
 
-def daily_biz_page(sess: Session, preset: str = "7d", date_from: str = "", date_to: str = "") -> dict:
+def daily_biz_page(
+    sess: Session,
+    preset: str = "7d",
+    date_from: str = "",
+    date_to: str = "",
+    page: int = 1,
+    page_size: int = 50,
+) -> dict:
     all_rows = sess.query(DailyBiz).order_by(DailyBiz.d.desc()).all()
     rows = [x.to_dict() for x in all_rows if in_range(x.d, preset, date_from, date_to)]
     rows = pad_daily_biz_range(rows, preset, date_from, date_to)
@@ -1583,19 +1733,26 @@ def daily_biz_page(sess: Session, preset: str = "7d", date_from: str = "", date_
     peak = max(data_rows, key=lambda x: x["coin"] + x["offline"], default=None)
     peak_biz = (peak["coin"] + peak["offline"]) if peak else 0
     chart = list(reversed(rows[:14]))
+    cap = today_str()
+    display_rows = [x for x in rows if x["d"] <= cap]
+    pg = paginate(display_rows, page, page_size)
     return {
         "totalDays": len(all_rows),
-        "today": today_str(),
+        "today": cap,
         "rangeLabel": range_label(preset, date_from, date_to),
         "summary": {"biz": biz, "avg": avg, "recharge": s["recharge"], "days": len(rows), **s},
         "peak": {"d": peak["d"], "biz": peak_biz} if peak else None,
-        "rows": rows,
+        "rows": pg["items"],
+        "rowTotal": pg["total"],
+        "page": pg["page"],
+        "pageSize": pg["pageSize"],
+        "chartRows": display_rows,
         "chart": chart,
         "chartPartial": len(chart) < len(rows),
     }
 
 
-def coin_adjust_page(sess: Session) -> dict:
+def coin_adjust_page(sess: Session, page: int = 1, page_size: int = 50) -> dict:
     rows = sess.query(CoinAdjust).order_by(CoinAdjust.at.desc()).all()
     uids = {a.uid for a in rows}
     staff_ids = {a.adjust_by for a in rows}
@@ -1613,7 +1770,18 @@ def coin_adjust_page(sess: Session) -> dict:
         c = coin_of(sess, a.uid)
         bal = c["p"] + c["b"]
         out.append({**a.to_dict(), "balance": bal, "projected": bal + a.delta if a.status == "PENDING" else None})
-    return {"list": out, "members": members, "staff": staff, "pending": sum(1 for a in rows if a.status == "PENDING")}
+    pg = paginate(out, page, page_size)
+    pending_list = [x for x in out if x["status"] == "PENDING"]
+    return {
+        "list": pg["items"],
+        "listTotal": pg["total"],
+        "page": pg["page"],
+        "pageSize": pg["pageSize"],
+        "members": members,
+        "staff": staff,
+        "pending": len(pending_list),
+        "pendingList": pending_list,
+    }
 
 
 def approve_coin_adjust(sess: Session, aid: int, action: str, admin: dict, reason: str = "") -> dict:

@@ -1,8 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
-import { api } from "../api";
+import { computed, onMounted, ref, watch } from "vue";
+import { api, pageQs } from "../api";
+import AppPagination from "../components/AppPagination.vue";
 
 const rows = ref<any[]>([]);
+const rowTotal = ref(0);
+const statusCounts = ref<Record<string, number>>({});
+const tablePage = ref(1);
+const tablePageSize = ref(50);
 const members = ref<any[]>([]);
 const status = ref("");
 const now = ref(Date.now());
@@ -27,20 +32,32 @@ function remaining(row: any) {
   const sec = Math.max(0, Math.ceil((Number(row.expireAt) - now.value) / 1000));
   return sec ? `${Math.floor(sec / 60)} 分 ${sec % 60} 秒` : "已超时";
 }
-const filtered = computed(() => rows.value.filter((r) => !status.value || r.status === status.value));
-const pending = computed(() => rows.value.filter((r) => r.status === "PENDING_CONFIRM"));
+const pendingItems = ref<any[]>([]);
+const filtered = computed(() => rows.value);
+const pending = computed(() => pendingItems.value);
 const granted = computed(() => filtered.value.filter((r) => r.status === "GRANTED"));
 const closed = computed(() => filtered.value.filter((r) => r.status !== "PENDING_CONFIRM"));
 const grantedPoints = computed(() => granted.value.reduce((sum, r) => sum + Number(r.pts || 0), 0));
-const rejected = computed(() => filtered.value.filter((r) => r.status === "REJECTED").length);
-const timedout = computed(() => filtered.value.filter((r) => r.status === "CLOSED_TIMEOUT").length);
-const statusCount = (key: string) => filtered.value.filter((r) => r.status === key).length;
+const rejected = computed(() => statusCounts.value.REJECTED || 0);
+const timedout = computed(() => statusCounts.value.CLOSED_TIMEOUT || 0);
+const statusCount = (key: string) => statusCounts.value[key] || 0;
 
 async function load() {
-  const [withdrawals, users] = await Promise.all([api<any[]>("/admin/withdrawals"), api<any[]>("/admin/members")]);
-  rows.value = withdrawals.sort((a, b) => String(stamp(b)).localeCompare(String(stamp(a))));
+  const params = new URLSearchParams(pageQs(tablePage.value, tablePageSize.value));
+  if (status.value) params.set("status", status.value);
+  const [res, users] = await Promise.all([
+    api<any>(`/admin/withdrawals?${params}`),
+    members.value.length ? Promise.resolve(members.value) : api<any[]>("/admin/members?pageSize=0"),
+  ]);
+  rows.value = (res.items || []).sort((a: any, b: any) => String(stamp(b)).localeCompare(String(stamp(a))));
+  rowTotal.value = res.total ?? rows.value.length;
+  statusCounts.value = res.statusCounts || {};
+  pendingItems.value = res.pendingItems || [];
   members.value = users;
 }
+
+watch(status, () => { tablePage.value = 1; load(); });
+watch([tablePage, tablePageSize], () => load());
 onMounted(() => { load(); timer = window.setInterval(() => { now.value = Date.now(); }, 1000); });
 </script>
 
@@ -79,7 +96,9 @@ onMounted(() => { load(); timer = window.setInterval(() => { now.value = Date.no
         <td>{{ row.grantBy ? nick(row.grantBy) : row.rejectBy ? nick(row.rejectBy) : '—' }}</td>
         <td class="tiny">{{ row.rejectRemark || (row.status === 'CLOSED_TIMEOUT' ? '超时未确认，积分已退回' : '—') }}</td>
       </tr><tr v-if="!filtered.length"><td colspan="8" class="empty">当前筛选条件下无提分单</td></tr></tbody>
-    </table></div>
+    </table>
+    <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
+    </div>
     <div class="note">状态机：待确认 → 已发放 / 已驳回 / 已取消 / 超时关闭。除已发放外，其余终态都会将冻结积分全额退回可用积分。</div>
   </div>
 </template>

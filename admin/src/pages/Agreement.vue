@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { api } from "../api";
+import AppPagination from "../components/AppPagination.vue";
+import { usePagination } from "../composables/usePagination";
 
 type DocKey = "terms" | "privacy";
 type AgreementDoc = { ver: number; title: string; text?: string; major?: boolean; pub?: string; hist?: any[] };
@@ -27,6 +29,7 @@ const selectedLogs = computed(() => {
     .map((x) => ({ ...x, user: memberMap.value.get(x.uid) }))
     .filter((x) => !key || String(x.user?.nick || "").toLowerCase().includes(key) || String(x.user?.no || "").includes(key) || String(x.uid).includes(key));
 });
+const logsPg = usePagination(selectedLogs, 50);
 
 function count(ver: number) {
   return logs.value.filter((x) => x.doc === tab.value && Number(x.ver) === Number(ver)).length;
@@ -78,7 +81,7 @@ async function publish() {
 onMounted(async () => {
   try {
     const [agreements, agreeLogs, users] = await Promise.all([
-      api("/admin/agreements"), api("/admin/agreeLogs"), api("/admin/members"),
+      api("/admin/agreements"), api("/admin/agreeLogs?pageSize=0"), api("/admin/members?pageSize=0"),
     ]);
     docs.value = agreements;
     logs.value = agreeLogs;
@@ -134,9 +137,11 @@ onMounted(async () => {
           <div class="st">v{{ openVer }} 已同意用户 <em>{{ selectedLogs.length }} 人</em></div>
           <input v-model="keyword" class="inp" placeholder="搜索昵称 / 会员号 / ID" />
           <div class="tb-wrap agreement-users"><table class="tb2"><thead><tr><th>昵称</th><th>会员号</th><th>同意时间</th><th>状态</th></tr></thead><tbody>
-            <tr v-for="x in selectedLogs" :key="`${x.uid}-${x.at}`"><td>{{ x.user?.nick || '未知用户' }}</td><td>{{ x.user?.no || `uid ${x.uid}` }}</td><td class="tiny">{{ x.at }}</td><td><span class="pill" :class="x.user?.status === 'ACTIVE' ? 'agreement-live' : 'agreement-off'">{{ x.user?.status === 'ACTIVE' ? '正常' : '已注销' }}</span></td></tr>
+            <tr v-for="x in logsPg.items" :key="`${x.uid}-${x.at}`"><td>{{ x.user?.nick || '未知用户' }}</td><td>{{ x.user?.no || `uid ${x.uid}` }}</td><td class="tiny">{{ x.at }}</td><td><span class="pill" :class="x.user?.status === 'ACTIVE' ? 'agreement-live' : 'agreement-off'">{{ x.user?.status === 'ACTIVE' ? '正常' : '已注销' }}</span></td></tr>
             <tr v-if="!selectedLogs.length"><td colspan="4" class="tiny agreement-empty">无匹配记录</td></tr>
-          </tbody></table></div>
+          </tbody></table>
+          <AppPagination v-model:page="logsPg.page" v-model:page-size="logsPg.pageSize" :total="logsPg.total" />
+          </div>
         </div>
         <div class="note rd"><b>合规底线：</b>须覆盖个人信息收集与用途、账号注销与资产处理、金币性质与退款规则、积分清零、卡券有效期与争议解决方式。</div>
       </div>

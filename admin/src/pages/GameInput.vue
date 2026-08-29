@@ -21,7 +21,7 @@ onMounted(async () => {
   const r = await api<any>("/staff/projects");
   meta.value = r;
   if (r.projects[0]) form.pid = r.projects[0].id;
-  members.value = await api("/admin/members");
+  members.value = await api("/admin/members?pageSize=0");
   if (!form.eventTouched) form.event = defaultEvent();
 });
 

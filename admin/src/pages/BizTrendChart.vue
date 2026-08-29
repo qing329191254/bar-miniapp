@@ -1,16 +1,16 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import * as echarts from "echarts/core";
 import { BarChart, LineChart } from "echarts/charts";
 import { GridComponent, TooltipComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
-import { type BizMetric, type BizRow, type ChartMode, chartMode } from "./bizChartUtil";
+import { type BizMetric, type BizGranularity, type BizRow, type ChartMode, chartMode } from "./bizChartUtil";
 
 echarts.use([BarChart, LineChart, GridComponent, TooltipComponent, CanvasRenderer]);
 
 type Row = BizRow;
 
-const props = defineProps<{ rows: Row[]; metric: BizMetric; peakVal?: number }>();
+const props = defineProps<{ rows: Row[]; metric: BizMetric; peakVal?: number; granularity?: BizGranularity }>();
 const el = ref<HTMLElement | null>(null);
 let chart: echarts.ECharts | null = null;
 let ro: ResizeObserver | null = null;
@@ -48,16 +48,23 @@ function fmt(n: number) {
   return Number(n || 0).toLocaleString("en-US");
 }
 
-const mode = computed(() => chartMode(props.rows.length));
+const mode = computed(() => chartMode(props.rows.length, props.granularity || "day"));
 const singleRow = computed(() => props.rows[0] || null);
 const isMoney = computed(() => props.metric === "biz" || props.metric === "recharge");
 
 function labelOf(row: Row) {
+  if (props.granularity === "week" && row.dEnd) {
+    return `${row.d.slice(5)}~${row.dEnd.slice(5)}`;
+  }
   const n = props.rows.length;
   if (n <= 14) return row.d.slice(5);
   if (n <= 31) return row.d.slice(5);
   const [, mo, da] = row.d.split("-");
   return `${mo}/${da}`;
+}
+
+function periodOf(row: Row) {
+  return row.dEnd ? `${row.d} ~ ${row.dEnd}` : row.d;
 }
 
 function barColor(v: number) {
@@ -68,10 +75,11 @@ function barColor(v: number) {
 function tooltipHtml(row: Row, v: number) {
   const label = METRIC_LABEL[props.metric];
   const main = isMoney.value ? `¥${fmt(v)}` : fmt(v);
+  const period = periodOf(row);
   if (props.metric === "biz") {
-    return `${row.d}<br/>${label} ${main}<br/><span style="color:#9C9A93">金币 ¥${fmt(row.coin)} + 现场 ¥${fmt(row.offline)}</span>`;
+    return `${period}<br/>${label} ${main}<br/><span style="color:#9C9A93">金币 ¥${fmt(row.coin)} + 现场 ¥${fmt(row.offline)}</span>`;
   }
-  return `${row.d}<br/>${label} ${main}`;
+  return `${period}<br/>${label} ${main}`;
 }
 
 function option() {
@@ -82,7 +90,9 @@ function option() {
   const m = mode.value;
 
   const base = {
-    animationDuration: 400,
+    animation: false,
+    animationDuration: 0,
+    animationDurationUpdate: 0,
     grid: { left: 8, right: 8, top: 8, bottom: 28, containLabel: false },
     tooltip: {
       trigger: "axis" as const,
@@ -197,12 +207,13 @@ onMounted(() => {
 });
 
 watch(
-  () => [props.rows, props.metric, props.peakVal, mode.value],
-  () => {
+  () => [props.rows.map((r) => `${r.d}|${r.dEnd || ""}`).join(), props.metric, props.peakVal, props.granularity, mode.value] as const,
+  async () => {
     if (mode.value === "single") {
       disposeChart();
       return;
     }
+    await nextTick();
     if (!el.value) return;
     if (!chart) {
       chart = echarts.init(el.value);
@@ -211,7 +222,6 @@ watch(
     }
     render();
   },
-  { deep: true },
 );
 
 onBeforeUnmount(disposeChart);

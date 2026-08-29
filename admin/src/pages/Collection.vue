@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
-import { api, savedUser } from "../api";
+import { api, pageQs, savedUser } from "../api";
+import AppPagination from "../components/AppPagination.vue";
 
 type Col = { k: string; h: string; kind?: string };
 
@@ -158,6 +159,9 @@ const CAT: Record<string, string> = { GAME: "游戏卡", FOOD: "酒水小食卡"
 
 const route = useRoute();
 const rows = ref<any>(null);
+const rowTotal = ref(0);
+const tablePage = ref(1);
+const tablePageSize = ref(50);
 const members = ref<any[]>([]);
 const tpls = ref<any[]>([]);
 const msg = ref("");
@@ -186,24 +190,34 @@ const cols = computed(() => {
     .map((k) => ({ k, h: FALLBACK_H[k] || k, kind: k === "uid" ? "user" : k === "status" ? "card" : undefined }));
 });
 const isObj = computed(() => rows.value && !Array.isArray(rows.value));
+const tableRows = computed(() => (Array.isArray(rows.value) ? rows.value : []));
 
 async function load() {
   const c = coll();
-  rows.value = await api("/admin/" + sourceColl());
+  const params = new URLSearchParams(pageQs(tablePage.value, tablePageSize.value));
+  const res = await api<any>(`/admin/${sourceColl()}?${params}`);
+  if (Array.isArray(res)) {
+    rows.value = res;
+    rowTotal.value = res.length;
+  } else {
+    rows.value = res.items || [];
+    rowTotal.value = res.total ?? rows.value.length;
+  }
   msg.value = "";
   if (!members.value.length) {
     try {
-      members.value = await api("/admin/members");
+      members.value = await api("/admin/members?pageSize=0");
     } catch (e) {}
   }
   if (c === "cards" && !tpls.value.length) {
     try {
-      tpls.value = await api("/admin/cardTpls");
+      tpls.value = await api("/admin/cardTpls?pageSize=0");
     } catch (e) {}
   }
 }
 onMounted(load);
-watch(() => route.fullPath, load);
+watch(() => route.fullPath, () => { tablePage.value = 1; load(); });
+watch([tablePage, tablePageSize], () => load());
 
 function nick(uid: number) {
   const u = members.value.find((x) => x.id === uid);
@@ -320,7 +334,7 @@ function hasOp(r: any) {
         </tr>
         </thead>
         <tbody>
-        <tr v-for="(r,i) in rows.slice(0,80)" :key="r.id || i">
+        <tr v-for="(r,i) in tableRows" :key="r.id || i">
           <td v-for="col in cols" :key="col.k">{{ cell(r, col) }}</td>
           <td v-if="coll()==='coinAdjusts' && hasOp(r)">
             <button class="btn gold" @click="approve(r.id,'approve')">通过</button>
@@ -334,6 +348,7 @@ function hasOp(r: any) {
         </tr>
         </tbody>
       </table>
+      <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
     </div>
     <p class="tiny" v-else>暂无数据</p>
   </div>
