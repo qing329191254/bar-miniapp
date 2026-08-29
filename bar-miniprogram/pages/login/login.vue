@@ -130,6 +130,7 @@ function loginTap() {
         <view v-else class="agreement-empty">协议正文尚未配置，请联系商家</view>
       </scroll-view>
     </view>
+    <app-toast />
   </view>
 </template>
 

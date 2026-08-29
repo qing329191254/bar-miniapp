@@ -202,6 +202,7 @@ function reorder(order) {
         <button class="btn ghost code-close" @tap="closeOrderCode">关闭</button>
       </view>
     </view>
+    <app-toast />
   </view>
 </template>
 

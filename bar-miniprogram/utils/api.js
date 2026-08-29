@@ -1,3 +1,6 @@
+import { reactive } from "vue";
+
+/** 微信云托管 API 公网地址（小程序与 Web 后台均对接此云端数据） */
 export const BASE = "https://api-303869-11-1476141553.sh.run.tcloudbase.com";
 export const CLOUD_ENV = "prod-d2gc6jcwy846bd613";
 export const CLOUD_SERVICE = "api";
@@ -89,6 +92,101 @@ function detailMsg(data) {
   return "请求失败";
 }
 
+function canUseCloudContainer() {
+  return typeof wx !== "undefined" && wx.cloud && typeof wx.cloud.callContainer === "function";
+}
+
+function parseResponse(res, method, opts, finish, resolve, reject) {
+  let data = res.data;
+  if (typeof data === "string") {
+    try {
+      data = JSON.parse(data);
+    } catch (e) {
+      data = {};
+    }
+  }
+  data = data || {};
+  const statusCode = res.statusCode;
+  if (statusCode >= 200 && statusCode < 300) {
+    finish();
+    resolve(data);
+    return;
+  }
+  if (statusCode === 401 && token()) {
+    clearSession();
+    if (!redirectingToLogin) {
+      redirectingToLogin = true;
+      uni.reLaunch({
+        url: "/pages/login/login",
+        complete: () => { redirectingToLogin = false; },
+      });
+    }
+    finish();
+    reject(new Error("登录已过期，请重新登录"));
+    return;
+  }
+  const error = new Error(detailMsg(data));
+  if (method === "GET" && opts.silent !== true) {
+    toastText(error.message);
+  }
+  finish();
+  reject(error);
+}
+
+function requestFailMessage(err) {
+  const raw = String(err?.errMsg || err?.message || "");
+  if (raw.includes("timeout")) return "请求超时，请稍后重试";
+  return "连不上云端服务";
+}
+
+function requestViaHttp(path, opts, method, finish, resolve, reject) {
+  const url = BASE.replace(/\/$/, "") + "/api" + path;
+  uni.request({
+    url,
+    method,
+    data: opts.body === undefined ? undefined : opts.body,
+    header: {
+      "content-type": "application/json",
+      ...(token() ? { Authorization: "Bearer " + token() } : {}),
+    },
+    timeout: 60000,
+    success(res) {
+      parseResponse(res, method, opts, finish, resolve, reject);
+    },
+    fail(err) {
+      const message = requestFailMessage(err);
+      if (method === "GET" && opts.silent !== true) {
+        toastText(message);
+      }
+      finish();
+      reject(new Error(message));
+    },
+  });
+}
+
+function requestViaCloud(path, opts, method, finish, resolve, reject) {
+  wx.cloud.init({ env: CLOUD_ENV, traceUser: true });
+  wx.cloud.callContainer({
+    config: { env: CLOUD_ENV },
+    path: "/api" + path,
+    method,
+    header: {
+      "content-type": "application/json",
+      "X-WX-SERVICE": CLOUD_SERVICE,
+      ...(token() ? { Authorization: "Bearer " + token() } : {}),
+    },
+    data: opts.body === undefined ? {} : opts.body,
+    timeout: 60000,
+    success(res) {
+      parseResponse(res, method, opts, finish, resolve, reject);
+    },
+    fail(err) {
+      // 云托管通道失败时，改走云托管 HTTPS 公网地址（仍是同一套云端数据）
+      requestViaHttp(path, opts, method, finish, resolve, reject);
+    },
+  });
+}
+
 export function api(path, opts = {}) {
   const key = requestKey(path, opts);
   if (pendingRequests.has(key)) return pendingRequests.get(key);
@@ -102,68 +200,12 @@ export function api(path, opts = {}) {
       finished = true;
       if (withLoading) finishLoading();
     };
-    if (typeof wx === "undefined" || !wx.cloud) {
-      finish();
-      reject(new Error("请在微信开发者工具中打开"));
+    const method = (opts.method || "GET").toUpperCase();
+    if (canUseCloudContainer()) {
+      requestViaCloud(path, opts, method, finish, resolve, reject);
       return;
     }
-    wx.cloud.init({ env: CLOUD_ENV });
-    const method = (opts.method || "GET").toUpperCase();
-    wx.cloud.callContainer({
-      config: { env: CLOUD_ENV },
-      path: "/api" + path,
-      method,
-      header: {
-        "content-type": "application/json",
-        "X-WX-SERVICE": CLOUD_SERVICE,
-        ...(token() ? { Authorization: "Bearer " + token() } : {}),
-      },
-      data: opts.body === undefined ? {} : opts.body,
-      timeout: 60000,
-      success(res) {
-        let data = res.data;
-        if (typeof data === "string") {
-          try {
-            data = JSON.parse(data);
-          } catch (e) {
-            data = {};
-          }
-        }
-        data = data || {};
-        if (res.statusCode >= 200 && res.statusCode < 300) {
-          finish();
-          resolve(data);
-          return;
-        }
-        if (res.statusCode === 401 && token()) {
-          clearSession();
-          if (!redirectingToLogin) {
-            redirectingToLogin = true;
-            uni.reLaunch({
-              url: "/pages/login/login",
-              complete: () => { redirectingToLogin = false; },
-            });
-          }
-          finish();
-          reject(new Error("登录已过期，请重新登录"));
-          return;
-        }
-        const error = new Error(detailMsg(data));
-        if (method === "GET" && opts.silent !== true) {
-          toastText(error.message);
-        }
-        finish();
-        reject(error);
-      },
-      fail(err) {
-        const message = err?.errMsg?.includes("timeout") ? "请求超时，请稍后重试" : "连不上云端服务";
-        if (method === "GET" && opts.silent !== true) {
-          toastText(message);
-        }
-        finish();
-        reject(new Error(message));
-      },
-    });
+    requestViaHttp(path, opts, method, finish, resolve, reject);
   });
   pendingRequests.set(key, request);
   request.then(
@@ -178,11 +220,31 @@ export function go(url, replace) {
   else uni.navigateTo({ url });
 }
 
-export function toastText(message, duration = 2000) {
+export const toastStore = reactive({
+  visible: false,
+  message: "",
+  fading: false,
+});
+
+let toastTimer = null;
+let fadeTimer = null;
+
+export function toastText(message, duration = 2200) {
   const text = String(message || "操作失败").replace(/\s+/g, " ").trim();
-  const chars = Array.from(text);
-  const title = chars.length > 10 ? chars.slice(0, 9).join("") + "…" : text;
-  uni.showToast({ title, icon: "none", duration });
+  if (toastTimer) clearTimeout(toastTimer);
+  if (fadeTimer) clearTimeout(fadeTimer);
+  toastStore.fading = false;
+  toastStore.message = text;
+  toastStore.visible = true;
+  toastTimer = setTimeout(() => {
+    toastStore.fading = true;
+    fadeTimer = setTimeout(() => {
+      toastStore.visible = false;
+      toastStore.fading = false;
+      toastTimer = null;
+      fadeTimer = null;
+    }, 320);
+  }, duration);
 }
 
 export function relaunch(url) {
@@ -190,9 +252,22 @@ export function relaunch(url) {
 }
 
 const DRAFT_KEY = "wanka_game_draft";
+const DRAFT_TTL = 24 * 60 * 60 * 1000;
 
 export function loadGameDraft() {
-  return uni.getStorageSync(DRAFT_KEY) || null;
+  const draft = uni.getStorageSync(DRAFT_KEY) || null;
+  if (!draft) return null;
+
+  // 兼容升级前保存的草稿：首次读取时从当前时间开始计算有效期。
+  if (!draft.savedAt) {
+    draft.savedAt = Date.now();
+    uni.setStorageSync(DRAFT_KEY, draft);
+  }
+  if (Date.now() - Number(draft.savedAt) >= DRAFT_TTL) {
+    uni.removeStorageSync(DRAFT_KEY);
+    return null;
+  }
+  return draft;
 }
 
 export function saveGameDraft(wiz) {
@@ -200,7 +275,7 @@ export function saveGameDraft(wiz) {
     uni.removeStorageSync(DRAFT_KEY);
     return;
   }
-  uni.setStorageSync(DRAFT_KEY, wiz);
+  uni.setStorageSync(DRAFT_KEY, { ...wiz, savedAt: Date.now() });
 }
 
 export function clearGameDraft() {

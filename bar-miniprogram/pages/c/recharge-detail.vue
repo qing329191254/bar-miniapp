@@ -114,6 +114,7 @@ function viewMyCoins() {
     <view v-if="msg" class="err">{{ msg }}</view>
   </view>
   <view v-else class="empty-detail">正在读取充值单…</view>
+  <app-toast />
 </template>
 
 <style scoped>

@@ -37,6 +37,7 @@ onMounted(() => {
 
 <template>
   <view>
+    <app-toast />
     <view v-if="isStaff && current !== 'scan'" class="fab" @tap="scan">扫码<br />核销</view>
     <view class="ptabs">
       <view

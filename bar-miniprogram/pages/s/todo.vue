@@ -1,13 +1,26 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
-import { api, go, loadGameDraft } from "@/utils/api";
+import { api, go, loadGameDraft, toastText } from "@/utils/api";
 
 const data = ref(null);
 const msg = ref("");
 const tab = ref("accept");
+const rejectOrder = ref(null);
+const rejectReason = ref("");
+const rejecting = ref(false);
 
 async function load() {
   data.value = await api("/staff/todo");
+  const counts = {
+    accept: data.value.accept.length,
+    pay: data.value.recharges.length + data.value.payOrders.length,
+    wdr: data.value.withdrawals.length,
+    making: data.value.making.length,
+  };
+  if (!counts[tab.value]) {
+    const next = Object.keys(counts).find((key) => counts[key] > 0);
+    if (next) tab.value = next;
+  }
 }
 onMounted(load);
 
@@ -26,26 +39,50 @@ const draft = computed(() => {
   return d && d.step >= 1 && d.step <= 4 ? d : null;
 });
 const cur = computed(() => {
-  const d = defs.value.find((x) => x.k === tab.value) || defs.value[0];
-  if (d && d.n === 0) {
-    const alt = defs.value.find((x) => x.n > 0);
-    return alt || d;
-  }
-  return d;
+  return defs.value.find((x) => x.k === tab.value) || defs.value[0];
 });
 
-async function act(path) {
+async function act(path, reason = "店员操作", successText = "") {
   msg.value = "";
   try {
-    await api(path, { method: "POST", body: { reason: "店员操作" } });
+    await api(path, { method: "POST", body: { reason } });
     await load();
+    if (successText) toastText(successText);
+    return true;
   } catch (e) {
     msg.value = e.message;
+    return false;
   }
+}
+
+function openReject(order) {
+  rejectOrder.value = order;
+  rejectReason.value = "";
+  msg.value = "";
+}
+
+function closeReject() {
+  if (rejecting.value) return;
+  rejectOrder.value = null;
+  rejectReason.value = "";
+}
+
+async function confirmReject() {
+  const reason = rejectReason.value.trim();
+  if (!reason) {
+    msg.value = "请输入拒单原因";
+    return;
+  }
+  if (!rejectOrder.value || rejecting.value) return;
+  rejecting.value = true;
+  const ok = await act(`/staff/orders/${rejectOrder.value.id}/reject`, reason, "已拒单");
+  rejecting.value = false;
+  if (ok) closeReject();
 }
 </script>
 
 <template>
+  <page-meta :page-style="`overflow:${rejectOrder ? 'hidden' : 'visible'}`" />
   <view class="pbody" v-if="data">
     <view class="card" style="background:#FCEBEB;border-color:#E24B4A;padding:10px 12px">
       <view class="row">
@@ -83,8 +120,8 @@ async function act(path) {
         <view class="between" style="margin-top:8px">
           <text style="font-size:16px;font-weight:600">{{ o.total }} 金币</text>
           <view class="row">
-            <button class="btn ghost" @tap="act('/staff/orders/'+o.id+'/reject')">拒单</button>
-            <button class="btn" :disabled="!!o.lack" @tap="act('/staff/orders/'+o.id+'/accept')">接单</button>
+            <button class="btn ghost" @tap="openReject(o)">拒单</button>
+            <button class="btn" :disabled="!!o.lack" @tap="act('/staff/orders/'+o.id+'/accept', '店员操作', '接单成功')">接单</button>
           </view>
         </view>
       </view>
@@ -162,5 +199,88 @@ async function act(path) {
       </view>
     </view>
     <tab-bar current="todo" />
+
+    <view v-if="rejectOrder" class="reject-mask" @tap="closeReject" @touchmove.stop.prevent>
+      <view class="reject-dialog" @tap.stop>
+        <view class="reject-title">拒单</view>
+        <view class="reject-label">原因 <text class="reject-required">*必填</text></view>
+        <textarea
+          class="reject-input"
+          v-model="rejectReason"
+          placeholder="请输入原因"
+          maxlength="100"
+          :show-confirm-bar="false"
+          :focus="true"
+        />
+        <view class="err" v-if="msg">{{ msg }}</view>
+        <view class="reject-actions">
+          <button class="btn ghost" :disabled="rejecting" @tap="closeReject">取消</button>
+          <button class="btn reject-submit" :disabled="rejecting" @tap="confirmReject">
+            {{ rejecting ? "提交中…" : "确认拒单" }}
+          </button>
+        </view>
+      </view>
+    </view>
   </view>
 </template>
+
+<style scoped>
+.reject-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 30px;
+  background: rgba(0, 0, 0, 0.42);
+}
+.reject-dialog {
+  width: 100%;
+  max-width: 320px;
+  box-sizing: border-box;
+  padding: 20px 16px 16px;
+  border-radius: 18px;
+  background: #fff;
+}
+.reject-title {
+  margin-bottom: 22px;
+  color: #1c1b19;
+  font-size: 18px;
+  font-weight: 700;
+}
+.reject-label {
+  margin-bottom: 7px;
+  color: #6b6a65;
+  font-size: 13px;
+}
+.reject-required { color: #b52d2d; }
+.reject-input {
+  width: 100%;
+  height: 72px;
+  min-height: 72px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid #d3d1cc;
+  border-radius: 10px;
+  color: #1c1b19;
+  background: #fff;
+  font-size: 14px;
+}
+.reject-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+.reject-actions .btn {
+  flex: 1;
+  margin: 0;
+  padding: 11px 8px;
+}
+.reject-submit {
+  border-color: #b52d2d;
+  background: #b52d2d;
+  color: #fff;
+}
+</style>

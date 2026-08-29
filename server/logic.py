@@ -991,35 +991,63 @@ def submit_game(sess: Session, staff: dict, pid: int, table_id, players: list, w
     return rec.to_dict()
 
 
-def in_range(time_str: str, preset: str) -> bool:
-    d = str(time_str or "")[:10]
+def flt_range(preset: str, date_from: str = "", date_to: str = "") -> tuple[str, str] | None:
+    today = business_today()
+    t = today.isoformat()
     if preset in ("", "all"):
-        return True
+        return None
     if preset == "today":
-        return d == today_str()
+        return (t, t)
+    if preset == "yday":
+        y = (today - timedelta(days=1)).isoformat()
+        return (y, y)
     if preset == "7d":
-        return d >= (business_today() - timedelta(days=6)).isoformat()
+        return ((today - timedelta(days=6)).isoformat(), t)
     if preset == "30d":
-        return d >= (business_today() - timedelta(days=29)).isoformat()
+        return ((today - timedelta(days=29)).isoformat(), t)
     if preset == "month":
-        return d.startswith(current_month())
-    return True
+        return (t[:7] + "-01", t)
+    if preset == "custom":
+        return (date_from or "1970-01-01", date_to or "2999-12-31")
+    return None
 
 
-def job_stat(sess: Session, uid: int, preset="today") -> dict:
-    ods = [o.to_dict() for o in sess.query(Order).filter(Order.op_uid == uid).all() if in_range(o.at or "", preset)]
-    rcs = [r.to_dict() for r in sess.query(Recharge).filter(Recharge.op_uid == uid, Recharge.status == "PAID").all() if in_range(r.at or "", preset)]
-    vfs = [v.to_dict() for v in sess.query(VerifyLog).filter(VerifyLog.op_uid == uid).all() if in_range(v.at or "", preset)]
-    gms = [g.to_dict() for g in sess.query(GameRecord).filter(GameRecord.op_uid == uid).all() if g.status != "VOID" and in_range(g.time or "", preset)]
+def range_label(preset: str, date_from: str = "", date_to: str = "") -> str:
+    r = flt_range(preset, date_from, date_to)
+    if not r:
+        return "全部时间"
+    return r[0] if r[0] == r[1] else f"{r[0]} ~ {r[1]}"
+
+
+def in_range(time_str: str, preset: str, date_from: str = "", date_to: str = "") -> bool:
+    d = str(time_str or "")[:10]
+    r = flt_range(preset, date_from, date_to)
+    if not r:
+        return True
+    return r[0] <= d <= r[1]
+
+
+def job_stat(sess: Session, uid: int, preset="today", date_from: str = "", date_to: str = "") -> dict:
+    ods = [o.to_dict() for o in sess.query(Order).filter(Order.op_uid == uid).all() if in_range(o.at or "", preset, date_from, date_to)]
+    rcs = [r.to_dict() for r in sess.query(Recharge).filter(Recharge.op_uid == uid, Recharge.status == "PAID").all() if in_range(r.at or "", preset, date_from, date_to)]
+    vfs = [v.to_dict() for v in sess.query(VerifyLog).filter(VerifyLog.op_uid == uid).all() if in_range(v.at or "", preset, date_from, date_to)]
+    gms = [g.to_dict() for g in sess.query(GameRecord).filter(GameRecord.op_uid == uid).all() if g.status != "VOID" and in_range(g.time or "", preset, date_from, date_to)]
     paid = [o for o in ods if o["status"] in ("MAKING", "FINISHED")]
     rc_amt = sum(r["amount"] for r in rcs)
     od_amt = sum(o["total"] for o in paid)
     wds = sess.query(Withdrawal).filter(Withdrawal.status == "GRANTED", Withdrawal.grant_by == uid).count()
-    wds = sum(1 for w in sess.query(Withdrawal).filter(Withdrawal.status == "GRANTED", Withdrawal.grant_by == uid) if in_range(w.grant_at or "", preset))
+    wds = sum(1 for w in sess.query(Withdrawal).filter(Withdrawal.status == "GRANTED", Withdrawal.grant_by == uid) if in_range(w.grant_at or "", preset, date_from, date_to))
+    heads = sum(len(g.get("players") or []) for g in gms)
+    ods.sort(key=lambda o: o.get("at") or "", reverse=True)
+    rcs.sort(key=lambda r: r.get("at") or "", reverse=True)
+    vfs.sort(key=lambda v: v.get("at") or "", reverse=True)
+    gms.sort(key=lambda g: g.get("time") or "", reverse=True)
+    r = flt_range(preset, date_from, date_to)
     return {
         "amount": rc_amt + od_amt, "rcAmt": rc_amt, "odAmt": od_amt,
-        "orders": len(ods), "verifies": len(vfs), "games": len(gms), "wds": wds,
+        "orders": len(ods), "verifies": len(vfs), "games": len(gms), "heads": heads, "wds": wds,
         "rcs": rcs, "ods": ods, "vfs": vfs, "gms": gms,
+        "range": {"from": r[0], "to": r[1], "label": range_label(preset, date_from, date_to)} if r else {"from": "", "to": "", "label": "全部时间"},
     }
 
 

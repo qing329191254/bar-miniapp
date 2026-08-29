@@ -180,6 +180,7 @@ async function submit() {
       </view>
       <button class="btn ghost block" style="margin-top:10px" @tap="tableId = null; showTable = false">不选桌台（跳过）</button>
     </view>
+    <app-toast />
   </view>
 </template>
 

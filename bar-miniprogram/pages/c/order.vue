@@ -197,6 +197,7 @@ function checkout() {
         {{ specBase ? "加入购物车" : "请先选择基酒" }}
       </button>
     </view>
+    <app-toast />
   </view>
 </template>
 

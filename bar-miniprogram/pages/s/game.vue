@@ -1,15 +1,19 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from "vue";
-import { api, clearGameDraft, go, loadGameDraft, saveGameDraft } from "@/utils/api";
+import { api, clearGameDraft, go, loadGameDraft, saveGameDraft, toastText } from "@/utils/api";
 
 const meta = ref({ projects: [], tables: [], busy: [] });
 const members = ref([]);
 const search = ref("");
 const splitTotal = ref("");
 const customShard = ref("");
-const showCustom = ref(false);
+const showCustomDlg = ref(false);
 const msg = ref("");
 const submitting = ref(false);
+const confirmTime = ref("");
+const showDraftDlg = ref(false);
+
+const dlgOpen = computed(() => showDraftDlg.value || showCustomDlg.value);
 
 const wiz = reactive({
   step: 0,
@@ -51,6 +55,13 @@ const quick = computed(() => {
   const s = Number(project.value?.shard) || 0;
   return [Math.round(s / 2), s, Math.round(s * 1.5)].filter((v) => v > 0);
 });
+const activeQuickShard = computed(() => {
+  if (!wiz.players.length) return null;
+  const vals = wiz.players.map((id) => Number(wiz.shr[id] || 0));
+  const first = vals[0];
+  if (first <= 0 || !vals.every((v) => v === first)) return null;
+  return quick.value.includes(first) ? first : "custom";
+});
 const totalPts = computed(() => wiz.players.reduce((s, id) => s + Number(wiz.pts[id] || 0), 0));
 const totalSh = computed(() => wiz.players.reduce((s, id) => s + Number(wiz.shr[id] || 0), 0));
 const winCount = computed(() => wiz.players.filter((id) => wiz.winners[id]).length);
@@ -61,6 +72,21 @@ const peopleWarn = computed(() => {
     return `${pj.name} 通常 ${pj.min}-${pj.max} 人（提示不阻断）`;
   }
   return "";
+});
+const quickCombos = computed(() => {
+  const { projects, tables } = meta.value;
+  if (!projects.length) return [];
+  const presets = [
+    { pKey: "狼人", tKey: "A3" },
+    { pKey: "德", tKey: "卡座1" },
+  ];
+  const out = [];
+  for (const { pKey, tKey } of presets) {
+    const p = projects.find((x) => x.name.includes(pKey));
+    const t = tables.find((x) => x.name.includes(tKey));
+    if (p && t) out.push({ pid: p.id, tid: t.id, label: `${p.name} · ${t.name}` });
+  }
+  return out;
 });
 
 function fmt(n) {
@@ -78,27 +104,70 @@ function defaultEvent() {
   const mi = String(now.getMinutes()).padStart(2, "0");
   return `${mm}-${dd} ${hh}:${mi} ${p ? p.name : "对局"}`;
 }
+function nowTimeLabel() {
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+}
+function resetWiz(step = 0) {
+  Object.assign(wiz, {
+    step,
+    projectId: null,
+    tableId: null,
+    players: [],
+    shr: {},
+    pts: {},
+    winners: {},
+    event: "",
+    eventTouched: false,
+    last: null,
+  });
+  search.value = "";
+  splitTotal.value = "";
+  customShard.value = "";
+  showCustomDlg.value = false;
+  confirmTime.value = "";
+  msg.value = "";
+}
 
 function startWiz() {
-  const d = loadGameDraft();
-  if (d && d.step >= 1 && d.step <= 4) {
-    Object.assign(wiz, d);
-    msg.value = "";
+  if (hasDraft()) {
+    showDraftDlg.value = true;
     return;
   }
-  Object.assign(wiz, {
-    step: 1, projectId: null, tableId: null, players: [], shr: {}, pts: {}, winners: {}, event: "", eventTouched: false, last: null,
-  });
+  resetWiz(1);
+}
+function closeDraftDlg() {
+  showDraftDlg.value = false;
+}
+function confirmDraftDlg() {
+  showDraftDlg.value = false;
+  restoreDraft();
 }
 function restoreDraft() {
   const d = loadGameDraft();
   if (!d) return;
+  clearGameDraft();
   Object.assign(wiz, d);
+  if (wiz.step === 4 && !confirmTime.value) confirmTime.value = nowTimeLabel();
 }
 function combo(pid, tid) {
   Object.assign(wiz, {
-    step: 3, projectId: pid, tableId: tid, players: [], shr: {}, pts: {}, winners: {}, event: "", eventTouched: false, last: null,
+    step: 2,
+    projectId: pid,
+    tableId: tid,
+    players: [],
+    shr: {},
+    pts: {},
+    winners: {},
+    event: "",
+    eventTouched: false,
+    last: null,
   });
+  msg.value = "";
+}
+function restoreEventDefault() {
+  wiz.eventTouched = false;
+  wiz.event = defaultEvent();
 }
 function next() {
   msg.value = "";
@@ -111,7 +180,10 @@ function next() {
     return;
   }
   wiz.step += 1;
-  if (wiz.step === 4 && !wiz.eventTouched) wiz.event = defaultEvent();
+  if (wiz.step === 4) {
+    confirmTime.value = nowTimeLabel();
+    if (!wiz.eventTouched) wiz.event = defaultEvent();
+  }
 }
 function toggle(id) {
   const i = wiz.players.indexOf(id);
@@ -130,9 +202,16 @@ function shardAll(v) {
   wiz.players.forEach((id) => {
     wiz.shr[id] = v;
   });
-  showCustom.value = false;
+  showCustomDlg.value = false;
 }
-function applyCustom() {
+function openCustomDlg() {
+  customShard.value = "";
+  showCustomDlg.value = true;
+}
+function closeCustomDlg() {
+  showCustomDlg.value = false;
+}
+function confirmCustomDlg() {
   const v = Number(customShard.value || 0);
   if (v > 0) shardAll(v);
 }
@@ -148,7 +227,7 @@ function split() {
   const total = Number(splitTotal.value || 0);
   const wins = wiz.players.filter((id) => wiz.winners[id]);
   if (!total || !wins.length) {
-    msg.value = "请先标记冠军并输入总分";
+    toastText("请先标记冠军并输入总分");
     return;
   }
   const each = Math.floor(total / wins.length);
@@ -156,7 +235,7 @@ function split() {
   wins.forEach((id, i) => {
     wiz.pts[id] = each + (i === 0 ? rem : 0);
   });
-  msg.value = "已均分给 " + wins.length + " 位赢家";
+  toastText("已均分给 " + wins.length + " 位赢家");
 }
 async function submit() {
   msg.value = "";
@@ -190,6 +269,7 @@ async function submit() {
     wiz.last = {
       pid: wiz.projectId,
       tid: wiz.tableId,
+      players: [...wiz.players],
       n: wiz.players.length,
       tp: totalPts.value,
       ts: totalSh.value,
@@ -205,13 +285,33 @@ async function submit() {
 }
 function saveAndTodo() {
   saveGameDraft(JSON.parse(JSON.stringify(wiz)));
+  resetWiz(0);
   go("/pages/s/todo", true);
 }
 function reuse() {
   const last = wiz.last;
-  Object.assign(wiz, {
-    step: 3, projectId: last.pid, tableId: last.tid, players: [], shr: {}, pts: {}, winners: {}, event: "", eventTouched: false, last: null,
+  const players = [...(last?.players?.length ? last.players : wiz.players)];
+  const shr = {};
+  const pts = {};
+  players.forEach((id) => {
+    shr[id] = 0;
+    pts[id] = 0;
   });
+  Object.assign(wiz, {
+    step: 3,
+    projectId: last.pid,
+    tableId: last.tid,
+    players,
+    shr,
+    pts,
+    winners: {},
+    event: "",
+    eventTouched: false,
+    last: null,
+  });
+  splitTotal.value = "";
+  customShard.value = "";
+  msg.value = "";
 }
 function hasDraft() {
   const d = loadGameDraft();
@@ -220,17 +320,12 @@ function hasDraft() {
 </script>
 
 <template>
+  <page-meta :page-style="`overflow:${dlgOpen ? 'hidden' : 'visible'}`" />
   <view class="pbody">
     <!-- 开始 -->
     <view v-if="wiz.step === 0" class="card" style="text-align:center;padding:34px 14px">
       <view style="font-size:15px;font-weight:600">录入对局</view>
       <view class="tiny" style="margin:6px 0 14px">目标：30 秒录完一局（2 次点击 + 1 次输入）</view>
-      <view v-if="hasDraft()" class="card" style="background:#FAEEDA;border-color:#BA7517;text-align:left;margin-bottom:12px">
-        <view class="between">
-          <text style="font-size:13px;color:#BA7517;font-weight:600">有 1 局未提交</text>
-          <button class="btn gold" style="padding:6px 12px;font-size:12px" @tap="restoreDraft">继续录入</button>
-        </view>
-      </view>
       <button class="btn block" @tap="startWiz">开始录入</button>
     </view>
 
@@ -240,27 +335,32 @@ function hasDraft() {
         <view class="ring">✓</view>
         <view style="font-size:17px;font-weight:600">提交成功，已立即入账</view>
         <view class="tiny" style="margin-top:4px">{{ wiz.last.n }} 人 · 积分 {{ fmt(wiz.last.tp) }} · 碎片 {{ fmt(wiz.last.ts) }}</view>
-        <view class="tiny" v-if="wiz.last.champ">冠军已记入荣誉</view>
+        <view class="tiny">C 端用户立即可见<text v-if="wiz.last.champ"> · 冠军已记入荣誉</text></view>
       </view>
-      <button class="btn block" style="margin-top:14px" @tap="reuse">再录一局（沿用项目与桌台）</button>
+      <button class="btn block" style="margin-top:14px" @tap="reuse">再录一局（沿用项目、桌台与玩家）</button>
       <button class="btn ghost block" style="margin-top:8px" @tap="go('/pages/s/todo', true)">返回待办</button>
     </view>
 
     <view v-else>
       <view class="wiz-step">
-        <view v-for="n in 4" :key="n" class="row" style="flex:1;gap:5px">
+        <template v-for="n in 4" :key="n">
           <view class="sdot" :class="{ on: wiz.step === n, done: wiz.step > n }">{{ wiz.step > n ? "✓" : n }}</view>
-          <view class="sln" v-if="n < 4" />
-        </view>
+          <view v-if="n < 4" class="sln" />
+        </template>
       </view>
 
       <!-- 1 项目桌台 -->
       <view v-if="wiz.step === 1">
-        <view class="card" style="background:#EAF3DE;border-color:#97C459;padding:10px 12px">
-          <view class="tiny" style="color:#3B6D11;margin-bottom:6px">常用组合 · 点击直接跳到填分</view>
+        <view v-if="quickCombos.length" class="card" style="background:#EAF3DE;border-color:#97C459;padding:10px 12px">
+          <view class="tiny" style="color:#3B6D11;margin-bottom:6px">常用组合 · 已选项目与桌台，跳到选玩家</view>
           <view class="row" style="flex-wrap:wrap">
-            <button class="pill" style="background:#fff;border:1px solid #97C459;color:#04342C" @tap="combo(1,3)">狼人杀 · A3 桌</button>
-            <button class="pill" style="background:#fff;border:1px solid #97C459;color:#04342C" @tap="combo(2,6)">德扑 · 卡座1</button>
+            <button
+              v-for="c in quickCombos"
+              :key="c.pid + '-' + c.tid"
+              class="pill"
+              style="background:#fff;border:1px solid #97C459;color:#04342C"
+              @tap="combo(c.pid, c.tid)"
+            >{{ c.label }}</button>
           </view>
         </view>
         <view class="h2">选择项目</view>
@@ -276,7 +376,10 @@ function hasDraft() {
             {{ p.name }}
           </view>
         </view>
-        <view class="h2">选择桌台 <text class="tiny">选填 · 可跳过</text></view>
+        <view class="sec-head">
+          <text>选择桌台</text>
+          <text class="hint">选填 · 可跳过</text>
+        </view>
         <view class="g4">
           <view
             v-for="t in meta.tables"
@@ -290,100 +393,125 @@ function hasDraft() {
             <view class="tiny" :style="{ color: busy(t.id) ? '#A32D2D' : '#9C9A93' }">{{ busy(t.id) ? "占用" : "空" }}</view>
           </view>
         </view>
-        <button class="btn block" style="margin-top:12px" :disabled="!wiz.projectId" @tap="next">下一步 · 选玩家</button>
+        <button class="btn block wiz-primary" style="margin-top:12px" :disabled="!wiz.projectId" @tap="next">下一步 · 选玩家</button>
       </view>
 
       <!-- 2 选玩家 -->
-      <view v-if="wiz.step === 2">
-        <view class="card" style="border-color:#1C1B19;padding:11px 12px">
-          <view class="row" style="margin-bottom:8px">
-            <text style="font-size:13px;font-weight:600">已选 {{ wiz.players.length }} 人</text>
-            <text class="tiny gold" v-if="peopleWarn">{{ peopleWarn }}</text>
+      <view v-if="wiz.step === 2" class="step2-layout">
+        <view class="step2-top">
+          <view v-if="project" class="card" style="background:#FAF9F5;padding:10px 12px;margin-bottom:12px">
+            <view class="tiny">已选 {{ project.name }}{{ table ? " · " + table.name : "" }}，请选择参与玩家</view>
           </view>
-          <view class="row" style="flex-wrap:wrap" v-if="pickedUsers.length">
-            <view v-for="x in pickedUsers" :key="x.id" style="text-align:center">
-              <view class="av" style="background:#1C1B19;color:#fff;margin:0 auto">{{ x.av }}</view>
-              <view class="tiny" style="margin-top:2px">{{ x.nick }} <text style="color:#A32D2D" @tap="toggle(x.id)">×</text></view>
+          <view class="card" style="border-color:#1C1B19;padding:11px 12px">
+            <view class="pick-summary">
+              <text class="pick-count">已选 {{ wiz.players.length }} 人</text>
+              <text class="pick-warn" v-if="peopleWarn">{{ peopleWarn }}</text>
+            </view>
+            <view class="row" style="flex-wrap:wrap;gap:8px" v-if="pickedUsers.length">
+              <view v-for="x in pickedUsers" :key="x.id" class="pick-chip">
+                <view class="pick-chip-av">{{ x.av }}</view>
+                <view class="tiny">{{ x.nick }} <text style="color:#A32D2D" @tap="toggle(x.id)">×</text></view>
+              </view>
+            </view>
+            <view class="tiny" v-else>尚未选择玩家</view>
+          </view>
+          <view class="sec-head">
+            <text>今日到店会员</text>
+            <text class="hint">点选即添加</text>
+          </view>
+        </view>
+        <scroll-view scroll-y class="member-scroll" :show-scrollbar="false">
+          <view class="member-grid">
+            <view
+              v-for="x in members"
+              :key="x.id"
+              class="member-pick"
+              :class="{ on: wiz.players.includes(x.id) }"
+              @tap="toggle(x.id)"
+            >
+              <view class="member-av">{{ x.av }}</view>
+              <text class="member-name">{{ x.nick }}</text>
             </view>
           </view>
-          <view class="tiny" v-else>尚未选择玩家</view>
-        </view>
-        <view class="h2">今日到店会员 <text class="tiny">点选即添加</text></view>
-        <view class="av-grid">
-          <view
-            v-for="x in members.slice(0, 16)"
-            :key="x.id"
-            class="av-pick"
-            :class="{ on: wiz.players.includes(x.id) }"
-            @tap="toggle(x.id)"
-          >
-            <view class="av">{{ x.av }}</view>
-            <text>{{ x.nick }}</text>
+        </scroll-view>
+        <view class="step2-foot">
+          <input class="wiz-search" v-model="search" placeholder="搜索昵称 / 手机后 4 位 / 会员号…" />
+          <view class="card" v-if="search && found.length" style="padding:6px 12px;margin-bottom:8px">
+            <view class="li" v-for="x in found" :key="x.id" @tap="toggle(x.id)">
+              <view class="av" style="width:26px;height:26px">{{ x.av }}</view>
+              <view class="gr"><view style="font-weight:500">{{ x.nick }}</view><view class="tiny">{{ x.no }}</view></view>
+              <text class="tiny">添加</text>
+            </view>
           </view>
+          <button class="btn block wiz-primary" :disabled="!wiz.players.length" @tap="next">下一步 · 填分</button>
         </view>
-        <input class="field" v-model="search" placeholder="搜索昵称 / 手机后 4 位 / 会员号…" />
-        <view class="card" v-if="search && found.length" style="padding:6px 12px">
-          <view class="li" v-for="x in found" :key="x.id" @tap="toggle(x.id)">
-            <view class="av" style="width:26px;height:26px">{{ x.av }}</view>
-            <view class="gr"><view style="font-weight:500">{{ x.nick }}</view><view class="tiny">{{ x.no }}</view></view>
-            <text class="tiny">添加</text>
-          </view>
-        </view>
-        <button class="btn block" :disabled="!wiz.players.length" @tap="next">下一步 · 填分</button>
       </view>
 
       <!-- 3 填分 -->
       <view v-if="wiz.step === 3">
         <view class="card" style="background:#EEEDFE;border-color:#534AB7">
-          <view class="h2" style="color:#26215C">全员碎片 <text class="tiny" style="color:#534AB7">一键铺满 · 快捷值取自项目配置</text></view>
-          <view class="row">
+          <view class="sec-head" style="color:#26215C;margin-bottom:7px">
+            <text>全员碎片</text>
+            <text class="hint purple">一键铺满 · 快捷值取自项目配置</text>
+          </view>
+          <view class="row shard-row">
             <button
               v-for="v in quick"
               :key="v"
-              class="btn ghost"
-              style="flex:1;color:#534AB7;border-color:#534AB7"
-              :style="v === project?.shard ? 'background:#534AB7;color:#fff;border-color:#534AB7' : ''"
+              class="shard-btn"
+              :class="{ on: activeQuickShard === v }"
               @tap="shardAll(v)"
             >{{ v }}</button>
-            <button class="btn ghost" style="flex:1.2;color:#534AB7;border-color:#534AB7" @tap="showCustom = !showCustom">自定义</button>
-          </view>
-          <view class="row" v-if="showCustom" style="margin-top:8px">
-            <input class="field" style="margin:0;flex:1" type="number" v-model="customShard" placeholder="碎片值" />
-            <button class="btn" @tap="applyCustom">铺满</button>
+            <button class="shard-btn custom" :class="{ on: activeQuickShard === 'custom' }" @tap="openCustomDlg">自定义</button>
           </view>
         </view>
-        <view class="h2">玩家分数 <text class="tiny">点奖杯标记冠军</text></view>
+        <view class="sec-head">
+          <text>玩家分数</text>
+          <text class="hint">所有玩家可填积分 · 点奖杯标记冠军</text>
+        </view>
         <view
           v-for="x in pickedUsers"
           :key="x.id"
-          class="card"
-          :style="wiz.winners[x.id] ? 'border-color:#BA7517;background:#FAEEDA;padding:11px 12px;margin-bottom:8px' : 'padding:11px 12px;margin-bottom:8px'"
+          class="card player-score-card"
+          :class="{ champ: wiz.winners[x.id] }"
         >
-          <view class="row">
-            <view class="av" :style="wiz.winners[x.id] ? 'background:#BA7517;color:#fff' : ''">{{ x.av }}</view>
-            <view style="margin-left:9px;flex:1">
-              <view style="font-size:13px;font-weight:600">{{ x.nick }}</view>
+          <view class="player-score-row">
+            <view class="av player-score-av" :class="{ champ: wiz.winners[x.id] }">{{ x.av }}</view>
+            <view class="player-score-name">
+              <view class="player-score-nick">{{ x.nick }}</view>
               <view class="tiny gold" v-if="wiz.winners[x.id]">冠军</view>
             </view>
-            <view style="text-align:right">
-              <view class="tiny">碎片</view>
-              <input class="field" style="width:50px;margin:0;text-align:right" type="number" :value="wiz.shr[x.id] || 0" @input="wiz.shr[x.id] = Number($event.detail.value || 0)" />
+            <view class="player-score-actions">
+              <view class="player-score-field">
+                <view class="tiny field-label">碎片</view>
+                <input
+                  class="wiz-num-input"
+                  type="number"
+                  :value="wiz.shr[x.id] || 0"
+                  @input="wiz.shr[x.id] = Number($event.detail.value || 0)"
+                />
+              </view>
+              <view class="player-score-field wide">
+                <view class="tiny field-label">积分</view>
+                <input
+                  class="wiz-num-input"
+                  type="number"
+                  :value="wiz.pts[x.id] || 0"
+                  @input="wiz.pts[x.id] = Number($event.detail.value || 0)"
+                />
+              </view>
+              <view class="cup-btn" :class="{ on: wiz.winners[x.id] }" @tap="toggleWin(x.id)">🏆</view>
             </view>
-            <view style="text-align:right;margin-left:8px">
-              <view class="tiny">积分</view>
-              <input class="field" style="width:62px;margin:0;text-align:right" type="number" :value="wiz.pts[x.id] || 0" @input="wiz.pts[x.id] = Number($event.detail.value || 0)" />
-            </view>
-            <view class="cup" :class="{ on: wiz.winners[x.id] }" @tap="toggleWin(x.id)">冠</view>
           </view>
         </view>
-        <view class="card" style="background:#FAF9F5;padding:10px 12px">
-          <view class="row">
-            <text class="tiny">冠军总分均分</text>
-            <input class="field" style="max-width:110px;margin:0 0 0 auto" type="number" v-model="splitTotal" placeholder="输入总分" />
-            <button class="btn ghost" style="padding:6px 11px" @tap="split">均分</button>
+        <view class="card split-card">
+          <view class="split-row">
+            <text class="split-label">冠军总分均分</text>
+            <input class="split-input" type="number" v-model="splitTotal" placeholder="输入总分" />
+            <button class="btn ghost split-action" @tap="split">均分</button>
           </view>
         </view>
-        <button class="btn block" :disabled="!wiz.players.length" @tap="next">下一步 · 确认</button>
+        <button class="btn block wiz-primary" :disabled="!wiz.players.length" @tap="next">下一步 · 确认</button>
       </view>
 
       <!-- 4 确认 -->
@@ -391,13 +519,17 @@ function hasDraft() {
         <view class="card">
           <view class="h2">对局汇总</view>
           <view class="li"><view class="gr"><view style="font-weight:500">项目 / 桌台</view><view class="tiny">桌台为选填项</view></view><text style="font-weight:600">{{ project?.name }}{{ table ? " · " + table.name + " 桌" : "" }}</text></view>
+          <view class="li"><view class="gr"><view style="font-weight:500">时间</view></view><text style="font-weight:600">{{ confirmTime || nowTimeLabel() }}</text></view>
           <view class="li"><view class="gr"><view style="font-weight:500">参与人数</view></view><text style="font-weight:600">{{ wiz.players.length }} 人</text></view>
           <view class="li"><view class="gr"><view style="font-weight:500">积分总额</view><view class="tiny">{{ winCount }} 名冠军</view></view><text style="font-weight:600;color:#185FA5">{{ fmt(totalPts) }}</text></view>
           <view class="li" style="border:none"><view class="gr"><view style="font-weight:500">碎片总额</view></view><text style="font-weight:600;color:#534AB7">{{ fmt(totalSh) }}</text></view>
         </view>
         <view class="card" style="background:#FAF9F5">
-          <view class="tiny">赛事名称（已按录入时间自动取名，可直接修改）</view>
-          <input class="field" v-model="wiz.event" @input="wiz.eventTouched = true" />
+          <view class="event-label">
+            <text class="tiny">赛事名称（已按录入时间自动取名，可直接修改）</text>
+            <text v-if="wiz.eventTouched" class="event-reset" @tap="restoreEventDefault">恢复默认</text>
+          </view>
+          <input class="event-input" v-model="wiz.event" @input="wiz.eventTouched = true" />
         </view>
         <view class="card">
           <view class="h2">逐人明细</view>
@@ -416,7 +548,7 @@ function hasDraft() {
         <view class="card" style="background:#FCEBEB;border-color:#E24B4A;padding:10px 12px">
           <view class="tiny" style="color:#A32D2D;line-height:1.7"><text style="font-weight:600">提交后立即入账，用户可见。</text>录错需由店长在电脑端作废，作废记入日志。</view>
         </view>
-        <button class="btn block" style="margin-bottom:8px" :disabled="submitting" @tap="submit">确认提交</button>
+        <button class="btn block wiz-primary" style="margin-bottom:8px" :disabled="submitting" @tap="submit">确认提交</button>
         <view class="row">
           <button class="btn ghost" style="flex:1" @tap="saveAndTodo">存草稿</button>
           <button class="btn ghost" style="flex:1" @tap="wiz.step = 3">返回修改</button>
@@ -426,5 +558,391 @@ function hasDraft() {
 
     <view class="err" v-if="msg">{{ msg }}</view>
     <tab-bar current="game" />
+
+    <view v-if="showDraftDlg" class="draft-mask" @tap="closeDraftDlg" @touchmove.stop.prevent>
+      <view class="draft-dialog" @tap.stop>
+        <view class="draft-title">恢复草稿</view>
+        <view class="draft-body">检测到一局未提交的草稿（24 小时内有效），是否继续？</view>
+        <view class="draft-actions">
+          <button class="btn ghost draft-btn" @tap="closeDraftDlg">取消</button>
+          <button class="btn draft-btn" @tap="confirmDraftDlg">继续录入</button>
+        </view>
+      </view>
+    </view>
+
+    <view v-if="showCustomDlg" class="draft-mask" @tap="closeCustomDlg" @touchmove.stop.prevent>
+      <view class="draft-dialog" @tap.stop>
+        <view class="draft-title">自定义碎片值</view>
+        <input
+          class="dlg-input"
+          type="number"
+          v-model="customShard"
+          placeholder="输入碎片值"
+          :focus="showCustomDlg"
+        />
+        <view class="draft-actions">
+          <button class="btn ghost draft-btn" @tap="closeCustomDlg">取消</button>
+          <button class="btn draft-btn" @tap="confirmCustomDlg">铺满全员</button>
+        </view>
+      </view>
+    </view>
   </view>
 </template>
+
+<style scoped>
+.event-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.event-reset {
+  color: #185FA5;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.event-input {
+  width: 100%;
+  height: 40px;
+  min-height: 40px;
+  line-height: 40px;
+  padding: 0 10px;
+  margin: 0;
+  box-sizing: border-box;
+  border-radius: 8px;
+  border: 1px solid rgba(28, 27, 25, 0.12);
+  background: #fff;
+  font-size: 13px;
+  color: #1c1b19;
+}
+.draft-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 30px;
+  background: rgba(0, 0, 0, 0.35);
+}
+.draft-dialog {
+  width: 84%;
+  max-width: 320px;
+  box-sizing: border-box;
+  padding: 16px;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+}
+.draft-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1c1b19;
+  margin-bottom: 9px;
+}
+.draft-body {
+  font-size: 12.5px;
+  color: #6b6a65;
+  line-height: 1.7;
+  margin-bottom: 13px;
+}
+.draft-actions {
+  display: flex;
+  gap: 8px;
+}
+.draft-btn {
+  flex: 1;
+  margin: 0;
+}
+.draft-actions .btn + .btn {
+  margin-left: 0;
+}
+.dlg-input {
+  width: 100%;
+  height: 40px;
+  min-height: 40px;
+  line-height: 40px;
+  padding: 0 10px;
+  margin: 0 0 13px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  border: 1px solid rgba(28, 27, 25, 0.12);
+  background: #fff;
+  font-size: 13px;
+  color: #1c1b19;
+}
+.split-card {
+  background: #faf9f5;
+  padding: 10px 12px;
+}
+.split-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.split-label {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: #9c9a93;
+}
+.split-input {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  max-width: 120px;
+  height: 36px;
+  min-height: 36px;
+  line-height: 36px;
+  padding: 0 10px;
+  margin: 0 0 0 auto;
+  box-sizing: border-box;
+  border-radius: 8px;
+  border: 1px solid rgba(28, 27, 25, 0.12);
+  background: #fff;
+  font-size: 13px;
+  color: #1c1b19;
+}
+.split-action {
+  flex-shrink: 0;
+  padding: 6px 11px;
+  margin: 0;
+  line-height: 1.2;
+}
+button.wiz-primary {
+  background: #1c1b19;
+  color: #fff;
+  font-weight: 600;
+}
+button.wiz-primary[disabled] {
+  opacity: 0.4;
+}
+.sec-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #1c1b19;
+}
+.sec-head .hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: #9c9a93;
+  font-weight: 400;
+}
+.sec-head .hint.purple {
+  color: #534ab7;
+}
+.pick-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.pick-count {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1c1b19;
+}
+.pick-warn {
+  margin-left: auto;
+  font-size: 11px;
+  color: #ba7517;
+  text-align: right;
+  line-height: 1.4;
+}
+.pick-chip {
+  text-align: center;
+}
+.pick-chip-av {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #1c1b19;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  margin: 0 auto 2px;
+}
+.member-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  padding-bottom: 4px;
+}
+.step2-layout {
+  display: flex;
+  flex-direction: column;
+}
+.step2-top {
+  flex-shrink: 0;
+}
+.member-scroll {
+  height: 420rpx;
+  margin-bottom: 8px;
+}
+.step2-foot {
+  flex-shrink: 0;
+}
+.member-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.member-av {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #e8e6df, #d8d5cc);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  letter-spacing: -0.5px;
+  color: #6b6a65;
+  margin-bottom: 3px;
+}
+.member-pick.on .member-av {
+  background: #1c1b19;
+  color: #fff;
+}
+.member-name {
+  font-size: 11px;
+  color: #6b6a65;
+  line-height: 1.3;
+}
+.wiz-search {
+  width: 100%;
+  height: 40px;
+  min-height: 40px;
+  line-height: 40px;
+  padding: 0 10px;
+  margin: 0 0 8px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  border: 1px solid rgba(28, 27, 25, 0.12);
+  background: #fff;
+  font-size: 13px;
+  color: #1c1b19;
+}
+.shard-row {
+  gap: 6px;
+}
+button.shard-btn {
+  flex: 1;
+  margin: 0;
+  padding: 10px 6px;
+  border: 1px solid #534ab7;
+  border-radius: 10px;
+  background: transparent;
+  color: #534ab7;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+button.shard-btn.custom {
+  flex: 1.2;
+}
+button.shard-btn.on {
+  background: #534ab7;
+  color: #fff;
+  border-color: #534ab7;
+}
+.player-score-card {
+  padding: 11px 12px;
+  margin-bottom: 8px;
+}
+.player-score-card.champ {
+  border-color: #ba7517;
+  background: #faeeda;
+}
+.player-score-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.player-score-av {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  font-size: 11px;
+}
+.player-score-av.champ {
+  background: #ba7517;
+  color: #fff;
+}
+.player-score-name {
+  flex: 1;
+  min-width: 0;
+}
+.player-score-nick {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.player-score-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.player-score-field {
+  width: 50px;
+  flex-shrink: 0;
+}
+.player-score-field.wide {
+  width: 62px;
+}
+.field-label {
+  display: block;
+  width: 100%;
+  text-align: center;
+  line-height: 1.2;
+  margin-bottom: 2px;
+  color: #9c9a93;
+  font-size: 11px;
+}
+.cup-btn {
+  width: 26px;
+  height: 26px;
+  margin-bottom: 3px;
+  border-radius: 7px;
+  background: #fff;
+  border: 1px solid rgba(28, 27, 25, 0.24);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.55;
+}
+.cup-btn.on {
+  background: #ba7517;
+  border-color: #ba7517;
+  opacity: 1;
+}
+.wiz-num-input {
+  display: block;
+  width: 100%;
+  height: 32px;
+  min-height: 32px;
+  line-height: 32px;
+  padding: 0 4px;
+  margin: 0;
+  box-sizing: border-box;
+  border-radius: 6px;
+  border: 1px solid rgba(28, 27, 25, 0.12);
+  background: #fff;
+  font-size: 13px;
+  text-align: center;
+  color: #1c1b19;
+}
+</style>

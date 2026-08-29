@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -586,7 +586,7 @@ def staff_todo(staff: dict = Depends(staff_user), db: Session = Depends(get_db))
     shop = today_amt(db) if staff["role"] in ("MANAGER", "BOSS") else None
     return {
         "accept": pa, "recharges": pp_re, "payOrders": pp_od, "withdrawals": pp_wd, "making": mk,
-        "stat": {k: st[k] for k in ("amount", "orders", "verifies", "games", "wds", "rcAmt", "odAmt")},
+        "stat": {k: st[k] for k in ("amount", "orders", "verifies", "games", "heads", "wds", "rcAmt", "odAmt")},
         "shopAmt": shop, "role": staff["role"], "codes": [],
     }
 
@@ -718,8 +718,14 @@ def api_game(body: GameIn, staff: dict = Depends(staff_user), db: Session = Depe
 
 
 @app.get("/api/staff/jobs")
-def staff_jobs(preset: str = "today", staff: dict = Depends(staff_user), db: Session = Depends(get_db)):
-    return L.job_stat(db, staff["id"], preset)
+def staff_jobs(
+    preset: str = "today",
+    from_: str = Query("", alias="from"),
+    to: str = "",
+    staff: dict = Depends(staff_user),
+    db: Session = Depends(get_db),
+):
+    return L.job_stat(db, staff["id"], preset, from_, to)
 
 
 @app.get("/api/admin/dashboard")
