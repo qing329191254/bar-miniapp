@@ -1119,10 +1119,13 @@ def dashboard(sess: Session, role: str) -> dict:
         coin_liab += w.coin_p + w.coin_b
         point_liab += w.point_av
     card_liab = sess.query(Card).filter(Card.status.in_(("UNUSED", "LOCKED"))).count()
+    tpl_cats = {r.id: r.cat for r in sess.query(CardTpl.id, CardTpl.cat).all()}
+    treasure = sum(1 for c in sess.query(Card).filter_by(status="UNUSED").all() if tpl_cats.get(c.tpl) == "OTHER")
     content = setting(sess, "content")
     shop = (content or {}).get("shopInfo") or {}
     block = not (shop.get("name") and shop.get("addr") and shop.get("tel"))
     week = [x.to_dict() for x in sess.query(DailyBiz).order_by(DailyBiz.d.desc()).limit(7).all()]
+    pt_alert = point_today_ratio(sess)
     out = {
         "today": today_d,
         "shopAmt": today_d["coin"] + today_d["offline"],
@@ -1133,13 +1136,147 @@ def dashboard(sess: Session, role: str) -> dict:
         "alerts": {
             "coinAdjust": [a.to_dict() for a in sess.query(CoinAdjust).filter_by(status="PENDING")],
             "deact": sess.query(Deactivation).filter_by(status="PENDING").count(),
+            "pointRatio": pt_alert["ratio"],
+            "pointThreshold": pt_alert["threshold"],
+            "pointOver": pt_alert["over"],
         },
         "members": len(custs(sess)),
         "orderCount": sess.query(Order).count(),
     }
     if role == "BOSS":
-        out["liability"] = {"coin": coin_liab, "point": point_liab, "cards": card_liab}
+        out["liability"] = {"coin": coin_liab, "point": point_liab, "cards": card_liab, "treasure": treasure}
     return out
+
+
+def point_today_ratio(sess: Session) -> dict:
+    cfg = setting(sess, "config") or {}
+    threshold = float(cfg.get("alertRatio") or 3)
+    today = today_str()
+    by_day: dict[str, int] = {}
+    for g in sess.query(GameRecord).all():
+        if g.status == "VOID":
+            continue
+        d = (g.time or "")[:10]
+        if not d:
+            continue
+        pts = sum(int(p.get("pts") or 0) for p in (g.players or []))
+        by_day[d] = by_day.get(d, 0) + pts
+    today_pts = by_day.get(today, 0)
+    hist = [by_day[d] for d in by_day if d != today]
+    avg = round(sum(hist) / len(hist)) if hist else 0
+    ratio = round(today_pts / avg, 1) if avg else 0.0
+    return {"today": today_pts, "avg": avg, "ratio": ratio, "threshold": threshold, "over": ratio >= threshold}
+
+
+def liab_coin_detail(sess: Session) -> dict:
+    rows = []
+    for u in custs(sess):
+        w = wallet_of(sess, u.id)
+        p, b = w.coin_p, w.coin_b
+        if p + b <= 0:
+            continue
+        rows.append({"uid": u.id, "nick": u.nick, "no": u.no, "tail": u.tail or "", "principal": p, "bonus": b, "total": p + b})
+    rows.sort(key=lambda x: x["total"], reverse=True)
+    tot_p = sum(r["principal"] for r in rows)
+    tot_b = sum(r["bonus"] for r in rows)
+    tot = tot_p + tot_b
+    top5 = sum(r["total"] for r in rows[:5])
+    for r in rows:
+        r["pct"] = round(r["total"] / tot * 100, 1) if tot else 0
+    return {
+        "summary": {"total": tot, "principal": tot_p, "bonus": tot_b, "members": len(rows), "top5Pct": round(top5 / tot * 100) if tot else 0},
+        "rows": rows,
+    }
+
+
+def liab_point_detail(sess: Session) -> dict:
+    rows = []
+    neg = []
+    for u in custs(sess):
+        w = wallet_of(sess, u.id)
+        av, fz = w.point_av, w.point_fz or 0
+        if av < 0:
+            neg.append({"uid": u.id, "nick": u.nick, "no": u.no, "av": av})
+        if av > 0 or fz > 0:
+            rows.append({"uid": u.id, "nick": u.nick, "no": u.no, "av": av, "fz": fz, "mg": w.point_mg or 0, "wd": w.point_wd or 0})
+    rows.sort(key=lambda x: x["av"], reverse=True)
+    tot_av = sum(max(r["av"], 0) for r in rows)
+    tot_fz = sum(r["fz"] for r in rows)
+    costs = [int(r[0] or 0) for r in sess.query(CardTpl.cost).filter(CardTpl.cost > 0).all()]
+    min_cost = min(costs) if costs else 0
+    return {
+        "summary": {"av": tot_av, "fz": tot_fz, "members": len(rows), "maxRedeem": int(tot_av / min_cost) if min_cost else 0, "minCost": min_cost, "negCount": len(neg), "month": current_month()},
+        "rows": rows,
+        "neg": neg,
+    }
+
+
+def liab_card_detail(sess: Session) -> dict:
+    cards = sess.query(Card).filter_by(status="UNUSED").all()
+    tpl_map = {r.id: {"name": r.name, "cat": r.cat} for r in sess.query(CardTpl.id, CardTpl.name, CardTpl.cat).all()}
+    by_tpl: dict[str, dict] = {}
+    by_user: dict[int, int] = {}
+    soon = 0
+    treasure = 0
+    list_rows = []
+    for c in cards:
+        tm = tpl_map.get(c.tpl) or {}
+        name = tm.get("name") or "（模板已删）"
+        cat = tm.get("cat") or "—"
+        if cat == "OTHER":
+            treasure += 1
+        if c.days_left <= 3:
+            soon += 1
+        slot = by_tpl.setdefault(name, {"n": 0, "soon": 0, "cat": cat})
+        slot["n"] += 1
+        if c.days_left <= 3:
+            slot["soon"] += 1
+        by_user[c.uid] = by_user.get(c.uid, 0) + 1
+        u = sess.get(User, c.uid)
+        list_rows.append({**c.to_dict(), "tplName": name, "cat": cat, "nick": u.nick if u else "—", "tail": (u.tail or "") if u else ""})
+    list_rows.sort(key=lambda x: x["daysLeft"])
+    by_tpl_list = [{"name": k, **v} for k, v in sorted(by_tpl.items(), key=lambda x: -x[1]["n"])]
+    return {
+        "summary": {"total": len(cards), "soon": soon, "treasure": treasure, "members": len(by_user)},
+        "byTpl": by_tpl_list,
+        "rows": list_rows,
+    }
+
+
+def point_alert_detail(sess: Session) -> dict:
+    base = point_today_ratio(sess)
+    today = today_str()
+    by_day: dict[str, int] = {}
+    for g in sess.query(GameRecord).all():
+        if g.status == "VOID":
+            continue
+        d = (g.time or "")[:10]
+        if not d:
+            continue
+        pts = sum(int(p.get("pts") or 0) for p in (g.players or []))
+        by_day[d] = by_day.get(d, 0) + pts
+    days = sorted(by_day.keys(), reverse=True)[:10]
+    trend = [{"d": d, "pts": by_day[d], "today": d == today} for d in days]
+    today_games = []
+    by_op: dict[int, dict] = {}
+    for g in sess.query(GameRecord).all():
+        if g.status == "VOID" or not (g.time or "").startswith(today):
+            continue
+        gd = g.to_dict()
+        today_games.append(gd)
+        k = gd.get("opUid") or 0
+        slot = by_op.setdefault(k, {"n": 0, "pts": 0, "sh": 0, "op": gd.get("op") or ""})
+        slot["n"] += 1
+        for p in gd.get("players") or []:
+            slot["pts"] += int(p.get("pts") or 0)
+            slot["sh"] += int(p.get("sh") or 0)
+    today_games.sort(key=lambda x: x.get("time") or "", reverse=True)
+    return {
+        **base,
+        "trend": trend,
+        "byOp": [{"opUid": k, **v} for k, v in sorted(by_op.items(), key=lambda x: -x[1]["pts"])],
+        "games": today_games,
+    }
 
 
 def signed_days(sess: Session, uid: int) -> list[int]:

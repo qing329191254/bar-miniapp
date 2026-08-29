@@ -21,12 +21,17 @@ import Teams from "./pages/Teams.vue";
 import Settlement from "./pages/Settlement.vue";
 import SettlementHistory from "./pages/SettlementHistory.vue";
 import SettlementConfig from "./pages/SettlementConfig.vue";
+import DashDrill from "./pages/DashDrill.vue";
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: "/", component: Login },
     { path: "/dash", component: Dashboard },
+    { path: "/liabCoin", component: DashDrill, props: { kind: "coin" } },
+    { path: "/liabPoint", component: DashDrill, props: { kind: "point" } },
+    { path: "/liabCard", component: DashDrill, props: { kind: "card" } },
+    { path: "/alertPoint", component: DashDrill, props: { kind: "alert" } },
     { path: "/jobs", component: Jobs },
     { path: "/orders", component: Records },
     { path: "/recharges", component: Records },
@@ -47,7 +52,7 @@ const router = createRouter({
     { path: "/:coll", component: Collection },
   ],
 });
-const BOSS_ONLY = new Set(["/tiers", "/staff", "/logs", "/cfg", "/settlecfg", "/coinAdjusts"]);
+const BOSS_ONLY = new Set(["/tiers", "/staff", "/logs", "/cfg", "/settlecfg", "/coinAdjusts", "/liabCoin", "/liabPoint", "/liabCard"]);
 router.beforeEach((to) => {
   if (to.path === "/") return true;
   if (!token()) return "/";

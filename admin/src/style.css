@@ -46,8 +46,10 @@ button,input,select{font:inherit}
 .kpi b{font-size:20px;font-weight:600;display:block}
 .kpi div{font-size:11px;color:var(--ink3);margin-top:2px}
 .btn{border:none;border-radius:8px;padding:8px 12px;background:#1C1B19;color:#fff;cursor:pointer}
+.btn.sm{font-size:12px;padding:5px 11px;border-radius:10px;flex:none}
 .btn.gold{background:var(--gold)}
 .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--ink)}
+.btn.sm.ghost{border:1px solid rgba(28,27,25,.24);background:var(--card)}
 .btn + .btn{margin-left:8px}
 .row > .btn + .btn,.ops > .btn + .btn,.g2 > .btn + .btn,.g3 > .btn + .btn{margin-left:0}
 .ops{display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -67,6 +69,10 @@ th{font-weight:400;color:var(--ink3);font-size:11px;position:sticky;top:0;z-inde
 .li{display:flex;align-items:center;gap:10px;padding:11px 0;border-bottom:1px solid var(--line)}
 .li:last-child{border-bottom:none}
 .li .gr{flex:1;min-width:0}
+.li .gr b{font-size:13px;font-weight:500;display:block}
+.li .gr .tiny{display:block;font-size:11px;margin-top:1px}
+.li-link{cursor:pointer}
+.li-link:hover{background:rgba(28,27,25,.02);margin:0 -14px;padding-left:14px;padding-right:14px}
 .note{font-size:11px;color:var(--blue);background:#E6F1FB;border-radius:7px;padding:7px 9px;margin-bottom:11px;line-height:1.6}
 .note.rd,.note rd{color:var(--red);background:var(--redbg)}
 .note.rd{color:var(--red);background:var(--redbg)}
@@ -90,7 +96,12 @@ select.inp{
   background-size:10px;
 }
 .row{display:flex;align-items:center;gap:8px}
-.dash-grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:12px}
+.dash-page{display:flex;flex-direction:column;min-height:calc(100dvh - 90px)}
+.dash-grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:12px;flex:1;align-items:stretch;min-height:0}
+.dash-main-col{display:flex;flex-direction:column;gap:12px;min-height:0}
+.dash-main-col .card{margin-bottom:0}
+.chart-card{flex:1;min-height:320px;display:flex;flex-direction:column;margin-bottom:0!important}
+.chart-card .week-chart{flex:1;min-height:240px}
 .todo4{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 .todo-cell{text-align:center;border-radius:9px;padding:11px 4px}
 .bars{display:flex;align-items:flex-end;gap:10px;height:120px;padding:0 8px 8px}

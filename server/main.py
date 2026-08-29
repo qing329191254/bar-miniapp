@@ -734,6 +734,32 @@ def admin_dash(admin: dict = Depends(admin_user), db: Session = Depends(get_db))
     return L.dashboard(db, admin["role"])
 
 
+@app.get("/api/admin/liab/coin")
+def admin_liab_coin(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    if admin["role"] != "BOSS":
+        raise HTTPException(403, "仅老板可见")
+    return L.liab_coin_detail(db)
+
+
+@app.get("/api/admin/liab/point")
+def admin_liab_point(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    if admin["role"] != "BOSS":
+        raise HTTPException(403, "仅老板可见")
+    return L.liab_point_detail(db)
+
+
+@app.get("/api/admin/liab/cards")
+def admin_liab_cards(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    if admin["role"] != "BOSS":
+        raise HTTPException(403, "仅老板可见")
+    return L.liab_card_detail(db)
+
+
+@app.get("/api/admin/alert/points")
+def admin_alert_points(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    return L.point_alert_detail(db)
+
+
 @app.get("/api/admin/jobs")
 def admin_jobs(preset: str = "7d", admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
     staff = db.query(User).filter(User.role != "CUSTOMER").all()
