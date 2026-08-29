@@ -817,6 +817,21 @@ def admin_job_detail(
     return L.job_detail(db, uid, preset, date_from, date_to, page, page_size, tab)
 
 
+@app.get("/api/admin/orders-page")
+def admin_orders_page(
+    preset: str = "all",
+    date_from: str = Query("", alias="from"),
+    date_to: str = Query("", alias="to"),
+    op_uid: int = Query(0, alias="opUid"),
+    status: str = "",
+    page: int = Query(1, ge=1),
+    page_size: int = Query(15, ge=1, le=200, alias="pageSize"),
+    admin: dict = Depends(admin_user),
+    db: Session = Depends(get_db),
+):
+    return L.orders_page(db, preset, date_from, date_to, op_uid, status, page, page_size)
+
+
 @app.get("/api/admin/daily-biz")
 def daily_biz_page(
     preset: str = "7d",

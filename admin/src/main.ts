@@ -8,6 +8,7 @@ import Dashboard from "./pages/Dashboard.vue";
 import Collection from "./pages/Collection.vue";
 import Jobs from "./pages/Jobs.vue";
 import JobDetail from "./pages/JobDetail.vue";
+import Orders from "./pages/Orders.vue";
 import Records from "./pages/Records.vue";
 import Members from "./pages/Members.vue";
 import Products from "./pages/Products.vue";
@@ -43,7 +44,7 @@ const router = createRouter({
     { path: "/deactivations/:id", component: DeactivationDetail },
     { path: "/jobs", component: Jobs },
     { path: "/jobs/:uid", component: JobDetail },
-    { path: "/orders", component: Records },
+    { path: "/orders", component: Orders },
     { path: "/recharges", component: Records },
     { path: "/withdrawals", component: WithdrawalManagement },
     { path: "/gameRecords", component: Records },

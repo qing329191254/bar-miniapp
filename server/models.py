@@ -270,6 +270,8 @@ class Order(Base):
             d["paidBonus"] = self.paid_bonus
         if self.cancel_reason:
             d["cancelReason"] = self.cancel_reason
+        if self.status == "REFUNDED" and self.cancel_reason:
+            d["refundReason"] = self.cancel_reason
         return d
 
 

@@ -13,8 +13,8 @@ onMounted(async () => {
 function fmt(n: number) {
   return Number(n || 0).toLocaleString("en-US");
 }
-function go(p: string) {
-  router.push("/" + p);
+function go(p: string, query?: Record<string, string>) {
+  router.push(query ? { path: "/" + p, query } : "/" + p);
 }
 function fmtDay(dt: Date) {
   const y = dt.getFullYear();
@@ -86,11 +86,11 @@ const clearDay = computed(() => {
         <div class="card">
           <div class="st">待处理 <em>点击跳转对应模块</em></div>
           <div class="todo4">
-            <div class="todo-cell" style="background:#FCEBEB;cursor:pointer" @click="go('orders')">
+            <div class="todo-cell" style="background:#FCEBEB;cursor:pointer" @click="go('orders', { status: 'PENDING_ACCEPT' })">
               <b style="font-size:19px;color:#A32D2D">{{ d.todo.accept }}</b>
               <div class="tiny" style="color:#A32D2D">待接单</div>
             </div>
-            <div class="todo-cell" style="background:#FAEEDA;cursor:pointer" @click="go('orders')">
+            <div class="todo-cell" style="background:#FAEEDA;cursor:pointer" @click="go('orders', { status: 'PENDING_PAY' })">
               <b style="font-size:19px;color:#BA7517">{{ d.todo.pay }}</b>
               <div class="tiny" style="color:#BA7517">待收款</div>
             </div>

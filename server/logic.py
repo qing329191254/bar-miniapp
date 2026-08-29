@@ -1752,6 +1752,87 @@ def daily_biz_page(
     }
 
 
+PAID_OD = ("MAKING", "FINISHED")
+PENDING_OD = ("PENDING_PAY", "PENDING_ACCEPT")
+
+
+def _enrich_orders(sess: Session, rows: list[dict]) -> list[dict]:
+    uids = {o["uid"] for o in rows}
+    op_uids = {o.get("opUid") for o in rows if o.get("opUid")}
+    users = {
+        u.id: u
+        for u in sess.query(User).filter(User.id.in_(list(uids | op_uids))).all()
+    } if (uids | op_uids) else {}
+    out = []
+    for o in rows:
+        row = dict(o)
+        usr = users.get(row["uid"])
+        if usr:
+            row["tail"] = usr.tail or ""
+            if not row.get("nick"):
+                row["nick"] = usr.nick
+        op = users.get(row.get("opUid") or 0)
+        row["opName"] = op.nick if op else None
+        out.append(row)
+    return out
+
+
+def orders_page(
+    sess: Session,
+    preset: str = "all",
+    date_from: str = "",
+    date_to: str = "",
+    op_uid: int = 0,
+    status: str = "",
+    page: int = 1,
+    page_size: int = 15,
+) -> dict:
+    all_rows = _enrich_orders(sess, [x.to_dict() for x in sess.query(Order).order_by(Order.id.desc()).all()])
+    rows = [
+        o for o in all_rows
+        if in_range(o.get("at") or "", preset, date_from, date_to)
+        and (not op_uid or (o.get("opUid") or 0) == op_uid)
+        and (not status or o.get("status") == status)
+    ]
+    rows.sort(key=lambda x: x.get("at") or "", reverse=True)
+    pending = [o for o in all_rows if o["status"] in PENDING_OD]
+    pending.sort(key=lambda x: x.get("at") or "")
+    done = [o for o in rows if o["status"] in PAID_OD]
+    amt = sum(int(o.get("total") or 0) for o in done)
+    by_status: dict[str, int] = {}
+    for o in rows:
+        st = o.get("status") or ""
+        by_status[st] = by_status.get(st, 0) + 1
+    by_op: dict[int, dict] = {}
+    for o in done:
+        k = int(o.get("opUid") or 0)
+        slot = by_op.setdefault(k, {"opUid": k, "n": 0, "amt": 0, "name": o.get("opName") or "未指定"})
+        slot["n"] += 1
+        slot["amt"] += int(o.get("total") or 0)
+    pg = paginate(rows, page, page_size)
+    staff = [public_user(sess, s) for s in sess.query(User).filter(User.role != "CUSTOMER").order_by(User.id).all()]
+    return {
+        "totalAll": len(all_rows),
+        "filtered": len(rows),
+        "rangeLabel": range_label(preset, date_from, date_to),
+        "summary": {
+            "paidAmount": amt,
+            "paidCount": len(done),
+            "avgAmount": round(amt / len(done)) if done else 0,
+            "cancelled": sum(1 for o in rows if o["status"] in ("REFUNDED", "CANCELLED", "CLOSED")),
+            "active": sum(1 for o in rows if o["status"] in ("PENDING_PAY", "PENDING_ACCEPT", "MAKING")),
+        },
+        "byStatus": by_status,
+        "byOp": sorted(by_op.values(), key=lambda x: -x["amt"]),
+        "pending": pending,
+        "rows": pg["items"],
+        "rowTotal": pg["total"],
+        "page": pg["page"],
+        "pageSize": pg["pageSize"],
+        "staff": staff,
+    }
+
+
 def coin_adjust_page(sess: Session, page: int = 1, page_size: int = 15) -> dict:
     rows = sess.query(CoinAdjust).order_by(CoinAdjust.at.desc()).all()
     uids = {a.uid for a in rows}
