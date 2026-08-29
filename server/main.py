@@ -819,10 +819,12 @@ def admin_reports_page(
     date_from: str = Query("", alias="from"),
     date_to: str = Query("", alias="to"),
     tab: str = "biz",
+    page: int = Query(1, ge=1),
+    page_size: int = Query(15, ge=1, le=200, alias="pageSize"),
     admin: dict = Depends(admin_user),
     db: Session = Depends(get_db),
 ):
-    return L.reports_page(db, preset, date_from, date_to, tab, admin.get("role") == "BOSS")
+    return L.reports_page(db, preset, date_from, date_to, tab, admin.get("role") == "BOSS", page, page_size)
 
 
 @app.get("/api/admin/jobs/{uid}")

@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { api, savedUser } from "../api";
+import { api, DEFAULT_PAGE_SIZE, pageQs, savedUser } from "../api";
 import AppDateInput from "../components/AppDateInput.vue";
+import AppAsyncPage from "../components/AppAsyncPage.vue";
+import AppPagination from "../components/AppPagination.vue";
 
 const router = useRouter();
 
@@ -38,11 +40,14 @@ const tab = ref("biz");
 const data = ref<any>(null);
 const loading = ref(true);
 const err = ref("");
+const tablePage = ref(1);
+const tablePageSize = ref(DEFAULT_PAGE_SIZE);
 
 const isBoss = computed(() => savedUser()?.role === "BOSS");
 const tabs = computed(() => ALL_TABS.filter(([k]) => isBoss.value || k !== "liab"));
 const body = computed(() => data.value?.body || {});
 const today = computed(() => data.value?.today || "");
+const rowTotal = computed(() => body.value?.rowTotal ?? 0);
 
 function fmt(n: number) {
   return Number(n || 0).toLocaleString("en-US");
@@ -64,14 +69,19 @@ function setPreset(p: string) {
   if (p !== "custom") {
     dateFrom.value = "";
     dateTo.value = "";
+    tablePage.value = 1;
     load();
   }
 }
 function onCustomDateChange() {
-  if (preset.value === "custom" && dateFrom.value && dateTo.value) load();
+  if (preset.value === "custom" && dateFrom.value && dateTo.value) {
+    tablePage.value = 1;
+    load();
+  }
 }
 function setTab(k: string) {
   tab.value = k;
+  tablePage.value = 1;
 }
 function exportDemo() {
   window.alert("已导出当前报表（演示）");
@@ -104,7 +114,7 @@ async function load() {
   loading.value = true;
   err.value = "";
   try {
-    const params = new URLSearchParams({ preset: preset.value, tab: tab.value });
+    const params = pageQs(tablePage.value, tablePageSize.value, { preset: preset.value, tab: tab.value });
     if (preset.value === "custom") {
       if (dateFrom.value) params.set("from", dateFrom.value);
       if (dateTo.value) params.set("to", dateTo.value);
@@ -120,7 +130,8 @@ async function load() {
 }
 
 onMounted(load);
-watch(tab, () => load());
+watch(tab, load);
+watch([tablePage, tablePageSize], load);
 </script>
 
 <template>
@@ -131,10 +142,13 @@ watch(tab, () => load());
       <button class="btn sm ghost hdr-back" @click="exportDemo">导出当前表</button>
     </div>
 
-    <div v-if="loading && !data" class="card"><p class="tiny loading-hint">加载中…</p></div>
-    <div v-else-if="err" class="card err-card"><p>{{ err }}</p><button class="btn sm ghost" @click="load">重试</button></div>
-
-    <template v-else-if="data">
+    <AppAsyncPage
+      :loading="loading"
+      :data="data"
+      :err="err"
+      :skeleton="{ showTabs: true, tableCols: 8, tableRows: 7 }"
+      @retry="load"
+    >
       <div class="card flt-card">
         <div class="st">筛选 <em>当前范围：{{ data.rangeLabel }}</em></div>
         <div class="flt-chips">
@@ -180,6 +194,7 @@ watch(tab, () => load());
               </tr>
             </tbody>
           </table>
+          <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
         </div>
         <div class="note"><b>口径：</b>全店营业额 = 金币消费 + 现场收款，<b>不含充值</b>。到店人次仅统计当营业日有消费的注册会员去重数，<b>未注册顾客与纯现金客不计入</b>；本页不提供「客单价」，人均类指标一律用「单均」。</div>
       </template>
@@ -210,8 +225,14 @@ watch(tab, () => load());
                 <td><b>{{ r.d }}</b></td><td class="tiny">{{ weekName(r.d) }}</td><td>{{ r.n }}</td>
                 <td><b>¥{{ fmt(r.amt) }}</b></td><td class="gold">{{ fmt(r.bns) }}</td><td class="tiny">¥{{ fmt(Math.round(r.amt / r.n)) }}</td>
               </tr>
+              <tr v-if="body.totals" class="total-row">
+                <td>合计</td><td class="tiny">{{ body.summary?.paidCount }} 笔</td><td>{{ body.totals.n }}</td>
+                <td><b>¥{{ fmt(body.totals.amt) }}</b></td><td class="gold">{{ fmt(body.totals.bns) }}</td>
+                <td class="tiny">¥{{ fmt(body.totals.avg) }}</td>
+              </tr>
             </tbody>
           </table>
+          <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
         </div>
       </template>
 
@@ -250,8 +271,13 @@ watch(tab, () => load());
                 <td><b>{{ r.d }}</b></td><td class="tiny">{{ weekName(r.d) }}</td><td>{{ r.games }}</td>
                 <td><b class="gold">{{ fmt(r.pts) }}</b></td><td class="tiny">{{ r.pct }}%</td>
               </tr>
+              <tr v-if="body.totals" class="total-row">
+                <td>合计</td><td class="tiny">{{ body.summary?.gameCount }} 局</td><td>{{ body.totals.games }}</td>
+                <td><b class="gold">{{ fmt(body.totals.pts) }}</b></td><td class="tiny">{{ body.totals.pct }}%</td>
+              </tr>
             </tbody>
           </table>
+          <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
         </div>
       </template>
 
@@ -273,8 +299,14 @@ watch(tab, () => load());
                 <td class="green">{{ r.used }}</td><td class="red">{{ r.unused }}</td><td class="tiny">{{ r.dead }}</td>
                 <td><b>{{ r.rate }}%</b><div class="rate-bar"><div class="rate-fill" :style="{ width: r.rate + '%' }" /></div></td>
               </tr>
+              <tr v-if="body.totals" class="total-row">
+                <td>合计</td><td class="tiny">{{ rowTotal }} 种</td><td>{{ body.totals.n }}</td>
+                <td class="green">{{ body.totals.used }}</td><td class="red">{{ body.totals.unused }}</td><td class="tiny">{{ body.totals.dead }}</td>
+                <td><b>{{ body.totals.rate }}%</b></td>
+              </tr>
             </tbody>
           </table>
+          <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
         </div>
       </template>
 
@@ -295,8 +327,14 @@ watch(tab, () => load());
                 <td class="tiny">{{ r.n ? (r.heads / r.n).toFixed(1) : 0 }}</td>
                 <td class="gold">{{ fmt(r.pts) }}</td><td class="purple">{{ fmt(r.sh) }}</td>
               </tr>
+              <tr v-if="body.totals" class="total-row">
+                <td>合计</td><td>{{ body.totals.n }}</td><td>{{ body.totals.heads }}</td>
+                <td class="tiny">{{ body.totals.avgHeads }}</td>
+                <td class="gold">{{ fmt(body.totals.pts) }}</td><td class="purple">{{ fmt(body.totals.sh) }}</td>
+              </tr>
             </tbody>
           </table>
+          <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
         </div>
       </template>
 
@@ -310,17 +348,23 @@ watch(tab, () => load());
         </div>
         <div class="card table-card">
           <table class="tb2 tb-even">
-            <thead><tr><th>会员</th><th>区间消费</th><th>单数</th><th>金币余额</th><th>积分</th><th>本周碎片</th><th>未核销卡</th><th>操作</th></tr></thead>
+            <thead><tr><th>会员</th><th>区间消费</th><th>单数</th><th>金币余额</th><th>积分</th><th>本周碎片</th><th>未核销卡</th><th class="col-op">操作</th></tr></thead>
             <tbody>
               <tr v-for="r in body.rows || []" :key="r.id">
                 <td><div class="staff-cell"><div class="av">{{ avText(r.nick) }}</div><div><b>{{ r.nick }}</b><div class="tiny">{{ r.no }}</div></div></div></td>
                 <td><b>¥{{ fmt(r.spend) }}</b></td><td class="tiny">{{ r.orders }}</td>
                 <td class="gold">{{ fmt(r.coin) }}</td><td :class="{ red: r.pt < 0 }">{{ r.pt < 0 ? "−" + fmt(-r.pt) : fmt(r.pt) }}</td>
                 <td class="purple">{{ fmt(r.sh) }}</td><td class="tiny">{{ r.cards }}</td>
-                <td><button class="btn sm" @click="drill('/members')">详情</button></td>
+                <td class="col-op"><button class="btn sm" @click="drill('/members')">详情</button></td>
+              </tr>
+              <tr v-if="body.totals" class="total-row">
+                <td>合计</td><td><b>¥{{ fmt(body.totals.spend) }}</b></td><td>{{ body.totals.orders }}</td>
+                <td class="gold">{{ fmt(body.totals.coin) }}</td><td>{{ fmt(body.totals.pt) }}</td>
+                <td class="purple">{{ fmt(body.totals.sh) }}</td><td class="tiny">{{ body.totals.cards }}</td><td>—</td>
               </tr>
             </tbody>
           </table>
+          <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
         </div>
       </template>
 
@@ -334,7 +378,7 @@ watch(tab, () => load());
         </div>
         <div class="card table-card">
           <table class="tb2 tb-even">
-            <thead><tr><th>员工</th><th>角色</th><th>接单</th><th>经手金额</th><th>核销</th><th>对局</th><th>发分</th><th>作业量</th><th>操作</th></tr></thead>
+            <thead><tr><th>员工</th><th>角色</th><th>接单</th><th>经手金额</th><th>核销</th><th>对局</th><th>发分</th><th>作业量</th><th class="col-op">操作</th></tr></thead>
             <tbody>
               <tr v-for="r in body.rows || []" :key="r.user.id">
                 <td><b>{{ r.user.nick }}</b><div class="tiny">{{ r.user.phone }}</div></td>
@@ -342,10 +386,17 @@ watch(tab, () => load());
                 <td>{{ r.orders }}</td><td><b>¥{{ fmt(r.amount) }}</b></td>
                 <td>{{ r.verifies }}</td><td>{{ r.games }}<div class="tiny">{{ r.heads }} 人次</div></td>
                 <td>{{ r.wds }}</td><td><b>{{ r.acts }}</b></td>
-                <td><button class="btn sm" @click="openJob(r.user.id)">查看流水</button></td>
+                <td class="col-op"><button class="btn sm" @click="openJob(r.user.id)">查看流水</button></td>
+              </tr>
+              <tr v-if="body.totals" class="total-row">
+                <td>合计</td><td class="tiny">{{ rowTotal }} 人</td><td>{{ body.totals.orders }}</td>
+                <td><b>¥{{ fmt(body.totals.amount) }}</b></td><td>{{ body.totals.verifies }}</td>
+                <td>{{ body.totals.games }}<div class="tiny">{{ body.totals.heads }} 人次</div></td>
+                <td>{{ body.totals.wds }}</td><td><b>{{ body.totals.acts }}</b></td><td>—</td>
               </tr>
             </tbody>
           </table>
+          <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
         </div>
       </template>
 
@@ -359,16 +410,17 @@ watch(tab, () => load());
         </div>
         <div class="card table-card">
           <table class="tb2 tb-even">
-            <thead><tr><th>负债科目</th><th>余额</th><th>性质与释放条件</th><th>操作</th></tr></thead>
+            <thead><tr><th>负债科目</th><th>余额</th><th>性质与释放条件</th><th class="col-op">操作</th></tr></thead>
             <tbody>
               <tr v-for="r in body.rows || []" :key="r.key">
                 <td><b>{{ r.label }}</b></td>
                 <td><b :style="{ color: r.color }">{{ r.display }}</b></td>
                 <td class="tiny">{{ r.desc }}</td>
-                <td><button class="btn sm" @click="drill(r.link)">逐户下钻</button></td>
+                <td class="col-op"><button class="btn sm" @click="drill(r.link)">逐户下钻</button></td>
               </tr>
             </tbody>
           </table>
+          <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
         </div>
         <div class="note rd"><b>这是负债不是利润。</b>未消费金币是顾客已付但尚未享受服务的钱。积分与卡券是兑付义务而非现金负债。</div>
       </template>
@@ -394,20 +446,26 @@ watch(tab, () => load());
                 <td><b :class="{ red: r.dRc }">{{ diffCell(r.dRc) }}</b></td>
                 <td><span class="pill" :class="r.ok ? 'pill-ok' : 'pill-bad'">{{ r.ok ? "账平" : "有差异" }}</span></td>
               </tr>
+              <tr v-if="body.totals" class="total-row">
+                <td>合计</td><td>¥{{ fmt(body.totals.sumCoin) }}</td><td class="tiny">¥{{ fmt(body.totals.flowCoin) }}</td>
+                <td><b :class="{ red: body.totals.dCoin }">{{ diffCell(body.totals.dCoin) }}</b></td>
+                <td>¥{{ fmt(body.totals.sumOffline) }}</td><td class="tiny">¥{{ fmt(body.totals.flowOffline) }}</td>
+                <td><b :class="{ red: body.totals.dOffline }">{{ diffCell(body.totals.dOffline) }}</b></td>
+                <td><b :class="{ red: body.totals.dRc }">{{ diffCell(body.totals.dRc) }}</b></td>
+                <td class="tiny">{{ body.summary?.bad ? body.summary.bad + " 天有差异" : "账平" }}</td>
+              </tr>
             </tbody>
           </table>
+          <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
         </div>
         <div class="note"><b>对账在比什么：</b>左侧「日结」是每日营业汇总表，右侧「流水」是订单与充值单逐笔实算值。对不上说明有单没录、或录了没进汇总。</div>
       </template>
-    </template>
+    </AppAsyncPage>
   </div>
 </template>
 
 <style scoped>
 .hdr-back { margin-left: auto; }
-.loading-hint { padding: 24px; text-align: center; }
-.err-card { background: #fcebeb; border-color: #e24b4a; }
-.err-card p { color: #a32d2d; padding: 16px; }
 .flt-card .st em { font-weight: normal; color: var(--ink2); }
 .flt-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .flt-custom { display: flex; align-items: center; gap: 6px; margin-top: 10px; flex-wrap: wrap; }

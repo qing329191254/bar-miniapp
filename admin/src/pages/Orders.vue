@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { api, DEFAULT_PAGE_SIZE, pageQs } from "../api";
 import AppPagination from "../components/AppPagination.vue";
 import AppDateInput from "../components/AppDateInput.vue";
+import AppAsyncPage from "../components/AppAsyncPage.vue";
 
 const router = useRouter();
 const route = useRoute();
@@ -181,13 +182,13 @@ watch(status, () => load(true));
       <button class="btn sm ghost hdr-back" @click="back">‹ 返回看板</button>
     </div>
 
-    <div v-if="loading && !data" class="card"><p class="tiny loading-hint">加载中…</p></div>
-    <div v-else-if="err" class="card err-card">
-      <p>{{ err }}</p>
-      <button class="btn sm ghost" @click="load()">重试</button>
-    </div>
-
-    <template v-else-if="data">
+    <AppAsyncPage
+      :loading="loading"
+      :data="data"
+      :err="err"
+      :skeleton="{ showExtraCard: true, tableCols: 10, tableRows: 8 }"
+      @retry="load()"
+    >
       <div class="card flt-card">
         <div class="st">筛选 <em>当前范围：{{ data.rangeLabel }}</em></div>
         <div class="flt-chips">
@@ -290,7 +291,7 @@ watch(status, () => load(true));
               <th>状态</th>
               <th>操作人</th>
               <th>时间</th>
-              <th>操作</th>
+              <th class="col-op">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -307,7 +308,7 @@ watch(status, () => load(true));
               </td>
               <td class="tiny">{{ r.opName || "—" }}</td>
               <td class="tiny">{{ r.at || "—" }}</td>
-              <td>
+              <td class="col-op">
                 <button v-if="canRefund(r)" class="btn sm od-refund" @click="openRefund(r)">退款</button>
                 <span v-else class="tiny">—</span>
               </td>
@@ -324,7 +325,7 @@ watch(status, () => load(true));
         <b>口径：</b>有效订单额只计「制作中 / 已完成」，退款与取消单不计入营业额。<b>操作人</b>为接单或确认收款的店员，待接单状态尚无经手人故显示「—」。<br />
         <b>退款需店长以上：</b>按原扣款构成退回本金与赠送金币，必填原因并记入操作日志；同时回收该订单发放的未使用套餐赠卡。
       </div>
-    </template>
+    </AppAsyncPage>
 
     <div v-if="refundTarget" class="refund-mask" @click.self="closeRefund">
       <div class="refund-dialog">
@@ -358,9 +359,6 @@ watch(status, () => load(true));
 
 <style scoped>
 .hdr-back { margin-left: auto; }
-.loading-hint { padding: 24px; text-align: center; }
-.err-card { background: #fcebeb; border-color: #e24b4a; }
-.err-card p { color: #a32d2d; padding: 16px; }
 .flt-card .st em { font-weight: normal; color: var(--ink2); }
 .flt-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .flt-custom { display: flex; align-items: center; gap: 6px; margin-top: 10px; flex-wrap: wrap; }

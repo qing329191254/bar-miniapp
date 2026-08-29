@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { api, DEFAULT_PAGE_SIZE, pageQs } from "../api";
 import AppPagination from "../components/AppPagination.vue";
+import AppAsyncPage from "../components/AppAsyncPage.vue";
 import PointTrendChart from "./PointTrendChart.vue";
 
 const props = defineProps<{ kind?: "coin" | "point" | "card" | "alert" }>();
@@ -95,16 +96,17 @@ const pointTrend = computed(() => {
   return last10Days().map((d) => map.get(d) || { d, pts: 0, today: d === today });
 });
 
-async function load(resetPage = false) {
+async function load(resetPage = false, resetData = false) {
   if (resetPage) tablePage.value = 1;
   loading.value = true;
   err.value = "";
-  data.value = null;
+  if (resetData) data.value = null;
   try {
     const params = pageQs(tablePage.value, tablePageSize.value);
     data.value = await api(`${meta.value.api}?${params}`);
   } catch (e: any) {
     err.value = e?.message || "加载失败";
+    if (resetData || !data.value) data.value = null;
   } finally {
     loading.value = false;
   }
@@ -151,7 +153,7 @@ async function submitVoid() {
 }
 
 onMounted(() => load());
-watch(kind, () => load(true));
+watch(kind, () => load(true, true));
 watch([tablePage, tablePageSize], () => load());
 </script>
 
@@ -166,13 +168,18 @@ watch([tablePage, tablePageSize], () => load());
       <button class="btn sm ghost hdr-back" @click="back">‹ 返回看板</button>
     </div>
 
-    <div v-if="loading" class="card"><p class="tiny" style="padding:24px;text-align:center">加载中…</p></div>
-    <div v-else-if="err" class="card" style="background:#FCEBEB;border-color:#E24B4A">
-      <p style="color:#A32D2D;padding:16px">{{ err }}</p>
-      <button class="btn sm ghost" style="margin:0 16px 16px" @click="load">重试</button>
-    </div>
-
-    <template v-else-if="data">
+    <AppAsyncPage
+      :loading="loading"
+      :data="data"
+      :err="err"
+      :skeleton="{
+        showFilter: false,
+        tableCols: kind === 'card' ? 6 : 7,
+        showChart: kind === 'alert',
+        showNote: true,
+      }"
+      @retry="load()"
+    >
       <template v-if="kind === 'coin'">
         <div class="cards">
           <div class="mtr"><div class="k">负债总额</div><div class="v" style="color:#A32D2D">¥{{ fmt(data.summary.total) }}</div><div class="tiny">{{ data.summary.members }} 位会员持有</div></div>
@@ -182,13 +189,13 @@ watch([tablePage, tablePageSize], () => load());
         </div>
         <div class="card" style="padding:0;overflow:auto">
           <table class="tb2 tb-even tb-even-7" data-cols="lcccccc">
-            <thead><tr><th>会员</th><th>会员号</th><th>本金余额</th><th>赠送余额</th><th>合计</th><th>占比</th><th>操作</th></tr></thead>
+            <thead><tr><th>会员</th><th>会员号</th><th>本金余额</th><th>赠送余额</th><th>合计</th><th>占比</th><th class="col-op">操作</th></tr></thead>
             <tbody>
               <tr v-for="r in liabRows" :key="r.uid">
                 <td><b>{{ r.nick }}</b></td><td class="tiny">{{ r.no }}</td>
                 <td>¥{{ fmt(r.principal) }}</td><td style="color:#BA7517">¥{{ fmt(r.bonus) }}</td>
                 <td><b>¥{{ fmt(r.total) }}</b></td><td class="tiny">{{ r.pct }}%</td>
-                <td><button class="btn sm ghost" @click="member(r.uid)">会员详情</button></td>
+                <td class="col-op"><button class="btn sm ghost" @click="member(r.uid)">会员详情</button></td>
               </tr>
               <tr v-if="!data.rows.length"><td colspan="7" class="tiny" style="text-align:center;padding:26px">暂无持有金币的会员</td></tr>
             </tbody>
@@ -222,14 +229,14 @@ watch([tablePage, tablePageSize], () => load());
         </div>
         <div class="card" style="padding:0;overflow:auto">
           <table class="tb2 tb-even tb-even-7" data-cols="lcccccc">
-            <thead><tr><th>会员</th><th>会员号</th><th>可用积分</th><th>冻结中</th><th>本月获得</th><th>累计已提</th><th>操作</th></tr></thead>
+            <thead><tr><th>会员</th><th>会员号</th><th>可用积分</th><th>冻结中</th><th>本月获得</th><th>累计已提</th><th class="col-op">操作</th></tr></thead>
             <tbody>
               <tr v-for="r in liabRows" :key="r.uid">
                 <td><b>{{ r.nick }}</b></td><td class="tiny">{{ r.no }}</td>
                 <td><b style="color:#185FA5">{{ fmt(r.av) }}</b></td>
                 <td>{{ r.fz ? fmt(r.fz) : "—" }}</td>
                 <td class="tiny">{{ fmt(r.mg) }}</td><td class="tiny">{{ fmt(r.wd) }}</td>
-                <td><button class="btn sm ghost" @click="member(r.uid)">会员详情</button></td>
+                <td class="col-op"><button class="btn sm ghost" @click="member(r.uid)">会员详情</button></td>
               </tr>
               <tr v-if="!data.rows.length"><td colspan="7" class="tiny" style="text-align:center;padding:26px">暂无持有积分的会员</td></tr>
             </tbody>
@@ -261,13 +268,13 @@ watch([tablePage, tablePageSize], () => load());
         </div>
         <div class="card" style="padding:0;overflow:auto">
           <table class="tb2" data-cols="llllcc">
-            <thead><tr><th>卡号</th><th>卡券名称</th><th>持有会员</th><th>来源</th><th>剩余有效期</th><th>操作</th></tr></thead>
+            <thead><tr><th>卡号</th><th>卡券名称</th><th>持有会员</th><th>来源</th><th>剩余有效期</th><th class="col-op">操作</th></tr></thead>
             <tbody>
               <tr v-for="r in liabRows" :key="r.id" :style="r.daysLeft <= 3 ? 'background:#FDF0F0' : ''">
                 <td class="tiny">{{ r.no }}</td><td><b>{{ r.tplName }}</b></td>
                 <td>{{ r.nick }} {{ r.tail }}</td><td class="tiny">{{ r.srcDesc || r.src || "—" }}</td>
                 <td><b v-if="r.daysLeft <= 3" style="color:#A32D2D">{{ r.daysLeft }} 天</b><span v-else>{{ r.daysLeft }} 天</span></td>
-                <td><button class="btn sm ghost" @click="member(r.uid)">会员详情</button></td>
+                <td class="col-op"><button class="btn sm ghost" @click="member(r.uid)">会员详情</button></td>
               </tr>
               <tr v-if="!data.rows.length"><td colspan="6" class="tiny" style="text-align:center;padding:26px">暂无未核销卡券</td></tr>
             </tbody>
@@ -295,12 +302,12 @@ watch([tablePage, tablePageSize], () => load());
         <div class="card">
           <div class="st">今日按录入人归集 <em>判断是个人异常还是全店普涨</em></div>
           <table class="tb2 tb-even tb-even-5" data-cols="lcccc">
-            <thead><tr><th>录入店员</th><th>录入局数</th><th>发出积分</th><th>发出碎片</th><th>操作</th></tr></thead>
+            <thead><tr><th>录入店员</th><th>录入局数</th><th>发出积分</th><th>发出碎片</th><th class="col-op">操作</th></tr></thead>
             <tbody>
               <tr v-for="o in data.byOp" :key="o.opUid">
                 <td><b>{{ o.op || "未指定" }}</b></td><td>{{ o.n }}</td>
                 <td><b style="color:#BA7517">{{ fmt(o.pts) }}</b></td><td style="color:#534AB7">{{ fmt(o.sh) }}</td>
-                <td><button v-if="o.opUid" class="btn sm ghost" @click="jobs(o.opUid)">查看作业流水</button><span v-else class="tiny">—</span></td>
+                <td class="col-op"><button v-if="o.opUid" class="btn sm ghost" @click="jobs(o.opUid)">查看作业流水</button><span v-else class="tiny">—</span></td>
               </tr>
               <tr v-if="!data.byOp?.length"><td colspan="5" class="tiny" style="text-align:center;padding:22px">今日暂无对局录入</td></tr>
             </tbody>
@@ -309,7 +316,7 @@ watch([tablePage, tablePageSize], () => load());
         <div class="card alert-games-card">
           <div class="st">今日对局逐条 <em>{{ data.games?.length || 0 }} 局 · 可直接作废异常记录</em></div>
           <table class="tb2 tb-even tb-even-7" data-cols="clclccc">
-            <thead><tr><th>时间</th><th>项目</th><th>桌台</th><th>玩家与得分</th><th>积分</th><th>录入人</th><th>操作</th></tr></thead>
+            <thead><tr><th>时间</th><th>项目</th><th>桌台</th><th>玩家与得分</th><th>积分</th><th>录入人</th><th class="col-op">操作</th></tr></thead>
             <tbody>
               <tr v-for="g in alertGames" :key="g.id">
                 <td class="tiny">{{ String(g.time || "").slice(11) || "—" }}</td>
@@ -317,7 +324,7 @@ watch([tablePage, tablePageSize], () => load());
                 <td class="tiny">{{ gamePlayers(g) }}</td>
                 <td><b style="color:#BA7517">{{ fmt(gamePts(g)) }}</b></td>
                 <td class="tiny">{{ g.op || "—" }}</td>
-                <td><button class="btn sm void-btn" @click="openVoid(g)">作废</button></td>
+                <td class="col-op"><button class="btn sm void-btn" @click="openVoid(g)">作废</button></td>
               </tr>
               <tr v-if="!data.games?.length"><td colspan="7" class="tiny" style="text-align:center;padding:22px">今日暂无对局录入</td></tr>
             </tbody>
@@ -326,7 +333,7 @@ watch([tablePage, tablePageSize], () => load());
         </div>
         <div class="note"><b>倍数为实算值</b>（今日发放量 ÷ 历史有记录日的日均），不是写死的演示数字。倍数偏高不等于作弊——周末大场次、赛事日天然会高，故此页提供按录入人归集与逐条明细，供人工判断而非自动处置。<b>作废会产生负余额</b>（分已被消费时），处理前请阅读作废影响预览。</div>
       </template>
-    </template>
+    </AppAsyncPage>
 
     <div v-if="voidPreview" class="void-mask" @click.self="closeVoid">
       <div class="void-dialog">

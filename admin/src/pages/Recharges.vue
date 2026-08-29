@@ -4,6 +4,7 @@ import { useRouter } from "vue-router";
 import { api, DEFAULT_PAGE_SIZE, pageQs } from "../api";
 import AppPagination from "../components/AppPagination.vue";
 import AppDateInput from "../components/AppDateInput.vue";
+import AppAsyncPage from "../components/AppAsyncPage.vue";
 
 const router = useRouter();
 
@@ -197,13 +198,13 @@ watch([opUid, memberUid], () => load(true));
       <button class="btn sm ghost hdr-back" @click="back">‹ 返回看板</button>
     </div>
 
-    <div v-if="loading && !data" class="card"><p class="tiny loading-hint">加载中…</p></div>
-    <div v-else-if="err" class="card err-card">
-      <p>{{ err }}</p>
-      <button class="btn sm ghost" @click="load()">重试</button>
-    </div>
-
-    <template v-else-if="data">
+    <AppAsyncPage
+      :loading="loading"
+      :data="data"
+      :err="err"
+      :skeleton="{ showExtraCard: true, tableCols: 9, tableRows: 8 }"
+      @retry="load()"
+    >
       <div class="card flt-card">
         <div class="st">筛选 <em>当前范围：{{ data.rangeLabel }}</em></div>
         <div class="flt-chips">
@@ -295,7 +296,7 @@ watch([opUid, memberUid], () => load(true));
               <th>操作人</th>
               <th>时间</th>
               <th>备注</th>
-              <th>操作</th>
+              <th class="col-op">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -310,7 +311,7 @@ watch([opUid, memberUid], () => load(true));
               <td class="tiny">{{ r.opName || "—" }}</td>
               <td class="tiny">{{ r.at || r.created || "—" }}</td>
               <td class="tiny">{{ remarkText(r) || "—" }}</td>
-              <td>
+              <td class="col-op">
                 <button v-if="r.status === 'PENDING_PAY'" class="btn sm rc-confirm" :disabled="actingId === r.id" @click="confirmOne(r)">确认</button>
                 <span v-else class="tiny">—</span>
               </td>
@@ -327,7 +328,7 @@ watch([opUid, memberUid], () => load(true));
         <b>口径：</b>「实收」为顾客实际支付现金，计入营业收入统计；「赠送」为平台负债，用户消费时才核销，不计收入。待付款单超时自动取消，不占用额度。<br />
         <b>资金操作约束：</b>金额不可编辑，接口不接收 amount 参数；同一用户同时仅 1 张待付单；拒绝必填原因；每笔确认留痕（操作人 / 时间 / 单号 / 前后余额）。
       </div>
-    </template>
+    </AppAsyncPage>
 
     <div v-if="rejectTarget" class="reject-mask" @click.self="closeReject">
       <div class="reject-dialog">
@@ -347,9 +348,6 @@ watch([opUid, memberUid], () => load(true));
 
 <style scoped>
 .hdr-back { margin-left: auto; }
-.loading-hint { padding: 24px; text-align: center; }
-.err-card { background: #fcebeb; border-color: #e24b4a; }
-.err-card p { color: #a32d2d; padding: 16px; }
 .flt-card .st em { font-weight: normal; color: var(--ink2); }
 .flt-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .flt-custom { display: flex; align-items: center; gap: 6px; margin-top: 10px; flex-wrap: wrap; }

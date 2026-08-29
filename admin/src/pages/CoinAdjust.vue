@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { api, DEFAULT_PAGE_SIZE, pageQs, savedUser } from "../api";
 import AppPagination from "../components/AppPagination.vue";
+import AppAsyncPage from "../components/AppAsyncPage.vue";
 
 const router = useRouter();
 const data = ref<any>(null);
@@ -64,6 +65,7 @@ async function load() {
     data.value = await api(`/admin/coin-adjust?${params}`);
   } catch (e: any) {
     err.value = e?.message || "加载失败";
+    data.value = null;
   } finally {
     loading.value = false;
   }
@@ -129,13 +131,13 @@ onMounted(load);
 
     <p v-if="msg" class="tiny" style="color:#3B6D11;margin-bottom:10px">{{ msg }}</p>
 
-    <div v-if="loading" class="card"><p class="tiny" style="padding:24px;text-align:center">加载中…</p></div>
-    <div v-else-if="err" class="card" style="background:#FCEBEB;border-color:#E24B4A">
-      <p style="color:#A32D2D;padding:16px">{{ err }}</p>
-      <button class="btn sm ghost" style="margin:0 16px 16px" @click="load">重试</button>
-    </div>
-
-    <template v-else-if="data">
+    <AppAsyncPage
+      :loading="loading"
+      :data="data"
+      :err="err"
+      :skeleton="{ showFilter: false, showExtraCard: true, tableCols: 7 }"
+      @retry="load"
+    >
       <div v-if="pending.length" class="card pending-card">
         <div class="st" style="color:var(--gold)">待审批申请</div>
         <div v-for="a in pending" :key="a.id" class="li pending-li">
@@ -186,7 +188,7 @@ onMounted(load);
       <div class="note">
         <b>为何要审批：</b>金币是真实负债且无第三方支付流水兜底，手动加币等于凭空创造负债。审批制把「谁申请」与「谁批准」分离，两人留痕后才生效。<b>店员一律无权发起</b>，店长可发起、老板批准。全部操作进入仅老板可见的操作日志。
       </div>
-    </template>
+    </AppAsyncPage>
 
     <div v-if="dlg" class="adj-mask" @click.self="closeDlg">
       <div class="adj-dialog">

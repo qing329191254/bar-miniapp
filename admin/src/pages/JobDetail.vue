@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { api, DEFAULT_PAGE_SIZE, pageQs } from "../api";
 import AppPagination from "../components/AppPagination.vue";
 import AppDateInput from "../components/AppDateInput.vue";
+import AppAsyncPage from "../components/AppAsyncPage.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -143,13 +144,13 @@ watch([feedPage, feedPageSize], () => load());
       <button class="btn sm ghost hdr-back" @click="back">‹ 返回员工列表</button>
     </div>
 
-    <div v-if="loading" class="card"><p class="tiny" style="padding:24px;text-align:center">加载中…</p></div>
-    <div v-else-if="err" class="card" style="background:#FCEBEB;border-color:#E24B4A">
-      <p style="color:#A32D2D;padding:16px">{{ err }}</p>
-      <button class="btn sm ghost" style="margin:0 16px 16px" @click="load">重试</button>
-    </div>
-
-    <template v-else-if="data">
+    <AppAsyncPage
+      :loading="loading"
+      :data="data"
+      :err="err"
+      :skeleton="{ variant: 'feed', showFilter: true, showNote: true, metrics: 4 }"
+      @retry="load()"
+    >
       <div class="card">
         <div class="st">筛选 <em>当前范围：{{ data.stat?.range?.label || "—" }}</em></div>
         <div class="flt-chips">
@@ -227,7 +228,7 @@ watch([feedPage, feedPageSize], () => load());
       <div class="note">
         流水按作业发生时间倒序，同一天的条目归为一组。<b>此页只读</b>：核销与对局录入不可在此撤销，需分别走「对局记录查询」作废或由老板处理；订单退款在「订单记录与管理」页操作。
       </div>
-    </template>
+    </AppAsyncPage>
   </div>
 </template>
 

@@ -2108,6 +2108,12 @@ def _report_recharge(sess: Session, preset: str, date_from: str, date_to: str, _
         a = int(r.get("amount") or 0)
         by_tier[a] = by_tier.get(a, 0) + 1
     day_rows = sorted(by_day.values(), key=lambda x: x["d"], reverse=True)
+    tot = {"n": 0, "amt": 0, "bns": 0}
+    for r in day_rows:
+        tot["n"] += int(r["n"])
+        tot["amt"] += int(r["amt"])
+        tot["bns"] += int(r["bns"])
+    tot["avg"] = round(tot["amt"] / tot["n"]) if tot["n"] else 0
     return {
         "summary": {
             "amt": amt, "bns": bns, "paidCount": len(paid),
@@ -2117,6 +2123,7 @@ def _report_recharge(sess: Session, preset: str, date_from: str, date_to: str, _
         },
         "byTier": [{"amount": int(k), "n": v} for k, v in sorted(by_tier.items(), key=lambda x: -x[0])],
         "rows": day_rows,
+        "totals": tot,
     }
 
 
@@ -2134,7 +2141,12 @@ def _report_point(sess: Session, preset: str, date_from: str, date_to: str, _tod
     wdr_pts = sum(int(w.pts or 0) for w in wdr_in)
     day_rows = [{"d": d, "games": sum(1 for g in games if day_key(g.get("time") or "") == d), "pts": by_day[d],
                  "pct": round(by_day[d] / issued * 100, 1) if issued else 0} for d in days]
-    return {"identity": ident, "summary": {"issued": issued, "wdrPts": wdr_pts, "wdrCount": len(wdr_in), "endFz": ident["endFz"], "costExch": ident["costExch"], "gameCount": len(games)}, "rows": day_rows}
+    return {
+        "identity": ident,
+        "summary": {"issued": issued, "wdrPts": wdr_pts, "wdrCount": len(wdr_in), "endFz": ident["endFz"], "costExch": ident["costExch"], "gameCount": len(games)},
+        "rows": day_rows,
+        "totals": {"games": len(games), "pts": issued, "pct": 100 if issued else 0},
+    }
 
 
 def _report_card(sess: Session, preset: str, date_from: str, date_to: str, _today: str) -> dict:
@@ -2157,7 +2169,11 @@ def _report_card(sess: Session, preset: str, date_from: str, date_to: str, _toda
                      "rate": round(used / n * 100) if n else 0})
     rows.sort(key=lambda x: -x["n"])
     vfs = [v for v in sess.query(VerifyLog).all() if in_range(v.at or "", preset, date_from, date_to)]
-    return {"summary": {**tot, "rate": round(tot["used"] / tot["n"] * 100) if tot["n"] else 0, "rangeVerifies": len(vfs)}, "rows": rows}
+    return {
+        "summary": {**tot, "rate": round(tot["used"] / tot["n"] * 100) if tot["n"] else 0, "rangeVerifies": len(vfs)},
+        "rows": rows,
+        "totals": {**tot, "rate": round(tot["used"] / tot["n"] * 100) if tot["n"] else 0},
+    }
 
 
 def _report_game(sess: Session, preset: str, date_from: str, date_to: str, _today: str) -> dict:
@@ -2177,7 +2193,12 @@ def _report_game(sess: Session, preset: str, date_from: str, date_to: str, _toda
     for r in rows:
         for k in tot:
             tot[k] += r[k]
-    return {"summary": {**tot, "voided": voided, "avgHeads": round(tot["heads"] / tot["n"], 1) if tot["n"] else 0}, "rows": rows}
+    avg_heads = round(tot["heads"] / tot["n"], 1) if tot["n"] else 0
+    return {
+        "summary": {**tot, "voided": voided, "avgHeads": avg_heads},
+        "rows": rows,
+        "totals": {**tot, "avgHeads": avg_heads},
+    }
 
 
 def _report_member(sess: Session, preset: str, date_from: str, date_to: str, _today: str) -> dict:
@@ -2202,13 +2223,21 @@ def _report_member(sess: Session, preset: str, date_from: str, date_to: str, _to
         rows.append({"id": m.id, "nick": m.nick, "no": m.no, "spend": spend, "orders": len(ods),
                      "coin": w.coin_p + w.coin_b, "pt": w.point_av, "sh": shard_of(sess, m.id)["w"], "cards": cards})
     rows.sort(key=lambda x: (-x["spend"], -x["coin"]))
-    tot_spend = sum(r["spend"] for r in rows)
-    return {"summary": {"total": len(members), "active": len(active_ids), "pending": pending, "gone": gone, "totSpend": tot_spend}, "rows": rows[:30], "rowTotal": len(rows)}
+    tot = {"spend": 0, "orders": 0, "coin": 0, "pt": 0, "sh": 0, "cards": 0}
+    for r in rows:
+        for k in tot:
+            tot[k] += int(r.get(k) or 0)
+    return {"summary": {"total": len(members), "active": len(active_ids), "pending": pending, "gone": gone, "totSpend": tot["spend"]}, "rows": rows, "totals": tot}
 
 
 def _report_staff(sess: Session, preset: str, date_from: str, date_to: str, _today: str) -> dict:
     page = jobs_page(sess, preset, date_from, date_to, 0)
-    return {"summary": page["summary"], "rows": page["rows"], "maxAmount": page["maxAmount"]}
+    rows = page["rows"]
+    tot = {k: 0 for k in ("orders", "amount", "verifies", "games", "wds", "acts", "heads")}
+    for r in rows:
+        for k in tot:
+            tot[k] += int(r.get(k) or 0)
+    return {"summary": page["summary"], "rows": rows, "maxAmount": page["maxAmount"], "totals": tot}
 
 
 def _report_liab(sess: Session, _preset: str, _date_from: str, _date_to: str, _today: str) -> dict:
@@ -2260,7 +2289,16 @@ def _report_recon(sess: Session, preset: str, date_from: str, date_to: str, _tod
                      "flowCoin": coin, "flowOffline": offline, "flowRc": rc,
                      "dCoin": d_coin, "dOffline": d_off, "dRc": d_rc, "ok": not (d_coin or d_off or d_rc)})
     bad = sum(1 for r in rows if not r["ok"])
-    return {"summary": {"days": len(rows), "bad": bad, "sumBiz": tot["sumBiz"], "flowBiz": tot["flowBiz"], **tot}, "rows": rows}
+    tot_row = {"sumCoin": 0, "flowCoin": 0, "dCoin": 0, "sumOffline": 0, "flowOffline": 0, "dOffline": 0, "dRc": 0}
+    for r in rows:
+        tot_row["sumCoin"] += int(r.get("sumCoin") or 0)
+        tot_row["flowCoin"] += int(r.get("flowCoin") or 0)
+        tot_row["dCoin"] += int(r.get("dCoin") or 0)
+        tot_row["sumOffline"] += int(r.get("sumOffline") or 0)
+        tot_row["flowOffline"] += int(r.get("flowOffline") or 0)
+        tot_row["dOffline"] += int(r.get("dOffline") or 0)
+        tot_row["dRc"] += int(r.get("dRc") or 0)
+    return {"summary": {"days": len(rows), "bad": bad, "sumBiz": tot["sumBiz"], "flowBiz": tot["flowBiz"], **tot}, "rows": rows, "totals": tot_row}
 
 
 def reports_page(
@@ -2270,6 +2308,8 @@ def reports_page(
     date_to: str = "",
     tab: str = "biz",
     is_boss: bool = True,
+    page: int = 1,
+    page_size: int = 15,
 ) -> dict:
     today = today_str()
     if tab == "liab" and not is_boss:
@@ -2287,4 +2327,9 @@ def reports_page(
     }
     fn = builders.get(tab) or _report_biz
     body = fn(sess, preset, date_from, date_to, today)
+    rows = body.get("rows")
+    if isinstance(rows, list):
+        pg = paginate(rows, page, page_size)
+        body["rows"] = pg["items"]
+        body["rowTotal"] = pg["total"]
     return {"rangeLabel": range_label(preset, date_from, date_to), "tab": tab, "today": today, "body": body}

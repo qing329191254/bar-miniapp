@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { api } from "../api";
 import AppDateInput from "../components/AppDateInput.vue";
+import AppAsyncPage from "../components/AppAsyncPage.vue";
 
 const router = useRouter();
 
@@ -86,18 +87,12 @@ watch(opUid, () => load());
 
 <template>
   <div>
-    <div class="hdr">
+    <div class="hdr jobs-hdr">
       <span class="hdr-title">员工作业记录</span>
-      <em v-if="data" class="hdr-note">{{ data.staffCount }} 名员工 · 含核销 / 接单 / 收款 / 对局录入全量流水</em>
+      <em v-if="data" class="hdr-note">{{ data.staffCount }} 名操作人 · 含核销 / 接单 / 收款 / 对局录入全量流水</em>
     </div>
 
-    <div v-if="loading && !data" class="card"><p class="tiny loading-hint">加载中…</p></div>
-    <div v-else-if="err" class="card err-card">
-      <p>{{ err }}</p>
-      <button class="btn sm ghost" @click="load">重试</button>
-    </div>
-
-    <template v-else-if="data">
+    <AppAsyncPage :loading="loading" :data="data" :err="err" @retry="load">
       <div class="card flt-card">
         <div class="st">筛选 <em>当前范围：{{ data.rangeLabel }}</em></div>
         <div class="flt-chips">
@@ -111,9 +106,9 @@ watch(opUid, () => load());
         </div>
         <div class="flt-extra">
           <label class="flt-field">
-            <span class="fld">员工</span>
+            <span class="fld">操作人</span>
             <select v-model.number="opUid" class="inp flt-select">
-              <option :value="0">全部员工</option>
+              <option :value="0">全部操作人</option>
               <option v-for="s in data.staff || []" :key="s.id" :value="s.id">{{ s.nick }} · {{ ROLE[s.role] || s.role }}</option>
             </select>
           </label>
@@ -144,10 +139,10 @@ watch(opUid, () => load());
       </div>
 
       <div class="card table-card">
-        <table class="tb2 tb-even job-table" data-cols="lccccccc">
+        <table class="tb2 tb-even job-table" data-cols="lccclcccc">
           <thead>
             <tr>
-              <th>员工</th><th>角色</th><th>接单</th><th>经手金额</th><th>核销</th><th>对局</th><th>发分</th><th>作业总量</th><th>操作</th>
+              <th>操作人</th><th>角色</th><th>接单</th><th>经手金额</th><th>核销</th><th>对局</th><th>发分</th><th>作业总量</th><th class="col-op">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -174,10 +169,10 @@ watch(opUid, () => load());
               <td>{{ r.games }}<div class="tiny">{{ r.heads }} 人次</div></td>
               <td>{{ r.wds }}</td>
               <td><b>{{ r.acts }}</b> 条</td>
-              <td><button class="btn sm" @click="openDetail(r.user.id)">查看流水</button></td>
+              <td class="col-op"><button class="btn sm" @click="openDetail(r.user.id)">查看流水</button></td>
             </tr>
             <tr v-if="!rows.length">
-              <td colspan="9" class="tiny empty-row">当前筛选条件下无员工</td>
+              <td colspan="9" class="tiny empty-row">当前筛选条件下无操作人</td>
             </tr>
             <tr v-if="showTotal" class="total-row">
               <td>合计</td>
@@ -197,14 +192,17 @@ watch(opUid, () => load());
       <div class="note">
         <b>口径：</b>作业总量 = 接单 + 确认充值 + 核销 + 对局录入的条目数之和，用于衡量作业量而非业绩。<b>经手金额</b>只计已归属经手人的单（待接单状态尚无经手人，不计入任何人）。<b>发分</b>为经手确认发放的提分单笔数。核销与对局录入流水一律不可修改，如需撤销走「对局记录查询」或联系老板。
       </div>
-    </template>
+    </AppAsyncPage>
   </div>
 </template>
 
 <style scoped>
-.loading-hint { padding: 24px; text-align: center; }
-.err-card { background: #fcebeb; border-color: #e24b4a; }
-.err-card p { color: #a32d2d; padding: 16px; }
+.jobs-hdr .hdr-note {
+  position: static;
+  transform: none;
+  margin-left: auto;
+  flex: none;
+}
 .flt-card .st em { font-weight: normal; color: var(--ink2); }
 .flt-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .flt-custom { display: flex; align-items: center; gap: 6px; margin-top: 10px; flex-wrap: wrap; }

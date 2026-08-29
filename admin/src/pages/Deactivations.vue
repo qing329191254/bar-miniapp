@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { api, DEFAULT_PAGE_SIZE, pageQs } from "../api";
 import AppPagination from "../components/AppPagination.vue";
+import AppAsyncPage from "../components/AppAsyncPage.vue";
 
 const router = useRouter();
 const data = ref<any>(null);
@@ -46,6 +47,7 @@ async function load() {
     data.value = await api(`/admin/deactivation?${params}`);
   } catch (e: any) {
     err.value = e?.message || "加载失败";
+    data.value = null;
   } finally {
     loading.value = false;
   }
@@ -63,13 +65,7 @@ onMounted(load);
       <em v-if="data" class="hdr-note">共 {{ summary.total }} 条 · 待处理 {{ summary.pending }} 条</em>
     </div>
 
-    <div v-if="loading" class="card"><p class="tiny" style="padding:24px;text-align:center">加载中…</p></div>
-    <div v-else-if="err" class="card" style="background:#FCEBEB;border-color:#E24B4A">
-      <p style="color:#A32D2D;padding:16px">{{ err }}</p>
-      <button class="btn sm ghost" style="margin:0 16px 16px" @click="load">重试</button>
-    </div>
-
-    <template v-else-if="data">
+    <AppAsyncPage :loading="loading" :data="data" :err="err" :skeleton="{ showFilter: false, tableCols: 7 }" @retry="load">
       <div class="cards">
         <div class="mtr">
           <div class="k">待处理</div>
@@ -97,7 +93,7 @@ onMounted(load);
         <table class="tb2 tb-even tb-deact" data-cols="lllclcc">
           <thead>
             <tr>
-              <th>申请单号</th><th>会员</th><th>申请原因</th><th>申请时间</th><th>当前本金</th><th>状态</th><th>操作</th>
+              <th>申请单号</th><th>会员</th><th>申请原因</th><th>申请时间</th><th>当前本金</th><th>状态</th><th class="col-op">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -113,7 +109,7 @@ onMounted(load);
               <td>
                 <span class="pill" :style="pillStyle(ST[d.status] || [d.status, '#6B6A65', '#F5F4F0'])">{{ ST[d.status]?.[0] || d.status }}</span>
               </td>
-              <td>
+              <td class="col-op">
                 <button class="btn sm" :class="{ pri: d.status === 'PENDING' }" @click="openDetail(d.id)">
                   {{ d.status === "PENDING" ? "核对处理" : "查看详情" }}
                 </button>
@@ -130,7 +126,7 @@ onMounted(load);
       <div class="note rd">
         <b>注销为不可逆操作，故设计为两段式：</b>C 端提交只置标记（DEACTIVATE_PENDING），账号仍可正常消费、资产仍计入店里的真实负债；真正执行由店长在本页核对资产结清后完成。<b>申请一提交就把人从负债里剔除是错的</b>——钱还没退，负债不会因为顾客提了个申请就消失。
       </div>
-    </template>
+    </AppAsyncPage>
   </div>
 </template>
 

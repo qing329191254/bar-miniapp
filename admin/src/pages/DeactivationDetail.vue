@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { api } from "../api";
+import AppAsyncPage from "../components/AppAsyncPage.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -97,6 +98,7 @@ async function load() {
     data.value = await api(`/admin/deactivation/${id.value}`);
   } catch (e: any) {
     err.value = e?.message || "加载失败";
+    data.value = null;
   } finally {
     loading.value = false;
   }
@@ -165,13 +167,14 @@ watch(id, load);
 
     <p v-if="msg" class="tiny" style="color:#3B6D11;margin-bottom:10px">{{ msg }}</p>
 
-    <div v-if="loading" class="card"><p class="tiny" style="padding:24px;text-align:center">加载中…</p></div>
-    <div v-else-if="err" class="card" style="background:#FCEBEB;border-color:#E24B4A">
-      <p style="color:#A32D2D;padding:16px">{{ err }}</p>
-      <button class="btn sm ghost" style="margin:0 16px 16px" @click="back">返回列表</button>
-    </div>
-
-    <template v-else-if="data">
+    <AppAsyncPage
+      :loading="loading"
+      :data="data"
+      :err="err"
+      :skeleton="{ variant: 'detail', showFilter: false, tableRows: 6 }"
+      retry-label="重试"
+      @retry="load"
+    >
       <div class="card">
         <div class="st">申请信息</div>
         <div class="li"><div class="gr"><b>申请原因</b><span class="mut">{{ data.reason || "（未填写）" }}</span></div></div>
@@ -235,8 +238,8 @@ watch(id, load);
           执行后：会员状态置「已注销」→ 金币本金与赠送清零 → 积分与碎片清零 → 未核销卡券全部作废 → 全过程记入操作日志。<b>账号壳保留</b>，历史订单与协议同意记录可追溯（协议凭证只增不删，是法律要求）。
         </div>
       </div>
-      <div v-else class="note">本申请已处于终态（{{ ST[data.status]?.[0] }}），不可再执行操作。如需重新注销，请让顾客在 C 端重新提交申请。</div>
-    </template>
+      <div v-else class="note">本申请已处于终态（{{ ST[data.status]?.[0] }}），不可再执行操作。如需重新注销，请让顾客在 C 端重新提交申请。      </div>
+    </AppAsyncPage>
 
     <div v-if="dlg" class="deact-mask" @click.self="closeDlg">
       <div class="deact-dialog">

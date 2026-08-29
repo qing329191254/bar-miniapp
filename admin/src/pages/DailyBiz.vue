@@ -6,6 +6,7 @@ import BizTrendChart from "./BizTrendChart.vue";
 import { buildChartSlice, type BizMetric } from "./bizChartUtil";
 import AppPagination from "../components/AppPagination.vue";
 import AppDateInput from "../components/AppDateInput.vue";
+import AppAsyncPage from "../components/AppAsyncPage.vue";
 
 const router = useRouter();
 const preset = ref("7d");
@@ -14,7 +15,6 @@ const dateTo = ref("");
 const chartMetric = ref<BizMetric>("biz");
 const data = ref<any>(null);
 const loading = ref(true);
-const refreshing = ref(false);
 const err = ref("");
 
 let loadSeq = 0;
@@ -108,7 +108,6 @@ async function load(resetPage = false) {
   const initial = !data.value;
 
   if (initial) loading.value = true;
-  refreshing.value = true;
   err.value = "";
   try {
     const params = new URLSearchParams(pageQs(tablePage.value, tablePageSize.value, { preset: preset.value }));
@@ -120,17 +119,11 @@ async function load(resetPage = false) {
     if (seq !== loadSeq) return;
     data.value = next;
   } catch (e: any) {
-    if (e?.name === "AbortError") {
-      if (seq === loadSeq) refreshing.value = false;
-      return;
-    }
+    if (e?.name === "AbortError") return;
     if (seq !== loadSeq) return;
     err.value = e?.message || "加载失败";
   } finally {
-    if (seq === loadSeq) {
-      loading.value = false;
-      refreshing.value = false;
-    }
+    if (seq === loadSeq) loading.value = false;
   }
 }
 
@@ -149,7 +142,7 @@ watch([tablePage, tablePageSize], () => load());
 
     <div class="card flt-card">
       <div class="st">筛选 <em>当前范围：{{ data?.rangeLabel || "…" }}</em></div>
-      <div class="flt-chips" :class="{ refreshing }">
+      <div class="flt-chips" :class="{ dim: loading && data }">
         <span
           v-for="[p, label] in PRESETS"
           :key="p"
@@ -167,14 +160,14 @@ watch([tablePage, tablePageSize], () => load());
       </div>
     </div>
 
-    <div v-if="loading && !data" class="card"><p class="tiny" style="padding:24px;text-align:center">加载中…</p></div>
-    <div v-else-if="err && !data" class="card" style="background:#FCEBEB;border-color:#E24B4A">
-      <p style="color:#A32D2D;padding:16px">{{ err }}</p>
-      <button class="btn sm ghost" style="margin:0 16px 16px" @click="load">重试</button>
-    </div>
-
-    <template v-else-if="data">
-      <p v-if="err" class="load-err">{{ err }} <button class="btn sm ghost" @click="load">重试</button></p>
+    <AppAsyncPage
+      :loading="loading"
+      :data="data"
+      :err="err"
+      :skeleton="{ showFilter: false, showChart: true, tableCols: 8, tableRows: 8 }"
+      @retry="load()"
+    >
+      <p v-if="err" class="load-err">{{ err }} <button class="btn sm ghost" @click="load()">重试</button></p>
       <div class="cards">
         <div class="mtr">
           <div class="k">区间营业额</div>
@@ -262,7 +255,7 @@ watch([tablePage, tablePageSize], () => load());
         <b>口径：</b>营业额 = 金币消费 + 现场收款；充值额单独统计（充值只是资金进入，尚未消费，不计入营业额，避免双重计算）。<b>赠送金币消费不计收入</b>，故金币消费额按本金口径统计。<br />
         <b>到店人次口径：</b>仅统计当营业日有消费的注册会员去重数，<b>未注册顾客与纯现金客不计入，数值系统性偏小，仅供趋势参考</b>，不可用于测算人均消费。
       </div>
-    </template>
+    </AppAsyncPage>
   </div>
 </template>
 
@@ -275,7 +268,7 @@ watch([tablePage, tablePageSize], () => load());
   flex-wrap: wrap;
   gap: 6px;
 }
-.flt-chips.refreshing {
+.flt-chips.dim {
   opacity: 0.72;
   pointer-events: none;
 }
