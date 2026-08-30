@@ -7,6 +7,7 @@ import { showToast } from "../composables/useToast";
 
 const addInp = ref<HTMLInputElement | null>(null);
 const tab = ref<"gallery" | "play">("gallery");
+const deleteDlg = ref<{ kind: "photo" | "play"; index: number } | null>(null);
 const content = ref<any>({
   gallery: { title: "店铺相册", items: [] },
   howToPlay: { title: "店铺玩法", sub: "", items: [], pic: "" },
@@ -54,8 +55,7 @@ async function onAddFiles(e: Event) {
   }
 }
 function delPhoto(i: number) {
-  if (!window.confirm("确认删除这张图片？小程序相册弹层会少一张。")) return;
-  g.value.items.splice(i, 1);
+  deleteDlg.value = { kind: "photo", index: i };
 }
 function movePhoto(i: number, d: number) {
   const a = g.value.items;
@@ -68,8 +68,7 @@ function addPlay() {
   h.value.items.push("");
 }
 function delPlay(i: number) {
-  if (!window.confirm("确认删除这条说明？")) return;
-  h.value.items.splice(i, 1);
+  deleteDlg.value = { kind: "play", index: i };
 }
 function movePlay(i: number, d: number) {
   const a = h.value.items;
@@ -77,11 +76,21 @@ function movePlay(i: number, d: number) {
   if (j < 0 || j >= a.length) return;
   [a[i], a[j]] = [a[j], a[i]];
 }
+function confirmDelete() {
+  if (!deleteDlg.value) return;
+  const { kind, index } = deleteDlg.value;
+  if (kind === "photo") g.value.items.splice(index, 1);
+  else h.value.items.splice(index, 1);
+  deleteDlg.value = null;
+}
 </script>
 
 <template>
   <div v-if="content">
-    <div class="hdr">店铺相册与玩法 <em>小程序首页内容配置</em></div>
+    <div class="hdr content-hdr">
+      <span class="hdr-title">店铺相册与玩法</span>
+      <em class="hdr-note">小程序首页内容配置</em>
+    </div>
     <div class="row" style="gap:8px;margin-bottom:11px;flex-wrap:wrap">
       <span class="chip" :class="{ on: tab==='gallery' }" @click="tab='gallery'">店铺相册 · {{ g.items?.length || 0 }} 张</span>
       <span class="chip" :class="{ on: tab==='play' }" @click="tab='play'">店铺玩法 · {{ h.items?.length || 0 }} 条</span>
@@ -183,10 +192,36 @@ function movePlay(i: number, d: number) {
       </div>
     </div>
 
+    <div v-if="deleteDlg" class="dlg-mask" @click.self="deleteDlg = null">
+      <section class="dlg">
+        <div class="st">{{ deleteDlg.kind === "photo" ? "删除相册图片" : "删除玩法说明" }}</div>
+        <p class="dlg-body">
+          <template v-if="deleteDlg.kind === 'photo'">
+            确认删除这张图片？小程序相册弹层会少一张。
+          </template>
+          <template v-else>
+            确认删除第 <b>{{ deleteDlg.index + 1 }}</b> 条说明？
+            <span v-if="h.items[deleteDlg.index]" class="dlg-preview">「{{ h.items[deleteDlg.index] }}」</span>
+          </template>
+        </p>
+        <div class="dlg-actions">
+          <button class="btn ghost" type="button" @click="deleteDlg = null">取消</button>
+          <button class="btn dan" type="button" @click="confirmDelete">确认删除</button>
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
 <style scoped>
+.content-hdr .hdr-note {
+  position: static;
+  transform: none;
+  margin-left: auto;
+  text-align: right;
+  pointer-events: auto;
+  white-space: normal;
+}
 .content-grid {
   display: grid;
   grid-template-columns: minmax(680px, 1fr) minmax(300px, 340px);
@@ -324,6 +359,41 @@ function movePlay(i: number, d: number) {
   overflow: hidden;
 }
 .pv-pic img { width: 100%; height: auto; max-height: 220px; object-fit: contain; display: block; }
+.dlg-mask {
+  position: fixed;
+  z-index: 30;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.38);
+}
+.dlg {
+  width: min(480px, 100%);
+  background: #fff;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.2);
+}
+.dlg-body {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--ink2);
+}
+.dlg-preview {
+  display: block;
+  margin-top: 6px;
+  color: var(--ink3);
+  font-size: 12px;
+}
+.dlg-actions {
+  display: grid;
+  grid-template-columns: 1fr 1.6fr;
+  gap: 10px;
+  margin-top: 20px;
+}
+.dlg-actions .btn { width: 100%; }
 @media (max-width: 960px) {
   .content-grid { grid-template-columns: 1fr; }
 }

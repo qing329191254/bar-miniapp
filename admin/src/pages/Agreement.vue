@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, nextTick, onMounted, ref } from "vue";
 import { api, DEFAULT_PAGE_SIZE } from "../api";
 import AppPagination from "../components/AppPagination.vue";
 import { usePagination } from "../composables/usePagination";
@@ -16,11 +16,21 @@ const major = ref(false);
 const openVer = ref<number | null>(null);
 const keyword = ref("");
 const busy = ref(false);
+const showPublishDlg = ref(false);
+const userListRef = ref<HTMLElement | null>(null);
 
 const current = computed(() => docs.value?.[tab.value]);
 const docName = computed(() => tab.value === "terms" ? "用户协议" : "隐私政策");
+const nextVer = computed(() => Number(current.value?.ver || 0) + 1);
 const memberMap = computed(() => new Map(members.value.map((u) => [u.id, u])));
 const history = computed(() => current.value?.hist || []);
+function verNum(v: unknown) {
+  return Number(v);
+}
+function isOpenVer(v: unknown) {
+  return openVer.value != null && openVer.value === verNum(v);
+}
+
 const selectedLogs = computed(() => {
   if (openVer.value == null) return [];
   const key = keyword.value.trim().toLowerCase();
@@ -31,8 +41,26 @@ const selectedLogs = computed(() => {
 });
 const logsPg = usePagination(selectedLogs, DEFAULT_PAGE_SIZE);
 
+function asList<T>(res: T[] | { items?: T[] } | null | undefined): T[] {
+  if (Array.isArray(res)) return res;
+  if (res && Array.isArray(res.items)) return res.items;
+  return [];
+}
+
 function count(ver: number) {
   return logs.value.filter((x) => x.doc === tab.value && Number(x.ver) === Number(ver)).length;
+}
+function toggleVerList(ver: unknown) {
+  const n = verNum(ver);
+  if (openVer.value === n) {
+    openVer.value = null;
+    return;
+  }
+  openVer.value = n;
+  keyword.value = "";
+  nextTick(() => {
+    userListRef.value?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
 }
 function switchTab(next: DocKey) {
   tab.value = next;
@@ -65,7 +93,12 @@ async function publish() {
     showToast("请填写文档标题和正文", true);
     return;
   }
-  if (!window.confirm(`确认发布${docName.value} v${Number(d.ver || 0) + 1}？`)) return;
+  showPublishDlg.value = true;
+}
+async function confirmPublish() {
+  const d = current.value;
+  if (!d) return;
+  showPublishDlg.value = false;
   const next = Number(d.ver || 0) + 1;
   const pub = nowLabel();
   d.ver = next;
@@ -82,8 +115,8 @@ onMounted(async () => {
       api("/admin/agreements"), api("/admin/agreeLogs?pageSize=0"), api("/admin/members?pageSize=0"),
     ]);
     docs.value = agreements;
-    logs.value = agreeLogs;
-    members.value = users;
+    logs.value = asList(agreeLogs);
+    members.value = asList(users);
   } catch (e: any) {
     showToast(e.message, true);
   }
@@ -92,7 +125,10 @@ onMounted(async () => {
 
 <template>
   <div>
-    <div class="hdr">协议与政策 <em>版本管理不可省 · 法律凭证</em></div>
+    <div class="hdr agreement-hdr">
+      <span class="hdr-title">协议与政策</span>
+      <em class="hdr-note">版本管理不可省 · 法律凭证</em>
+    </div>
     <div v-if="docs && current" class="agreement-grid">
       <div class="card">
         <div class="row agreement-tabs">
@@ -102,51 +138,74 @@ onMounted(async () => {
         </div>
         <div class="agreement-fields">
           <div><div class="tiny">文档标题</div><input v-model="current.title" class="inp" /></div>
-          <div><div class="tiny">版本号</div><input class="inp" :value="`v${Number(current.ver || 0) + 1}（发布后自动生成）`" disabled /></div>
+          <div><div class="tiny">版本号</div><div class="inp agreement-ver-hint">v{{ nextVer }}（发布后自动生成）</div></div>
         </div>
         <div class="tiny">正文</div>
         <textarea v-model="current.text" class="inp agreement-editor" :placeholder="`请输入${docName}正文`"></textarea>
         <div class="row agreement-actions">
           <label class="row agreement-major"><input v-model="major" type="checkbox" /><span class="tiny">此为<b>重大条款变更</b>，需老用户重新确认</span></label>
           <button class="btn ghost" :disabled="busy" @click="saveDraft">存草稿</button>
-          <button class="btn" :disabled="busy" @click="publish">发布 v{{ Number(current.ver || 0) + 1 }}</button>
+          <button class="btn" :disabled="busy" @click="publish">发布 v{{ nextVer }}</button>
         </div>
       </div>
       <div>
         <div class="card">
           <div class="st">版本历史 <em>永久保留不可删除</em></div>
           <div class="tb-wrap">
-            <table class="tb2">
+            <table class="tb2 agreement-history-table">
               <thead><tr><th>版本</th><th>类型</th><th>已同意用户</th><th>操作</th></tr></thead>
               <tbody>
-                <tr v-for="h in history" :key="h.v" :class="{ 'agreement-selected': openVer === h.v }">
-                  <td><b>v{{ h.v }}</b><span v-if="h.v === current.ver" class="pill agreement-live">生效中</span></td>
+                <tr v-for="h in history" :key="h.v" :class="{ 'agreement-selected': isOpenVer(h.v) }">
+                  <td><b>v{{ h.v }}</b><span v-if="verNum(h.v) === verNum(current.ver)" class="pill agreement-live">生效中</span></td>
                   <td class="tiny">{{ h.type }}<br />{{ h.pub }}</td>
                   <td><b>{{ count(h.v) }}</b> 人<div class="tiny">{{ count(h.v) ? '可下钻查看' : '暂无记录' }}</div></td>
-                  <td><button class="btn ghost agreement-small" :disabled="!count(h.v)" @click="openVer = openVer === h.v ? null : h.v">{{ openVer === h.v ? '收起' : '查看名单' }}</button></td>
+                  <td><button type="button" class="btn ghost agreement-small" @click="toggleVerList(h.v)">{{ isOpenVer(h.v) ? '收起' : '查看名单' }}</button></td>
                 </tr>
                 <tr v-if="!history.length"><td colspan="4" class="table-empty">暂无协议版本记录</td></tr>
               </tbody>
             </table>
           </div>
           <div class="tiny agreement-foot">同意人数来自 C 端注册及重大变更后的重新确认记录。</div>
-        </div>
-        <div v-if="openVer != null" class="card">
+          <div v-if="openVer != null" ref="userListRef" class="agreement-user-panel">
           <div class="st">v{{ openVer }} 已同意用户 <em>{{ selectedLogs.length }} 人</em></div>
           <input v-model="keyword" class="inp" placeholder="搜索昵称 / 会员号 / ID" />
           <div class="tb-wrap agreement-users"><table class="tb2"><thead><tr><th>昵称</th><th>会员号</th><th>同意时间</th><th>状态</th></tr></thead><tbody>
             <tr v-for="x in logsPg.items" :key="`${x.uid}-${x.at}`"><td>{{ x.user?.nick || '未知用户' }}</td><td>{{ x.user?.no || `uid ${x.uid}` }}</td><td class="tiny">{{ x.at }}</td><td><span class="pill" :class="x.user?.status === 'ACTIVE' ? 'agreement-live' : 'agreement-off'">{{ x.user?.status === 'ACTIVE' ? '正常' : '已注销' }}</span></td></tr>
-            <tr v-if="!selectedLogs.length"><td colspan="4" class="tiny agreement-empty">无匹配记录</td></tr>
+            <tr v-if="!selectedLogs.length"><td colspan="4" class="tiny agreement-empty">{{ count(openVer!) ? '无匹配记录' : '该版本暂无同意记录' }}</td></tr>
           </tbody></table>
           <AppPagination v-model:page="logsPg.page" v-model:page-size="logsPg.pageSize" :total="logsPg.total" />
+          </div>
           </div>
         </div>
         <div class="note rd"><b>合规底线：</b>须覆盖个人信息收集与用途、账号注销与资产处理、金币性质与退款规则、积分清零、卡券有效期与争议解决方式。</div>
       </div>
     </div>
+
+    <div v-if="showPublishDlg && current" class="dlg-mask" @click.self="showPublishDlg = false">
+      <section class="dlg">
+        <div class="st">发布{{ docName }}</div>
+        <p class="dlg-body">
+          确认发布 <b>{{ docName }} v{{ Number(current.ver || 0) + 1 }}</b>？
+          <span v-if="major" class="dlg-warn">已勾选重大条款变更，发布后老用户登录时需重新确认。</span>
+          <span v-else class="dlg-hint">发布后版本号自动递增，同意记录从 v{{ Number(current.ver || 0) + 1 }} 起重新统计。</span>
+        </p>
+        <div class="dlg-actions">
+          <button class="btn ghost" type="button" :disabled="busy" @click="showPublishDlg = false">取消</button>
+          <button class="btn" type="button" :disabled="busy" @click="confirmPublish">确认发布</button>
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.agreement-grid{display:grid;grid-template-columns:minmax(0,1fr) 390px;gap:12px}.agreement-tabs{margin-bottom:11px;flex-wrap:wrap}.agreement-meta{margin-left:auto}.agreement-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px}.agreement-editor{height:300px;resize:vertical;line-height:1.75}.agreement-actions{margin-top:3px}.agreement-major{margin-right:auto}.agreement-major b{color:var(--red)}.agreement-live{background:var(--greenbg);color:var(--green);margin-left:4px}.agreement-off{background:#EEECE6;color:var(--ink3)}.agreement-small{padding:4px 7px;font-size:11px}.agreement-selected td{background:#E6F1FB}.agreement-foot{margin-top:8px}.agreement-users{max-height:280px}.agreement-empty{text-align:center}.btn:disabled{opacity:.45;cursor:not-allowed}@media(max-width:1050px){.agreement-grid{grid-template-columns:1fr}.agreement-meta{width:100%;margin-left:0}.agreement-fields{grid-template-columns:1fr}}
+.agreement-hdr .hdr-note{position:static;transform:none;margin-left:auto;text-align:right;pointer-events:auto;white-space:normal}
+.dlg-mask{position:fixed;z-index:30;inset:0;display:grid;place-items:center;padding:20px;background:rgba(0,0,0,.38)}
+.dlg{width:min(480px,100%);background:#fff;border-radius:16px;padding:24px;box-shadow:0 18px 45px rgba(0,0,0,.2)}
+.dlg-body{margin:8px 0 0;font-size:13px;line-height:1.65;color:var(--ink2)}
+.dlg-warn{display:block;margin-top:8px;color:var(--red);font-size:12px}
+.dlg-hint{display:block;margin-top:8px;color:var(--ink3);font-size:12px}
+.dlg-actions{display:grid;grid-template-columns:1fr 1.6fr;gap:10px;margin-top:20px}
+.dlg-actions .btn{width:100%}
+.agreement-grid{display:grid;grid-template-columns:minmax(0,1fr) 390px;gap:12px}.agreement-tabs{margin-bottom:11px;flex-wrap:wrap}.agreement-meta{margin-left:auto}.agreement-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px}.agreement-ver-hint{color:var(--ink3);background:#fff;cursor:default;user-select:none}.agreement-editor{height:300px;resize:vertical;line-height:1.75}.agreement-actions{margin-top:3px}.agreement-major{margin-right:auto}.agreement-major b{color:var(--red)}.agreement-live{background:var(--greenbg);color:var(--green);margin-left:4px}.agreement-off{background:#EEECE6;color:var(--ink3)}.agreement-small{padding:4px 7px;font-size:11px}.agreement-history-table :is(th,td):nth-child(4){text-align:center}.agreement-selected td{background:#E6F1FB}.agreement-foot{margin-top:8px}.agreement-user-panel{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}.agreement-users{max-height:280px;overflow:auto}.agreement-empty{text-align:center}@media(max-width:1050px){.agreement-grid{grid-template-columns:1fr}.agreement-meta{width:100%;margin-left:0}.agreement-fields{grid-template-columns:1fr}}
 </style>

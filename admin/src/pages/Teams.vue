@@ -166,7 +166,10 @@ onMounted(load);
 <template>
   <AppAsyncPage :loading="loading" :error="err" @retry="load">
     <div>
-      <div class="hdr">战队管理 <em>支持新增 / 编辑 · 调队二次确认</em></div>
+      <div class="hdr teams-hdr">
+        <span class="hdr-title">战队管理</span>
+        <em class="hdr-note">支持新增 / 编辑 · 调队二次确认</em>
+      </div>
       <div class="toolbar row">
         <button class="btn sm pri" @click="openNew">＋ 新增战队</button>
         <span class="tiny">新增后成员可通过「调至」下拉选择加入</span>
@@ -178,11 +181,11 @@ onMounted(load);
             {{ team.name }}
             <span v-if="team.status === 'DISABLED'" class="disabled-tag">（已停用）</span>
           </span>
-          <em>{{ team.members.length }} 名成员 · 战队冠军 {{ team.champions }}（实时聚合）</em>
+          <em class="team-stats">{{ team.members.length }} 名成员 · 战队冠军 {{ team.champions }}（实时聚合）</em>
           <button class="btn sm edit-btn" @click="openEdit(team)">编辑</button>
         </div>
         <div class="tb-wrap">
-          <table class="tb2">
+          <table class="tb2 team-member-table">
             <thead>
               <tr>
                 <th style="width:30%">成员</th>
@@ -288,11 +291,37 @@ onMounted(load);
 </template>
 
 <style scoped>
+.teams-hdr .hdr-note {
+  position: static;
+  transform: none;
+  margin-left: auto;
+  text-align: right;
+  pointer-events: auto;
+  white-space: normal;
+}
 .toolbar { gap: 8px; margin-bottom: 11px; align-items: center; }
 .team-card { margin-bottom: 12px; padding-bottom: 0; overflow: hidden; }
-.team-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 14px 14px 0; }
-.team-head em { margin-left: auto; font-style: normal; font-size: 11px; color: var(--ink3); font-weight: 400; }
-.edit-btn { margin-left: 8px; flex: none; }
+.team-head {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 14px 0 8px;
+}
+.team-head > span:first-child { justify-self: start; min-width: 0; }
+.team-stats {
+  justify-self: center;
+  margin: 0;
+  transform: translateX(-12px);
+  font-style: normal;
+  font-size: 11px;
+  color: var(--ink3);
+  font-weight: 400;
+  text-align: center;
+  white-space: nowrap;
+}
+.edit-btn { justify-self: end; margin-left: 0; flex: none; }
+.team-member-table :is(th, td):nth-child(5) { text-align: center; }
 .disabled-tag { color: var(--red); font-size: 12px; font-weight: 400; }
 .tb-wrap { overflow-x: auto; }
 .move-select { padding: 4px 7px; font-size: 12px; width: 100%; max-width: 180px; }
@@ -316,7 +345,14 @@ onMounted(load);
 .dlg-actions { display: grid; grid-template-columns: 1fr 1.6fr; gap: 10px; margin-top: 18px; }
 .dlg-actions .btn { width: 100%; }
 @media (max-width: 720px) {
-  .team-head em { margin-left: 0; width: 100%; }
-  .edit-btn { margin-left: auto; }
+  .team-head {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+  .team-stats {
+    justify-self: start;
+    white-space: normal;
+  }
+  .edit-btn { justify-self: start; }
 }
 </style>

@@ -152,10 +152,12 @@ watch(id, load);
 
 <template>
   <div>
-    <div class="hdr">
+    <div class="hdr deact-detail-hdr">
       <span class="hdr-title">注销申请详情 · {{ data?.no || "…" }}</span>
-      <em v-if="data?.member" class="hdr-note">{{ data.member.nick }} · {{ data.member.no }} · {{ data.created }}</em>
-      <span v-if="data" class="pill hdr-pill" :style="pillStyle(ST[data.status] || ['', '#6B6A65', '#F5F4F0'])">{{ ST[data.status]?.[0] }}</span>
+      <div v-if="data?.member" class="hdr-meta">
+        <em class="hdr-note">{{ data.member.nick }} · {{ data.member.no }} · {{ data.created }}</em>
+        <span v-if="data" class="pill hdr-pill" :style="pillStyle(ST[data.status] || ['', '#6B6A65', '#F5F4F0'])">{{ ST[data.status]?.[0] }}</span>
+      </div>
       <button class="btn sm hdr-back" @click="back">‹ 返回列表</button>
     </div>
 
@@ -264,8 +266,25 @@ watch(id, load);
 </template>
 
 <style scoped>
+.deact-detail-hdr .hdr-meta {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 320px);
+}
+.deact-detail-hdr .hdr-note {
+  position: static;
+  transform: none;
+  pointer-events: auto;
+  white-space: nowrap;
+}
+.deact-detail-hdr .hdr-back {
+  margin-left: auto;
+}
 .hdr-pill {
-  margin-left: 6px;
   flex: none;
 }
 .table-card {

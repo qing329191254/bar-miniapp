@@ -306,7 +306,7 @@ watch(kw, () => {
 
       <div class="card table-card">
         <div class="st">卡包明细</div>
-        <table class="tb2">
+        <table class="tb2 member-detail-table">
           <thead><tr><th>卡券</th><th>来源</th><th>有效期</th><th>状态</th></tr></thead>
           <tbody>
             <tr v-for="cd in detail.cards || []" :key="cd.id">
@@ -325,7 +325,7 @@ watch(kw, () => {
           提分单明细
           <em>累计已提出 {{ fmt(me.point.wd || 0) }} 分<span v-if="me.point.fz > 0"> · 冻结中 {{ fmt(me.point.fz) }} 分</span></em>
         </div>
-        <table class="tb2">
+        <table class="tb2 member-detail-table">
           <thead><tr><th>单号</th><th>数量</th><th>提交时间</th><th>操作人</th><th>状态</th></tr></thead>
           <tbody>
             <tr v-for="w in detail.withdrawals || []" :key="w.id">
@@ -371,7 +371,10 @@ watch(kw, () => {
     </div>
 
     <div v-else>
-      <div class="hdr">会员列表 <em>{{ totalAll }} 人 · 点击查看详情</em></div>
+      <div class="hdr members-hdr">
+        <span class="hdr-title">会员列表</span>
+        <em class="hdr-note">{{ totalAll }} 人 · 点击查看详情</em>
+      </div>
       <div class="row toolbar">
         <input v-model="kw" class="inp search" placeholder="搜索昵称 / 会员号 / 手机尾号" />
       </div>
@@ -473,11 +476,20 @@ watch(kw, () => {
 </template>
 
 <style scoped>
+.members-hdr .hdr-note {
+  position: static;
+  transform: none;
+  margin-left: auto;
+  text-align: right;
+  pointer-events: auto;
+  white-space: normal;
+}
 .back { cursor: pointer; margin-left: auto; }
 .toolbar { gap: 8px; margin-bottom: 11px; }
 .search { max-width: 260px; }
 .table-card { padding: 0; overflow: auto; }
 .table-card .st { padding: 14px 14px 0; }
+.member-detail-table :is(th, td):last-child { text-align: center; }
 .click-row { cursor: pointer; }
 .gold { color: var(--gold); }
 .blue { color: var(--blue); }

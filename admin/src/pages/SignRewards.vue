@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { api, DEFAULT_PAGE_SIZE, pageQs } from "../api";
+import { api, pageQs } from "../api";
 import AppPagination from "../components/AppPagination.vue";
 import { showToast } from "../composables/useToast";
 
 const dailyPoints = ref(0), rules = ref<any[]>([]), members = ref<any[]>([]), memberTotal = ref(0);
 const membersPage = ref(1);
-const membersPageSize = ref(DEFAULT_PAGE_SIZE);
+const membersPageSize = ref(10);
 const tpls = ref<any[]>([]);
 const selectedId = ref<number | null>(null), showCreate = ref(false), saving = ref(false);
 const createForm = ref({ days: null as number | null, pts: 0 });
@@ -46,17 +46,39 @@ onMounted(load);
   <div>
     <div class="hdr">签到奖励配置 <em>每日基础奖励 + 连续签到奖励</em></div>
     <div class="sign-layout"><div>
-      <section class="card daily-card"><div class="st">每日签到</div><label>每日签到奖励积分<input v-model.number="dailyPoints" type="number" min="0" class="inp" @change="saveDaily" /></label><div class="tiny">签到积分同样受月底清零约束，与对局积分同池。</div></section>
-      <section class="card"><div class="list-title"><b>连续签到奖励</b><span class="tiny">达标当天在每日积分之外额外发放</span><button class="btn" @click="openNew">＋ 新增档位</button></div><div class="tb-wrap"><table class="tb2"><thead><tr><th>门槛</th><th>额外积分</th><th>额外卡券</th><th>当前达标</th><th>状态</th><th>操作</th></tr></thead><tbody><tr v-for="rule in sortedRules" :key="rule.id" :style="rule.enabled === false ? 'opacity:.55' : ''"><td><b>连续 {{ rule.days }} 天</b></td><td><b class="blue">{{ rule.pts ? `+${rule.pts} 分` : "—" }}</b></td><td class="tiny">{{ (rule.cards || []).map((x:any) => `${tplName(x.tpl)} ×${x.qty}`).join("、") || "—" }}</td><td>{{ rule.qualified ?? 0 }} 人已达标</td><td><span class="pill" :class="rule.enabled !== false ? 'on' : ''">{{ rule.enabled !== false ? "启用中" : "已停用" }}</span></td><td class="ops"><button class="btn ghost mini" @click="openEdit(rule)">编辑</button><button class="btn ghost mini" @click="toggle(rule)">{{ rule.enabled !== false ? "停用" : "启用" }}</button><button class="btn danger mini" @click="remove(rule)">删除</button></td></tr><tr v-if="!sortedRules.length"><td colspan="6" class="table-empty">暂无连续签到档位，可点击右上角新增</td></tr></tbody></table></div><div class="tiny rule-note">门槛不可重复；奖励可以只给积分、只给卡券，或两者兼有。天数与奖励内容均可自定义，不限于 7 / 30 天。</div></section>
+      <section class="card daily-card">
+        <div class="st">每日签到</div>
+        <div class="daily-field">
+          <label class="daily-label">每日签到奖励积分</label>
+          <div class="daily-input-wrap">
+            <input
+              v-model.number="dailyPoints"
+              type="number"
+              min="0"
+              class="inp daily-inp"
+              @change="saveDaily"
+            />
+            <span class="daily-unit">分</span>
+          </div>
+        </div>
+        <div class="tiny daily-hint">签到积分同样受月底清零约束，与对局积分同池。</div>
+      </section>
+      <section class="card"><div class="list-title"><b>连续签到奖励</b><span class="tiny">达标当天在每日积分之外额外发放</span><button class="btn" @click="openNew">＋ 新增档位</button></div><div class="tb-wrap sign-rules-wrap"><table class="tb2"><thead><tr><th>门槛</th><th>额外积分</th><th>额外卡券</th><th>当前达标</th><th>状态</th><th>操作</th></tr></thead><tbody><tr v-for="rule in sortedRules" :key="rule.id" :style="rule.enabled === false ? 'opacity:.55' : ''"><td><b>连续 {{ rule.days }} 天</b></td><td><b class="blue">{{ rule.pts ? `+${rule.pts} 分` : "—" }}</b></td><td class="tiny">{{ (rule.cards || []).map((x:any) => `${tplName(x.tpl)} ×${x.qty}`).join("、") || "—" }}</td><td>{{ rule.qualified ?? 0 }} 人已达标</td><td><span class="pill" :class="rule.enabled !== false ? 'on' : ''">{{ rule.enabled !== false ? "启用中" : "已停用" }}</span></td><td class="ops"><button class="btn ghost mini" @click="openEdit(rule)">编辑</button><button class="btn ghost mini" @click="toggle(rule)">{{ rule.enabled !== false ? "停用" : "启用" }}</button><button class="btn danger mini" @click="remove(rule)">删除</button></td></tr><tr v-if="!sortedRules.length"><td colspan="6" class="table-empty">暂无连续签到档位，可点击右上角新增</td></tr></tbody></table></div><div class="tiny rule-note">门槛不可重复；奖励可以只给积分、只给卡券，或两者兼有。天数与奖励内容均可自定义，不限于 7 / 30 天。</div></section>
+      <section class="note sign-tips">
+        <b>发放规则</b><br>
+        · 连签奖励与每日积分叠加，达标当天一次性发放<br>
+        · 连签天数等于档位值时命中，同一天最多命中一档<br>
+        · 断签即归零，从 1 重新累计，不做补签<br>
+        · 卡券奖励按模板配置的有效期计算，来源标注「连续签到 N 天」
+      </section>
     </div><aside>
       <section v-if="selected" class="card edit-card"><div class="st">编辑 · 连续 {{ selected.days }} 天<button class="close" @click="closeEdit">×</button></div><label>连续天数门槛 *<input v-model.number="form.days" type="number" min="1" class="inp" /></label><label>额外奖励积分<input v-model.number="form.pts" type="number" min="0" class="inp" /></label><div class="field-label">额外奖励卡券</div><div v-for="(card, i) in form.cards" :key="i" class="reward-row"><select v-model.number="card.tpl" class="inp"><option v-for="tpl in tpls" :key="tpl.id" :value="tpl.id">{{ tpl.name }}</option></select><input v-model.number="card.qty" type="number" min="1" class="inp qty" /><button class="btn ghost mini" @click="removeCard(i)">删</button></div><div v-if="!form.cards.length" class="tiny">未配置卡券奖励，仅发积分</div><button class="btn ghost add-card" @click="addCard">＋ 添加卡券</button><button class="btn submit" :disabled="saving" @click="saveRule">保存规则</button></section>
-      <section class="card"><div class="st">连签天数</div><table class="tb2"><thead><tr><th>会员</th><th>已连续</th><th>下一档</th></tr></thead><tbody><tr v-for="member in members" :key="member.id"><td><b>{{ member.nick }}</b></td><td><b :class="member.streak >= 7 ? 'green' : ''">{{ member.streak }} 天</b></td><td class="tiny">{{ nextRule(member) ? `还差 ${nextRule(member).days - member.streak} 天得 ${rewardText(nextRule(member))}` : "已达最高档" }}</td></tr><tr v-if="!members.length"><td colspan="3" class="table-empty">暂无会员连签数据</td></tr></tbody></table><AppPagination v-model:page="membersPage" v-model:page-size="membersPageSize" :total="memberTotal" /></section>
-      <section class="note sign-tips"><b>发放规则</b><br>· 连签奖励与每日积分叠加，达标当天一次性发放<br>· 连签天数等于档位值时命中，同一天最多命中一档<br>· 断签即归零，从 1 重新累计，不做补签<br>· 卡券奖励按模板配置的有效期计算，来源标注“连续签到 N 天”</section>
+      <section class="card"><div class="st">连签天数</div><table class="tb2"><thead><tr><th>会员</th><th>已连续</th><th>下一档</th></tr></thead><tbody><tr v-for="member in members" :key="member.id"><td><b>{{ member.nick }}</b></td><td><b :class="member.streak >= 7 ? 'green' : ''">{{ member.streak }} 天</b></td><td class="tiny">{{ nextRule(member) ? `还差 ${nextRule(member).days - member.streak} 天得 ${rewardText(nextRule(member))}` : "已达最高档" }}</td></tr><tr v-if="!members.length"><td colspan="3" class="table-empty">暂无会员连签数据</td></tr></tbody></table><AppPagination v-model:page="membersPage" v-model:page-size="membersPageSize" :total="memberTotal" :sizes="[10, 15, 30]" compact /></section>
     </aside></div>
     <div v-if="showCreate" class="create-mask" @click.self="showCreate = false"><section class="create-dialog"><div class="st">新增连续签到档位</div><div class="create-grid"><label>连续天数 *<input v-model.number="createForm.days" type="number" min="1" placeholder="如 14" class="inp" /></label><label>额外奖励积分<input v-model.number="createForm.pts" type="number" min="0" class="inp" /></label></div><div class="tiny">创建后可在右侧继续配置卡券奖励。</div><div class="create-actions"><button class="btn ghost" @click="showCreate = false">取消</button><button class="btn" :disabled="saving" @click="createRule">创建档位</button></div></section></div>
   </div>
 </template>
 
 <style scoped>
-.sign-layout{display:grid;grid-template-columns:minmax(0,3fr) minmax(360px,1fr);gap:16px;align-items:start}.daily-card{width:100%;box-sizing:border-box}.daily-card label,.edit-card label,.create-grid label{display:block;color:var(--ink2);font-size:12px}.daily-card .inp,.edit-card .inp,.create-grid .inp{margin:5px 0 8px}.list-title{display:flex;align-items:center;gap:9px;margin-bottom:12px}.list-title .tiny{flex:1}.mini{padding:5px 9px;font-size:12px}.ops{white-space:nowrap}.ops .btn+.btn{margin-left:4px}.rule-note{margin-top:8px}.field-label{color:var(--ink2);font-size:12px;margin-bottom:5px}.reward-row{display:flex;gap:6px;align-items:center}.reward-row .inp{margin-bottom:6px}.reward-row select{flex:1}.reward-row .qty{width:58px}.add-card{margin:1px 0 9px}.submit{width:100%}.sign-tips{background:var(--goldbg);border:1px solid var(--gold);color:#633806;padding:12px}.close{float:right;border:0;background:transparent;font-size:20px;color:var(--ink2);cursor:pointer}.blue{color:#185FA5}.green{color:#3B6D11}.pill.on{color:#3B6D11}.create-mask{position:fixed;z-index:30;inset:0;display:grid;place-items:center;padding:20px;background:rgba(0,0,0,.38)}.create-dialog{width:min(720px,100%);background:#fff;border-radius:16px;padding:24px;box-shadow:0 18px 45px rgba(0,0,0,.2)}.create-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}.create-actions{display:grid;grid-template-columns:1fr 1.6fr;gap:10px;margin-top:20px}.create-actions .btn{width:100%}.tb-wrap{overflow-x:auto}@media(max-width:960px){.sign-layout{grid-template-columns:1fr}}
+.sign-layout{display:grid;grid-template-columns:minmax(0,3fr) minmax(360px,1fr);gap:16px;align-items:start}.daily-card{width:100%;box-sizing:border-box}.daily-field{margin-top:4px}.daily-label{display:block;color:var(--ink2);font-size:12px;margin-bottom:6px}.daily-input-wrap{display:inline-flex;align-items:center;gap:8px}.daily-inp{width:88px;margin:0;text-align:left;padding-left:10px}.daily-unit{color:var(--ink3);font-size:12px;white-space:nowrap}.daily-hint{margin-top:10px;line-height:1.6}.edit-card label,.create-grid label{display:block;color:var(--ink2);font-size:12px}.edit-card .inp,.create-grid .inp{margin:5px 0 8px}.list-title{display:flex;align-items:center;gap:9px;margin-bottom:12px}.list-title .tiny{flex:1}.mini{padding:5px 9px;font-size:12px}.ops{white-space:nowrap}.ops .btn+.btn{margin-left:4px}.rule-note{margin-top:8px}.field-label{color:var(--ink2);font-size:12px;margin-bottom:5px}.reward-row{display:flex;gap:6px;align-items:center}.reward-row .inp{margin-bottom:6px}.reward-row select{flex:1}.reward-row .qty{width:58px}.add-card{margin:1px 0 9px}.submit{width:100%}.sign-tips{margin-top:12px;background:var(--goldbg);border:1px solid var(--gold);color:#633806;padding:12px;line-height:1.7;font-size:12px;border-radius:10px}.close{float:right;border:0;background:transparent;font-size:20px;color:var(--ink2);cursor:pointer}.blue{color:#185FA5}.green{color:#3B6D11}.pill.on{color:#3B6D11}.create-mask{position:fixed;z-index:30;inset:0;display:grid;place-items:center;padding:20px;background:rgba(0,0,0,.38)}.create-dialog{width:min(720px,100%);background:#fff;border-radius:16px;padding:24px;box-shadow:0 18px 45px rgba(0,0,0,.2)}.create-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}.create-actions{display:grid;grid-template-columns:1fr 1.6fr;gap:10px;margin-top:20px}.create-actions .btn{width:100%}.tb-wrap{overflow-x:auto}.sign-rules-wrap .tb2 :is(th,td):nth-child(5),.sign-rules-wrap .tb2 :is(th,td):nth-child(6){text-align:center}.sign-rules-wrap .tb2 td.ops{display:flex;justify-content:center;flex-wrap:wrap;gap:4px}@media(max-width:960px){.sign-layout{grid-template-columns:1fr}}
 </style>

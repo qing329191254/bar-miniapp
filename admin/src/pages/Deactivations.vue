@@ -60,9 +60,9 @@ onMounted(load);
 
 <template>
   <div>
-    <div class="hdr">
-      注销申请处理
-      <em v-if="data">共 {{ summary.total }} 条 · 待处理 {{ summary.pending }} 条</em>
+    <div class="hdr deact-hdr">
+      <span class="hdr-title">注销申请处理</span>
+      <em v-if="data" class="hdr-note">共 {{ summary.total }} 条 · 待处理 {{ summary.pending }} 条</em>
     </div>
 
     <AppAsyncPage :loading="loading" :data="data" :err="err" :skeleton="{ showFilter: false, tableCols: 7 }" @retry="load">
@@ -90,7 +90,7 @@ onMounted(load);
       </div>
 
       <div class="card table-card">
-        <table class="tb2">
+        <table class="tb2 deact-table">
           <thead>
             <tr>
               <th style="width:14%">申请单号</th>
@@ -139,6 +139,14 @@ onMounted(load);
 </template>
 
 <style scoped>
+.deact-hdr .hdr-note {
+  position: static;
+  transform: none;
+  margin-left: auto;
+  text-align: right;
+  pointer-events: auto;
+  white-space: normal;
+}
 .kpi-row {
   margin-bottom: 12px;
 }
@@ -150,6 +158,10 @@ onMounted(load);
 .table-card {
   padding: 0;
   overflow: auto;
+}
+.deact-table :is(th, td):nth-child(6),
+.deact-table :is(th, td):nth-child(7) {
+  text-align: center;
 }
 .row-pending {
   background: #fdf8ee;

@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
-const props = defineProps<{ page: number; pageSize: number; total: number }>();
+const props = withDefaults(
+  defineProps<{ page: number; pageSize: number; total: number; sizes?: number[]; compact?: boolean }>(),
+  { sizes: () => [15, 30, 50], compact: false },
+);
 const emit = defineEmits<{ "update:page": [number]; "update:pageSize": [number] }>();
 
-const sizes = [15, 30, 50];
 const totalPages = computed(() => Math.max(1, Math.ceil(props.total / props.pageSize) || 1));
 const from = computed(() => (props.total ? (props.page - 1) * props.pageSize + 1 : 0));
 const to = computed(() => Math.min(props.page * props.pageSize, props.total));
@@ -16,7 +18,7 @@ function setPage(p: number) {
 </script>
 
 <template>
-  <div v-if="show" class="pg-bar">
+  <div v-if="show" class="pg-bar" :class="{ compact }">
     <span class="tiny pg-info">第 {{ from }}–{{ to }} 条，共 {{ total.toLocaleString("en-US") }} 条</span>
     <div class="pg-ops">
       <span class="tiny pg-label">每页</span>
@@ -33,3 +35,24 @@ function setPage(p: number) {
     </div>
   </div>
 </template>
+
+<style scoped>
+.pg-bar.compact {
+  flex-direction: column;
+  align-items: stretch;
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+.pg-bar.compact .pg-ops {
+  flex-wrap: nowrap;
+  margin-left: 0;
+  justify-content: flex-end;
+  overflow-x: auto;
+}
+.pg-bar.compact .pg-size,
+.pg-bar.compact .btn,
+.pg-bar.compact .pg-num,
+.pg-bar.compact .pg-label {
+  flex-shrink: 0;
+}
+</style>
