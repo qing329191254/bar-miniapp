@@ -114,6 +114,11 @@ def seed_all(reset: bool = False):
                     src_desc=c.get("srcDesc") or "", status=c["status"], days_left=c.get("daysLeft") or 30,
                     expire=c.get("expire") or "", void_reason=c.get("voidReason"),
                 ))
+            have_tiers = {t.id for t in db.query(Tier).all()}
+            for t in SEED.get("tiers") or []:
+                if t["id"] in have_tiers:
+                    continue
+                db.add(Tier(id=t["id"], amount=t["amount"], bonus=t.get("bonus") or 0, rec=bool(t.get("rec"))))
             for w in db.query(Wallet).all():
                 grant_demo_points(db, w.user_id)
                 grant_demo_coins(db, w.user_id)

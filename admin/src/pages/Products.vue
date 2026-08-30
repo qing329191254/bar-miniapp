@@ -304,16 +304,23 @@ async function save() {
       <div class="prod-side">
         <div v-if="edit" class="card">
           <div class="st">{{ edit.id ? "编辑 · " + edit.name : "新增商品" }} <em style="cursor:pointer" @click="edit=null">✕</em></div>
-          <div class="fld">商品图片</div>
-          <ImgField v-model="edit.img" size="md" actions />
-          <div class="tiny img-hint">建议方图，单张 ≤ 2MB</div>
+          <div class="img-block">
+            <div class="img-left">
+              <ImgField v-model="edit.img" size="md" actions />
+            </div>
+            <div class="img-copy">
+              <div class="fld">商品图片 <b>（顾客点单页展示）</b></div>
+              <p class="img-note">建议 1:1 方图，单张 ≤ 2MB，图片越清晰越好。</p>
+              <p class="img-note">不上传时，顾客端显示商品名首字占位，不影响下单。</p>
+            </div>
+          </div>
           <div class="edit-grid">
             <label class="field">
               <span class="fld">商品名称 *</span>
               <input class="inp" v-model="edit.name" />
             </label>
             <label class="field">
-              <span class="fld">分类</span>
+              <span class="fld">分类 *</span>
               <AppSelect v-if="edit" v-model="edit.cid" :options="catOpts" />
             </label>
             <label class="field">
@@ -467,7 +474,23 @@ async function save() {
 .edit-grid .fld { margin-top: 0; margin-bottom: 4px; }
 .edit-grid .inp { width: 100%; margin: 0; }
 .edit-grid :deep(.sel) { width: 100%; }
-.img-hint { margin: 4px 0 0; color: var(--ink3); }
+.img-block {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+.img-left { flex: none; text-align: center; }
+.img-copy { flex: 1; min-width: 0; }
+.img-copy .fld { margin-top: 0; }
+.img-copy .fld b { font-weight: 500; color: var(--ink3); }
+.img-note {
+  margin: 0;
+  font-size: 11px;
+  color: var(--ink3);
+  line-height: 1.7;
+}
+.img-note + .img-note { margin-top: 2px; }
 .combo-cell { max-width: 220px; line-height: 1.5; }
 .single-pill { border: 1px solid var(--line); color: var(--ink2); background: transparent; }
 .combo-pill { background: #F3EEFB; color: #4A2A7A; }

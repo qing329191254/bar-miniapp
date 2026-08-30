@@ -181,7 +181,7 @@ onMounted(load);
 </script>
 
 <template>
-  <AppAsyncPage :loading="loading" :error="err" @retry="load">
+  <AppAsyncPage :loading="loading" :data="rows" :err="err" @retry="load">
     <div>
       <div class="hdr">充值档位配置 <em>仅老板可改 · 资金规则</em></div>
       <div class="toolbar row">
@@ -296,6 +296,10 @@ onMounted(load);
 <style scoped>
 .toolbar { gap: 8px; margin-bottom: 11px; align-items: center; }
 .table-card { padding: 0; overflow: auto; }
+.tb2 :is(th, td):nth-child(4),
+.tb2 :is(th, td):nth-child(5),
+.tb2 :is(th, td):nth-child(6) { text-align: center; }
+.tb2 td:nth-child(6) .ops { justify-content: center; width: 100%; }
 .tier-inp { padding: 4px 7px; }
 .tier-inp.amount { width: 90px; }
 .tier-inp.bonus { width: 80px; }

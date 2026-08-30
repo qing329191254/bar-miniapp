@@ -1345,6 +1345,20 @@ def update_project(pid: int, body: PatchIn, admin: dict = Depends(admin_user), d
     return project.to_dict()
 
 
+@app.get("/api/admin/tiers-page")
+def tiers_page(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    if admin["role"] != "BOSS":
+        raise HTTPException(403, "仅老板可改")
+    return L.tiers_page(db)
+
+
+@app.get("/api/admin/staff-page")
+def staff_page(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    if admin["role"] != "BOSS":
+        raise HTTPException(403, "仅老板可访问")
+    return L.staff_page(db)
+
+
 @app.get("/api/admin/{coll}")
 def admin_list(
     coll: str,
@@ -1606,13 +1620,6 @@ def remove_category(cid: int, admin: dict = Depends(admin_user), db: Session = D
         fail(e)
 
 
-@app.get("/api/admin/tiers-page")
-def tiers_page(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
-    if admin["role"] != "BOSS":
-        raise HTTPException(403, "仅老板可改")
-    return L.tiers_page(db)
-
-
 @app.post("/api/admin/tiers")
 def create_tier(body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
     if admin["role"] != "BOSS":
@@ -1651,13 +1658,6 @@ def remove_tier(tid: int, admin: dict = Depends(admin_user), db: Session = Depen
         return L.delete_tier(db, tid, admin)
     except ValueError as e:
         fail(e)
-
-
-@app.get("/api/admin/staff-page")
-def staff_page(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
-    if admin["role"] != "BOSS":
-        raise HTTPException(403, "仅老板可访问")
-    return L.staff_page(db)
 
 
 @app.post("/api/admin/staff")

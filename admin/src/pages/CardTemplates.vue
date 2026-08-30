@@ -139,7 +139,7 @@ onMounted(load);
 
 <template>
   <div class="card-tpl-page">
-    <div class="hdr">
+    <div class="hdr card-tpl-hdr">
       <span class="hdr-title">卡券配置</span>
       <em class="hdr-note">含积分可兑换内容配置 · 宝箱奖品仅店员可见</em>
     </div>
@@ -152,41 +152,66 @@ onMounted(load);
       @retry="load"
     >
       <div class="card-tpl-layout">
-        <section class="card list-card">
-          <div class="list-head">
-            <b>卡券模板列表</b>
-            <button class="btn sm pri" @click="openNew">＋ 新增卡券</button>
-          </div>
-          <div class="tb-wrap">
-            <table class="tb2 card-tpl-table" data-cols="lcccccc">
+        <div class="main-col">
+          <section class="card list-card">
+            <div class="list-head">
+              <b>卡券模板列表</b>
+              <button class="btn sm pri" @click="openNew">＋ 新增卡券</button>
+            </div>
+            <div class="tb-wrap">
+              <table class="tb2 card-tpl-table" data-cols="lcccccc">
+                <thead>
+                  <tr>
+                    <th style="width:24%">名称</th>
+                    <th style="width:9%">分类</th>
+                    <th style="width:11%">积分</th>
+                    <th style="width:9%">有效期</th>
+                    <th style="width:11%">兑换页</th>
+                    <th style="width:16%">上限/库存</th>
+                    <th style="width:8%">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in rows" :key="row.id">
+                    <td><b>{{ row.name }}</b></td>
+                    <td class="mut">{{ catTable(row.cat) }}</td>
+                    <td>{{ row.cost || "—" }}</td>
+                    <td>{{ row.days }} 天</td>
+                    <td class="tiny">{{ exchText(row) }}</td>
+                    <td class="tiny">{{ limitText(row.perLimit) }} / {{ limitText(row.stock) }}</td>
+                    <td><button class="btn sm" @click="openEdit(row)">编辑</button></td>
+                  </tr>
+                  <tr v-if="!rows.length">
+                    <td colspan="7" class="table-empty">暂无卡券模板，可点击右上角新增</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="card rule-card">
+            <div class="st">有效期规则</div>
+            <table class="tb2">
               <thead>
-                <tr>
-                  <th style="width:24%">名称</th>
-                  <th style="width:9%">分类</th>
-                  <th style="width:11%">积分</th>
-                  <th style="width:9%">有效期</th>
-                  <th style="width:11%">兑换页</th>
-                  <th style="width:16%">上限/库存</th>
-                  <th style="width:8%">操作</th>
-                </tr>
+                <tr><th>卡类型</th><th>有效期</th></tr>
               </thead>
               <tbody>
-                <tr v-for="row in rows" :key="row.id">
-                  <td><b>{{ row.name }}</b></td>
-                  <td class="mut">{{ catTable(row.cat) }}</td>
-                  <td>{{ row.cost || "—" }}</td>
-                  <td>{{ row.days }} 天</td>
-                  <td class="tiny">{{ exchText(row) }}</td>
-                  <td class="tiny">{{ limitText(row.perLimit) }} / {{ limitText(row.stock) }}</td>
-                  <td><button class="btn sm" @click="openEdit(row)">编辑</button></td>
-                </tr>
-                <tr v-if="!rows.length">
-                  <td colspan="7" class="table-empty">暂无卡券模板，可点击右上角新增</td>
-                </tr>
+                <tr><td>游戏卡 / 酒水卡</td><td><b>默认 30 天</b></td></tr>
+                <tr><td>其他卡</td><td>后台自定义</td></tr>
+                <tr><td>宝箱卡</td><td><b class="gold">固定 7 天</b></td></tr>
               </tbody>
             </table>
-          </div>
-        </section>
+          </section>
+
+          <section class="card tips-card">
+            <div class="st tips-title">兑换配置要点</div>
+            <div class="tiny tips-body">
+              · 积分价 &gt; 0 且勾选「兑换页」即出现在 C 端兑换<br />
+              · 月末清零前可集中兑换，需配置库存与每人上限防挤兑<br />
+              · 宝箱卡积分价 0、不出现兑换页，仅奖励发放
+            </div>
+          </section>
+        </div>
 
         <aside class="side-col">
           <section v-if="showForm()" class="card edit-card">
@@ -206,9 +231,6 @@ onMounted(load);
                   <option v-for="(label, key) in CAT_FORM" :key="key" :value="key">{{ label }}</option>
                 </select>
               </label>
-            </div>
-
-            <div class="form-grid">
               <label class="field">
                 <span class="fld">积分价 <b class="hint-red">（0 = 仅奖励发放，不进兑换页）</b></span>
                 <input v-model.number="form.cost" type="number" min="0" class="inp" />
@@ -217,9 +239,6 @@ onMounted(load);
                 <span class="fld">有效期（天）</span>
                 <input v-model.number="form.days" type="number" min="1" class="inp" />
               </label>
-            </div>
-
-            <div class="form-grid">
               <label class="field">
                 <span class="fld">每人兑换上限（-1 不限）</span>
                 <input v-model.number="form.perLimit" type="number" class="inp" />
@@ -249,29 +268,6 @@ onMounted(load);
               {{ saving ? "保存中…" : isNew ? "创建卡券" : "保存修改" }}
             </button>
           </section>
-
-          <section class="card rule-card">
-            <div class="st">有效期规则</div>
-            <table class="tb2">
-              <thead>
-                <tr><th>卡类型</th><th>有效期</th></tr>
-              </thead>
-              <tbody>
-                <tr><td>游戏卡 / 酒水卡</td><td><b>默认 30 天</b></td></tr>
-                <tr><td>其他卡</td><td>后台自定义</td></tr>
-                <tr><td>宝箱卡</td><td><b class="gold">固定 7 天</b></td></tr>
-              </tbody>
-            </table>
-          </section>
-
-          <section class="card tips-card">
-            <div class="st tips-title">兑换配置要点</div>
-            <div class="tiny tips-body">
-              · 积分价 &gt; 0 且勾选「兑换页」即出现在 C 端兑换<br />
-              · 月末清零前可集中兑换，需配置库存与每人上限防挤兑<br />
-              · 宝箱卡积分价 0、不出现兑换页，仅奖励发放
-            </div>
-          </section>
         </aside>
       </div>
     </AppAsyncPage>
@@ -290,6 +286,20 @@ onMounted(load);
   grid-template-columns: minmax(0, 1fr) 360px;
   gap: 12px;
   align-items: start;
+}
+.card-tpl-hdr .hdr-note {
+  position: static;
+  transform: none;
+  margin-left: auto;
+  text-align: right;
+  pointer-events: auto;
+  white-space: normal;
+}
+.main-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
 }
 .list-card {
   margin-bottom: 0;
@@ -316,6 +326,8 @@ onMounted(load);
   display: flex;
   flex-direction: column;
   gap: 12px;
+  position: sticky;
+  top: 0;
 }
 .edit-card {
   margin-bottom: 0;
@@ -329,8 +341,23 @@ onMounted(load);
 .form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  gap: 8px 10px;
   margin-bottom: 8px;
+}
+.form-grid .field {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
+  min-width: 0;
+}
+.form-grid .fld {
+  min-height: 34px;
+  line-height: 1.55;
+  margin-bottom: 4px;
+}
+.form-grid .inp {
+  width: 100%;
+  margin: 0;
 }
 .field {
   display: block;
@@ -381,6 +408,14 @@ onMounted(load);
 @media (max-width: 960px) {
   .card-tpl-layout {
     grid-template-columns: 1fr;
+  }
+  .side-col {
+    position: static;
+  }
+  .card-tpl-hdr .hdr-note {
+    margin-left: 0;
+    text-align: left;
+    width: 100%;
   }
 }
 </style>
