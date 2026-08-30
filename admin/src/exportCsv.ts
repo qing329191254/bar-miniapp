@@ -1,15 +1,9 @@
+import * as XLSX from "xlsx";
+
 function escapeCell(v: unknown) {
   const s = String(v ?? "");
   if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
-}
-
-function escapeXml(v: unknown) {
-  return String(v ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
 
 export function downloadCsv(filename: string, headers: string[], rows: string[][]) {
@@ -23,62 +17,52 @@ export function downloadCsv(filename: string, headers: string[], rows: string[][
   URL.revokeObjectURL(url);
 }
 
-type ExcelExportOpts = {
+type XlsxExportOpts = {
   colWidths?: number[];
   textCols?: number[];
-  numberCols?: number[];
   sheetName?: string;
 };
 
-/** Excel 2003 XML（SpreadsheetML），列宽/文本/数字格式正确，无 HTML 伪 xls 警告 */
-export function downloadExcelTable(
+/** 标准 .xlsx 导出（SheetJS） */
+export function downloadXlsx(
   filename: string,
   headers: string[],
   rows: unknown[][],
-  opts: ExcelExportOpts = {},
+  opts: XlsxExportOpts = {},
 ) {
-  const { colWidths = [], textCols = [], numberCols = [], sheetName = "Sheet1" } = opts;
-  const textSet = new Set(textCols);
-  const numberSet = new Set(numberCols);
+  const { colWidths = [], textCols = [], sheetName = "Sheet1" } = opts;
   const safeSheet = sheetName.replace(/[\\/*?:[\]]/g, "_").slice(0, 31) || "Sheet1";
+  const textSet = new Set(textCols);
 
-  const cellXml = (value: unknown, idx: number) => {
-    if (numberSet.has(idx)) {
-      const n = Number(value);
-      const num = Number.isFinite(n) ? n : 0;
-      return `<Cell><Data ss:Type="Number">${num}</Data></Cell>`;
+  const normalized = rows.map((row) =>
+    row.map((cell, idx) => {
+      if (textSet.has(idx)) return String(cell ?? "");
+      if (typeof cell === "number" && Number.isFinite(cell)) return cell;
+      return cell ?? "";
+    }),
+  );
+
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...normalized]);
+
+  for (let r = 0; r <= normalized.length; r++) {
+    for (const c of textCols) {
+      const addr = XLSX.utils.encode_cell({ r, c });
+      const cell = ws[addr];
+      if (!cell) continue;
+      cell.t = "s";
+      cell.v = String(cell.v ?? "");
+      cell.z = "@";
     }
-    if (textSet.has(idx)) {
-      return `<Cell ss:StyleID="Text"><Data ss:Type="String">${escapeXml(value)}</Data></Cell>`;
-    }
-    return `<Cell><Data ss:Type="String">${escapeXml(value)}</Data></Cell>`;
-  };
+  }
 
-  const cols = colWidths.map((w) => `<Column ss:Width="${w}"/>`).join("");
-  const head = `<Row>${headers.map((h, i) => cellXml(h, i)).join("")}</Row>`;
-  const body = rows.map((r) => `<Row>${r.map((c, i) => cellXml(c, i)).join("")}</Row>`).join("");
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:o="urn:schemas-microsoft-com:office:office"
- xmlns:x="urn:schemas-microsoft-com:office:excel"
- xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
-<Styles>
-<Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Center"/></Style>
-<Style ss:ID="Text"><NumberFormat ss:Format="@"/></Style>
-</Styles>
-<Worksheet ss:Name="${escapeXml(safeSheet)}">
-<Table>${cols}${head}${body}</Table>
-</Worksheet>
-</Workbook>`;
+  if (colWidths.length) {
+    ws["!cols"] = colWidths.map((wch) => ({ wch }));
+  }
 
-  const blob = new Blob(["\uFEFF" + xml], { type: "application/vnd.ms-excel;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename.endsWith(".xls") ? filename : `${filename.replace(/\.csv$/i, "")}.xls`;
-  a.click();
-  URL.revokeObjectURL(url);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, safeSheet);
+  const out = filename.endsWith(".xlsx") ? filename : `${filename.replace(/\.(csv|xls|xlsx)$/i, "")}.xlsx`;
+  XLSX.writeFile(wb, out);
 }
 
 export function csvFilename(prefix: string, rangeLabel = "", ext = "csv") {

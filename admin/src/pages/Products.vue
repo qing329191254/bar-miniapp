@@ -307,17 +307,27 @@ async function save() {
           <div class="fld">商品图片</div>
           <ImgField v-model="edit.img" size="md" actions />
           <div class="tiny img-hint">建议方图，单张 ≤ 2MB</div>
-          <div class="fld">商品名称 *</div>
-          <input class="inp" v-model="edit.name" />
-          <div class="fld">分类</div>
-          <AppSelect v-if="edit" v-model="edit.cid" :options="catOpts" />
-          <div class="fld">金币价格 *</div>
-          <input class="inp" type="number" v-model.number="edit.price" />
-          <div class="fld">类型 *</div>
-          <select v-model="edit.type" class="inp" @change="onTypeChange">
-            <option value="SINGLE">单品（下单核销）</option>
-            <option value="COMBO">套餐（下单自动发卡）</option>
-          </select>
+          <div class="edit-grid">
+            <label class="field">
+              <span class="fld">商品名称 *</span>
+              <input class="inp" v-model="edit.name" />
+            </label>
+            <label class="field">
+              <span class="fld">分类</span>
+              <AppSelect v-if="edit" v-model="edit.cid" :options="catOpts" />
+            </label>
+            <label class="field">
+              <span class="fld">金币价格 *</span>
+              <input class="inp" type="number" v-model.number="edit.price" />
+            </label>
+            <label class="field">
+              <span class="fld">类型 *</span>
+              <select v-model="edit.type" class="inp" @change="onTypeChange">
+                <option value="SINGLE">单品（下单核销）</option>
+                <option value="COMBO">套餐（下单自动发卡）</option>
+              </select>
+            </label>
+          </div>
           <div class="fld">描述</div>
           <input class="inp" v-model="edit.desc" />
           <div v-if="edit.type === 'COMBO'" class="combo-editor">
@@ -447,6 +457,16 @@ async function save() {
   margin-top: 8px;
 }
 .fld:first-of-type { margin-top: 0; }
+.edit-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 10px;
+  margin-top: 8px;
+}
+.edit-grid .field { display: block; min-width: 0; }
+.edit-grid .fld { margin-top: 0; margin-bottom: 4px; }
+.edit-grid .inp { width: 100%; margin: 0; }
+.edit-grid :deep(.sel) { width: 100%; }
 .img-hint { margin: 4px 0 0; color: var(--ink3); }
 .combo-cell { max-width: 220px; line-height: 1.5; }
 .single-pill { border: 1px solid var(--line); color: var(--ink2); background: transparent; }
