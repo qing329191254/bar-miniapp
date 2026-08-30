@@ -2,6 +2,7 @@
 import { onMounted, ref } from "vue";
 import { api } from "../api";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
+import AppSelect from "../components/AppSelect.vue";
 import { showToast } from "../composables/useToast";
 
 type StaffRow = {
@@ -27,6 +28,10 @@ const showAdd = ref(false);
 const roleDlg = ref<{ row: StaffRow; role: string; reason: string } | null>(null);
 const disableDlg = ref<StaffRow | null>(null);
 
+const ROLE_OPTS = [
+  { value: "STAFF", label: "店员" },
+  { value: "MANAGER", label: "店长" },
+];
 const ROLE_NAME: Record<string, string> = { STAFF: "店员", MANAGER: "店长", BOSS: "老板" };
 
 function fmt(n: number) {
@@ -75,17 +80,13 @@ function openAdd() {
   showAdd.value = true;
 }
 
-function onRoleChange(row: StaffRow, event: Event) {
-  const select = event.target as HTMLSelectElement;
-  const role = select.value;
+function onRoleChange(row: StaffRow, role: string) {
   if (role === "BOSS" || row.role === "BOSS") {
     showToast("老板角色不可在此变更", true);
-    select.value = row.role;
     return;
   }
   if (role === row.role) return;
   roleDlg.value = { row, role, reason: "" };
-  select.value = row.role;
 }
 
 function roleDlgBody() {
@@ -153,16 +154,16 @@ onMounted(load);
         <span class="tiny">该手机号登录后自动识别为员工</span>
       </div>
       <div class="card tb-wrap">
-        <table class="tb2 staff-table">
+        <table class="tb2 staff-table" data-cols="llccccc">
           <thead>
             <tr>
-              <th style="width: 16%">姓名</th>
-              <th style="width: 18%">手机号</th>
-              <th style="width: 14%">角色</th>
-              <th style="width: 12%">接单</th>
-              <th style="width: 12%">收款额</th>
-              <th style="width: 12%">核销</th>
-              <th style="width: 16%">操作</th>
+              <th>姓名</th>
+              <th>手机号</th>
+              <th>角色</th>
+              <th>接单</th>
+              <th>收款额</th>
+              <th>核销</th>
+              <th>操作</th>
             </tr>
           </thead>
           <tbody>
@@ -174,16 +175,17 @@ onMounted(load);
               <td>{{ row.phone }}</td>
               <td>
                 <span v-if="row.role === 'BOSS'" class="pill boss-pill">老板</span>
-                <select
+                <AppSelect
                   v-else
-                  class="inp role-select"
-                  :value="row.role"
+                  class="role-sel"
+                  :model-value="row.role"
+                  :options="ROLE_OPTS"
+                  compact
+                  no-margin
+                  action
                   :disabled="row.status === 'DISABLED'"
                   @change="onRoleChange(row, $event)"
-                >
-                  <option value="STAFF">店员</option>
-                  <option value="MANAGER">店长</option>
-                </select>
+                />
               </td>
               <td>{{ row.orders }}</td>
               <td>¥{{ fmt(row.amount) }}</td>
@@ -208,73 +210,91 @@ onMounted(load);
       </div>
     </div>
 
-    <div v-if="showAdd" class="dlg-mask" @click.self="showAdd = false">
-      <section class="dlg">
-        <div class="st">新增员工</div>
-        <div class="fld">手机号 *</div>
-        <input v-model="addForm.phone" class="inp" placeholder="11 位手机号" />
-        <div class="fld">姓名</div>
-        <input v-model="addForm.nick" class="inp" placeholder="如 小玲" />
-        <div class="fld">角色</div>
-        <select v-model="addForm.role" class="inp">
-          <option value="STAFF">店员</option>
-          <option value="MANAGER">店长</option>
-        </select>
-        <div class="dlg-actions">
-          <button class="btn ghost" @click="showAdd = false">取消</button>
-          <button class="btn pri" :disabled="acting" @click="addStaff">添加员工</button>
-        </div>
-      </section>
-    </div>
+    <Teleport to="body">
+      <div v-if="showAdd" class="dlg-mask" @click.self="showAdd = false">
+        <section class="dlg">
+          <div class="st">新增员工</div>
+          <div class="fld">手机号 *</div>
+          <input v-model="addForm.phone" class="inp" placeholder="11 位手机号" />
+          <div class="fld">姓名</div>
+          <input v-model="addForm.nick" class="inp" placeholder="如 小玲" />
+          <div class="fld">角色</div>
+          <AppSelect v-model="addForm.role" :options="ROLE_OPTS" no-margin />
+          <div class="dlg-actions">
+            <button class="btn ghost" @click="showAdd = false">取消</button>
+            <button class="btn pri" :disabled="acting" @click="addStaff">添加员工</button>
+          </div>
+        </section>
+      </div>
+    </Teleport>
 
-    <div v-if="roleDlg" class="dlg-mask" @click.self="roleDlg = null">
-      <section class="dlg">
-        <div class="st">变更员工角色</div>
-        <p class="dlg-body">{{ roleDlgBody() }}</p>
-        <div class="fld">变更原因（必填）</div>
-        <input v-model="roleDlg.reason" class="inp" placeholder="请填写原因" />
-        <div class="dlg-actions">
-          <button class="btn ghost" @click="roleDlg = null">取消</button>
-          <button class="btn dan" :disabled="acting" @click="confirmRole">确认变更</button>
-        </div>
-      </section>
-    </div>
+    <Teleport to="body">
+      <div v-if="roleDlg" class="dlg-mask" @click.self="roleDlg = null">
+        <section class="dlg">
+          <div class="st">变更员工角色</div>
+          <p class="dlg-body">{{ roleDlgBody() }}</p>
+          <div class="fld">变更原因（必填）</div>
+          <input v-model="roleDlg.reason" class="inp" placeholder="请填写原因" />
+          <div class="dlg-actions">
+            <button class="btn ghost" @click="roleDlg = null">取消</button>
+            <button class="btn dan" :disabled="acting" @click="confirmRole">确认变更</button>
+          </div>
+        </section>
+      </div>
+    </Teleport>
 
-    <div v-if="disableDlg" class="dlg-mask" @click.self="disableDlg = null">
-      <section class="dlg">
-        <div class="st">停用员工</div>
-        <p class="dlg-body">确认停用「<b>{{ disableDlg.nick }}</b>」？停用后立即无法登录，历史记录保留。</p>
-        <div class="dlg-actions">
-          <button class="btn ghost" @click="disableDlg = null">取消</button>
-          <button class="btn dan" :disabled="acting" @click="confirmDisable">确认停用</button>
-        </div>
-      </section>
-    </div>
+    <Teleport to="body">
+      <div v-if="disableDlg" class="dlg-mask" @click.self="disableDlg = null">
+        <section class="dlg dlg-confirm">
+          <div class="st">停用员工</div>
+          <p class="dlg-body">确认停用「<b>{{ disableDlg.nick }}</b>」？停用后立即无法登录，历史记录保留。</p>
+          <div class="dlg-actions">
+            <button class="btn ghost" @click="disableDlg = null">取消</button>
+            <button class="btn dan" :disabled="acting" @click="confirmDisable">确认停用</button>
+          </div>
+        </section>
+      </div>
+    </Teleport>
   </AppAsyncPage>
 </template>
 
 <style scoped>
 .staff-hdr .hdr-note{position:static;transform:none;margin-left:auto;text-align:right;pointer-events:auto;white-space:normal}
 .toolbar { gap: 8px; margin-bottom: 11px; align-items: center; }
-.staff-table :is(th,td):nth-child(n+4){text-align:center}
+.staff-table { table-layout: fixed; min-width: 720px; }
+.staff-table :is(th,td):nth-child(1){width:14%}
+.staff-table :is(th,td):nth-child(2){width:16%}
+.staff-table :is(th,td):nth-child(3){width:14%}
+.staff-table :is(th,td):nth-child(4){width:10%}
+.staff-table :is(th,td):nth-child(5){width:12%}
+.staff-table :is(th,td):nth-child(6){width:10%}
+.staff-table :is(th,td):nth-child(7){width:12%}
+.staff-table td.col-op { white-space: nowrap; }
 .tb-wrap { padding: 0; overflow: auto; }
 .name { font-weight: 500; }
 .disabled-tag { margin-left: 6px; color: var(--red); font-size: 11px; font-weight: 400; }
 .boss-pill { background: var(--goldbg); color: var(--gold); }
-.role-select { padding: 4px 7px; font-size: 12px; width: 100%; max-width: 120px; }
+.role-sel { max-width: 72px; margin: 0 auto; }
 .empty-row { text-align: center; color: var(--ink3); padding: 24px; font-size: 12px; }
 .mut { color: var(--ink3); font-size: 12px; }
-.dlg-mask {
-  position: fixed; z-index: 30; inset: 0; display: grid; place-items: center;
-  padding: 20px; background: rgba(0, 0, 0, 0.38);
-}
 .dlg {
-  width: min(520px, 100%); background: #fff; border-radius: 16px; padding: 24px;
-  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.2);
+  width: min(480px, 100%); background: #fff; border-radius: 14px; padding: 20px 22px;
+  border: 1px solid var(--line); box-shadow: 0 20px 60px rgba(28, 27, 25, 0.24);
 }
+.dlg-confirm { width: min(400px, 100%); }
+.dlg .st { margin-bottom: 12px; }
 .fld { color: var(--ink2); font-size: 12px; margin: 8px 0 4px; }
 .dlg .inp { width: 100%; margin-bottom: 4px; }
-.dlg-body { font-size: 13px; line-height: 1.65; margin: 8px 0 4px; white-space: pre-line; }
-.dlg-actions { display: grid; grid-template-columns: 1fr 1.6fr; gap: 10px; margin-top: 18px; }
-.dlg-actions .btn { width: 100%; }
+.dlg-body { font-size: 13px; line-height: 1.65; margin: 0 0 4px; color: var(--ink2); white-space: pre-line; }
+.dlg-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+.dlg-actions .btn { min-width: 96px; margin: 0; }
+@media (max-width: 640px) {
+  .dlg-actions { flex-direction: column-reverse; }
+  .dlg-actions .btn { width: 100%; min-width: 0; }
+}
 </style>

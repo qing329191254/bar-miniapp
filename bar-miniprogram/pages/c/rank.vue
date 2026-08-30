@@ -61,6 +61,14 @@ const periodText = computed(() => {
 const color = computed(() =>
   kind.value === "SHARD" ? "#534AB7" : kind.value === "POINT" ? "#185FA5" : "#3B6D11",
 );
+const emptyText = computed(() => {
+  if (kind.value === "CHAMPION") {
+    return dim.value === "WEEK" ? "本周还没有冠军记录" : "暂无累计冠军数据";
+  }
+  if (kind.value === "POINT" && dim.value !== "WEEK") return "本月还没有积分数据";
+  if (kind.value === "SHARD" && dim.value !== "WEEK") return "暂无历史碎片数据";
+  return "本周还没有数据，快来玩一局";
+});
 </script>
 
 <template>
@@ -82,7 +90,7 @@ const color = computed(() =>
       <view class="tiny gold" style="margin-top:3px;line-height:1.65">夺冠战队全员得战队宝箱卡 · 个人榜前三得钻石 / 黄金 / 白银宝箱卡</view>
     </view>
     <view class="rk-box">
-      <view v-if="!data.rows.length" class="empty">本周还没有数据，快来玩一局</view>
+      <view v-if="!data.rows.length" class="empty">{{ emptyText }}</view>
       <view v-for="r in data.rows" :key="r.rank + '-' + nameOf(r)" class="rk-row" :class="{ me: isMe(r) }">
         <view class="rk-no" :class="{ top: r.rank <= 3 }">{{ r.rank }}</view>
         <view class="av">{{ (nameOf(r) || "").slice(0, 2) }}</view>

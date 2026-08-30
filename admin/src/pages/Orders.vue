@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { api, DEFAULT_PAGE_SIZE, pageQs } from "../api";
 import AppPagination from "../components/AppPagination.vue";
 import AppDateInput from "../components/AppDateInput.vue";
+import AppSelect from "../components/AppSelect.vue";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
 import { showToast } from "../composables/useToast";
 
@@ -101,6 +102,17 @@ const hdrNote = computed(() => {
   if (pending.value.length) parts.push(`待处理 ${pending.value.length} 单`);
   return parts.join(" · ");
 });
+const opOpts = computed(() => [
+  { value: 0, label: "全部操作人" },
+  ...(data.value?.staff || []).map((s: any) => ({
+    value: s.id,
+    label: `${s.nick} · ${ROLE[s.role] || s.role}`,
+  })),
+]);
+const statusOpts = computed(() => [
+  { value: "", label: "全部状态" },
+  ...Object.entries(ODST).map(([key, value]) => ({ value: key, label: value[0] })),
+]);
 
 async function load(resetPage = false) {
   if (resetPage) tablePage.value = 1;
@@ -143,7 +155,6 @@ async function submitRefund() {
     showToast("请填写退款原因", true);
     return;
   }
-  if (!window.confirm(`确认退款订单 ${order.no}？该操作不可撤销。`)) return;
   refunding.value = true;
   try {
     await api(`/admin/orders/${order.id}/refund`, { method: "POST", body: { reason } });
@@ -201,17 +212,11 @@ watch(status, () => load(true));
         <div class="flt-extra">
           <label class="flt-field">
             <span class="fld">操作人</span>
-            <select v-model.number="opUid" class="inp flt-select">
-              <option :value="0">全部操作人</option>
-              <option v-for="s in data.staff || []" :key="s.id" :value="s.id">{{ s.nick }} · {{ ROLE[s.role] || s.role }}</option>
-            </select>
+            <AppSelect v-model="opUid" :options="opOpts" no-margin class="flt-select" />
           </label>
           <label class="flt-field">
             <span class="fld">订单状态</span>
-            <select v-model="status" class="inp flt-select">
-              <option value="">全部状态</option>
-              <option v-for="(v, k) in ODST" :key="k" :value="k">{{ v[0] }}</option>
-            </select>
+            <AppSelect v-model="status" :options="statusOpts" no-margin class="flt-select" />
           </label>
         </div>
       </div>
@@ -307,7 +312,7 @@ watch(status, () => load(true));
               <td class="tiny">{{ r.opName || "—" }}</td>
               <td class="tiny">{{ r.at || "—" }}</td>
               <td class="col-op">
-                <button v-if="canRefund(r)" class="btn sm od-refund" @click="openRefund(r)">退款</button>
+                <button v-if="canRefund(r)" class="btn sm dan od-refund" @click="openRefund(r)">退款</button>
                 <span v-else class="tiny">—</span>
               </td>
             </tr>
@@ -320,11 +325,14 @@ watch(status, () => load(true));
       </div>
 
       <div class="note">
-        <b>口径：</b>有效订单额只计「制作中 / 已完成」，退款与取消单不计入营业额。<b>操作人</b>为接单或确认收款的店员，待接单状态尚无经手人故显示「—」。<br />
-        <b>退款需店长以上：</b>按原扣款构成退回本金与赠送金币，必填原因并记入操作日志；同时回收该订单发放的未使用套餐赠卡。
+        <div class="note-body">
+          <p><b>口径：</b>有效订单额只计「制作中 / 已完成」，退款与取消单不计入营业额。<b>操作人</b>为接单或确认收款的店员，待接单状态尚无经手人故显示「—」。</p>
+          <p><b>退款需店长以上：</b>按原扣款构成退回本金与赠送金币，必填原因并记入操作日志；同时回收该订单发放的未使用套餐赠卡。</p>
+        </div>
       </div>
     </AppAsyncPage>
 
+    <Teleport to="body">
     <div v-if="refundTarget" class="refund-mask" @click.self="closeRefund">
       <div class="refund-dialog">
         <div class="st">
@@ -351,6 +359,7 @@ watch(status, () => load(true));
         </div>
       </div>
     </div>
+    </Teleport>
   </div>
 </template>
 
@@ -362,7 +371,7 @@ watch(status, () => load(true));
 .flt-extra { display: flex; gap: 10px; margin-top: 9px; flex-wrap: wrap; }
 .flt-field { display: block; }
 .flt-field .fld { display: block; color: var(--ink2); font-size: 12px; margin-bottom: 4px; }
-.flt-select { max-width: 170px; margin: 0; }
+.flt-field :deep(.flt-select) { width: 170px; max-width: 170px; }
 .od-metrics { margin-bottom: 12px; }
 .op-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .op-cell { background: #faf9f5; border-radius: 9px; padding: 10px 12px; }
@@ -376,9 +385,8 @@ watch(status, () => load(true));
 .table-card { padding: 0; overflow: auto; }
 .items-col { max-width: 220px; }
 .refund-reason { color: #a32d2d; margin-top: 2px; }
-.od-refund { color: #a32d2d; border-color: #e9c4c4; margin: 0; }
+.od-refund { margin: 0; }
 .empty-row { text-align: center; padding: 26px; color: var(--ink3); }
-.refund-mask { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(28, 27, 25, 0.42); }
 .refund-dialog { width: min(440px, 100%); padding: 18px; border-radius: 14px; background: #fff; box-shadow: 0 18px 48px rgba(28, 27, 25, 0.24); }
 .refund-warn { color: #a32d2d; font-size: 12px; margin-bottom: 8px; }
 .refund-amount { margin-bottom: 13px; padding: 11px 12px; border-radius: 9px; background: #fcebeb; color: #a32d2d; }

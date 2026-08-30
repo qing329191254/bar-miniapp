@@ -54,8 +54,8 @@ button,input,select{font:inherit}
 .btn.sm{font-size:12px;padding:5px 11px;border-radius:10px;flex:none}
 .btn.gold{background:var(--gold)}
 .btn.pri{background:#1C1B19;color:#fff}
-.btn.dan{background:var(--red);color:#fff;border-color:var(--red)}
-.btn.dan:disabled{opacity:.45;cursor:not-allowed}
+.btn.dan,.btn.danger{background:var(--red);color:#fff;border-color:var(--red)}
+.btn.dan:disabled,.btn.danger:disabled{opacity:.45;cursor:not-allowed}
 .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--ink)}
 .btn.sm.ghost{border:1px solid rgba(28,27,25,.24);background:var(--card)}
 .btn + .btn{margin-left:8px}
@@ -94,7 +94,6 @@ th{font-weight:400;color:var(--ink3);font-size:11px;position:sticky;top:0;z-inde
 .tb2 td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
 .tb2 .tb-foot td{background:#FAF9F5;font-weight:600;border-bottom:none}
 .tb2 td.table-empty{height:88px;padding:24px 16px!important;text-align:center!important;color:var(--ink3)!important;background:#FCFBF8;font-size:12px}
-.tb2 td.table-empty::before{content:"—";display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;margin-right:8px;border-radius:50%;background:#EEECE6;color:var(--ink3);vertical-align:middle}
 .list-empty{padding:24px 16px;text-align:center;color:var(--ink3);font-size:12px;background:#FCFBF8;border-radius:8px}
 /* 列对齐：data-cols 用 l=左对齐 c=居中（数字/状态/操作）；默认文本列左、其余居中 */
 .tb2[data-cols] :is(thead,tbody,tfoot) tr > *{text-align:center}
@@ -221,6 +220,25 @@ select.inp{
 .pg-size{padding:4px 9px;font-size:11px}
 .pg-num{min-width:52px;text-align:center;color:var(--ink2)}
 .pg-bar .btn{margin:0}
+
+/* 通用弹层：需 Teleport 到 body，避免被 .main overflow 裁切 */
+.dlg-mask,
+.void-mask,
+.refund-mask,
+.reject-mask,
+.deact-mask,
+.adj-mask,
+.cat-mask,
+.create-mask{
+  position:fixed;
+  inset:0;
+  z-index:1000;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:20px;
+  background:rgba(28,27,25,.42);
+}
 
 /* 结算弹层挂载到 body，避免被后台主滚动容器裁切或参与文档流。 */
 .settle-modal-mask{position:fixed!important;inset:0!important;z-index:1000!important;display:flex!important;align-items:center!important;justify-content:center!important;padding:20px;background:rgba(28,27,25,.48);overflow:auto}
@@ -393,19 +411,153 @@ button:focus-visible,a:focus-visible{outline:3px solid rgba(185,120,34,.2);outli
 .btn.sm{padding:6px 11px;border-radius:8px}
 .btn.gold{border-color:#9D611B;background:var(--gold-gradient);box-shadow:0 4px 12px rgba(157,97,27,.22),inset 0 1px 0 rgba(255,255,255,.22)}
 .btn.pri{background:var(--dark-gradient)}
-.btn.dan{border-color:#8F2E2A;background:linear-gradient(135deg,#BE514B,#96312D);box-shadow:0 4px 11px rgba(150,49,45,.2),inset 0 1px 0 rgba(255,255,255,.16)}
+.btn.dan,.btn.danger{border-color:#8F2E2A;background:linear-gradient(135deg,#BE514B,#96312D);box-shadow:0 4px 11px rgba(150,49,45,.2),inset 0 1px 0 rgba(255,255,255,.16)}
 .btn.ghost,.btn.sm.ghost{border-color:rgba(82,59,32,.16);background:linear-gradient(180deg,#FFFFFF,#F8F5EF);color:#51483E;box-shadow:0 2px 6px rgba(74,52,28,.06),inset 0 1px 0 #fff}
 .btn.ghost:hover:not(:disabled){border-color:rgba(185,120,34,.3);background:linear-gradient(180deg,#FFFDF8,#FFF3DF);color:#8C5717}
 .chip{border-color:rgba(82,59,32,.14);background:linear-gradient(180deg,#fff,#FBF8F2);box-shadow:0 1px 3px rgba(74,52,28,.04)}
 .chip:hover{border-color:rgba(185,120,34,.28);color:#8C5717;transform:translateY(-1px)}
 .chip.on{border-color:#31271D;background:var(--dark-gradient);color:#fff;box-shadow:0 4px 10px rgba(43,31,19,.15)}
+.ui-toggle{
+  position:relative;
+  width:40px;
+  height:22px;
+  flex:none;
+  margin:0;
+  appearance:none;
+  -webkit-appearance:none;
+  border:1px solid rgba(82,59,32,.16);
+  border-radius:999px;
+  background:linear-gradient(180deg,#ECE6DC,#DED4C6);
+  cursor:pointer;
+  transition:border-color .18s ease,background .18s ease,box-shadow .18s ease;
+  box-shadow:inset 0 1px 2px rgba(74,52,28,.08);
+}
+.ui-toggle::after{
+  content:"";
+  position:absolute;
+  top:2px;
+  left:2px;
+  width:16px;
+  height:16px;
+  border-radius:50%;
+  background:#fff;
+  box-shadow:0 1px 4px rgba(74,52,28,.16);
+  transition:transform .18s ease;
+}
+.ui-toggle:checked{
+  border-color:rgba(185,120,34,.42);
+  background:var(--gold-gradient);
+  box-shadow:inset 0 1px 2px rgba(116,74,20,.14);
+}
+.ui-toggle:checked::after{transform:translateX(18px)}
+.ui-toggle:focus-visible{outline:3px solid rgba(185,120,34,.2);outline-offset:2px}
+.ui-toggle:disabled{opacity:.5;cursor:not-allowed}
+.ui-check{
+  appearance:none;
+  -webkit-appearance:none;
+  width:18px;
+  height:18px;
+  margin:0;
+  border:1px solid rgba(82,59,32,.22);
+  border-radius:5px;
+  background:#fff;
+  cursor:pointer;
+  display:inline-grid;
+  place-items:center;
+  vertical-align:middle;
+  box-shadow:inset 0 1px 2px rgba(74,52,28,.04);
+  transition:border-color .18s ease,background .18s ease,box-shadow .18s ease;
+}
+.ui-check:hover:not(:disabled){border-color:rgba(185,120,34,.45)}
+.ui-check:checked{
+  border-color:rgba(185,120,34,.55);
+  background:var(--gold-gradient);
+  box-shadow:0 2px 6px rgba(185,120,34,.18);
+}
+.ui-check:checked::after{
+  content:"";
+  width:9px;
+  height:5px;
+  border:2px solid #fff;
+  border-top:0;
+  border-right:0;
+  transform:rotate(-45deg) translateY(-1px);
+}
+.ui-check:focus-visible{outline:3px solid rgba(185,120,34,.2);outline-offset:2px}
+.ui-check:disabled{opacity:.5;cursor:not-allowed}
 .inp{border-color:rgba(82,59,32,.18);border-radius:9px;background:#FFF;box-shadow:inset 0 1px 2px rgba(74,52,28,.025)}
 .inp:hover:not(:disabled){border-color:rgba(82,59,32,.3)}
 .inp:focus{border-color:rgba(185,120,34,.65);box-shadow:0 0 0 3px rgba(185,120,34,.11),0 3px 9px rgba(74,52,28,.05)}
-.note{position:relative;border:1px solid rgba(40,106,157,.1);border-radius:10px;padding:9px 11px 9px 35px;background:linear-gradient(135deg,#EFF7FD,#E8F2FA);color:#2A648F}
-.note::before{content:"i";position:absolute;left:11px;top:10px;width:15px;height:15px;display:grid;place-items:center;border-radius:50%;background:#5A91B9;color:#fff;font:700 10px/1 Georgia,serif;box-shadow:0 2px 5px rgba(40,106,157,.16)}
+.note{display:block;position:relative;border:1px solid rgba(40,106,157,.1);border-radius:10px;padding:9px 11px 9px 38px;background:linear-gradient(135deg,#EFF7FD,#E8F2FA);color:#2A648F;line-height:1.6;word-break:normal;overflow-wrap:break-word}
+.note::before{content:"i";position:absolute;left:12px;top:calc(9px + (1lh - 16px)/2);width:16px;height:16px;display:grid;place-items:center;border-radius:50%;background:#5A91B9;color:#fff;font:700 10px/16px Georgia,serif;box-shadow:0 2px 5px rgba(40,106,157,.16)}
+.note-body p{margin:0}
+.note-body p+p{margin-top:8px}
+.note.sk-note::before{display:none}
 .note.rd{border-color:rgba(168,58,53,.1);background:linear-gradient(135deg,#FFF5F3,#FDEAE8);color:var(--red)}
 .note.rd::before{content:"!";background:#B64A45}
+.note.multi::before{
+  top:calc(9px + (1.6em - 16px)/2);
+  transform:none;
+}
+.note.rd.multi::before{
+  top:calc(12px + (1.6em - 16px)/2);
+}
+.note p{margin:0}
+.note p+p{margin-top:8px}
+/* 说明框共用 */
+.side-note{
+  position:relative;
+  margin-top:12px;
+  padding:12px 12px 12px 38px;
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:#fff;
+  color:var(--ink2);
+  font-size:12px;
+  line-height:1.7;
+  word-break:normal;
+  overflow-wrap:break-word;
+}
+.side-note::before{
+  content:"i";
+  position:absolute;
+  left:12px;
+  width:16px;
+  height:16px;
+  display:grid;
+  place-items:center;
+  border-radius:50%;
+  background:#5A91B9;
+  color:#fff;
+  font:700 10px/16px Georgia,serif;
+  box-shadow:0 2px 5px rgba(40,106,157,.16);
+}
+/* 单行：图标与内容区垂直居中 */
+.side-note:not(.multi){
+  padding:12px 12px 12px 38px;
+}
+.side-note:not(.multi)::before{
+  top:50%;
+  transform:translateY(-50%);
+}
+/* 多行：绝对定位，图标始终与第一行文字垂直居中（不受段落换行影响） */
+.side-note.multi{
+  display:block;
+  padding:12px 12px 12px 38px;
+}
+.side-note.multi::before{
+  position:absolute;
+  left:12px;
+  top:calc(12px + (1.7em - 16px)/2);
+  margin-top:0;
+  transform:none;
+}
+.side-note.warn::before{content:"!";background:#B64A45;box-shadow:0 2px 5px rgba(168,58,53,.16)}
+.side-note.warn b{color:var(--red)}
+.side-note-body{flex:1;min-width:0}
+.side-note p{margin:0}
+.side-note p+p{margin-top:8px}
+.side-note>b:first-child,.side-note-body>b:first-child,.side-note p>b:first-child{white-space:nowrap}
 .tb-wrap{border-radius:14px}
 table,.tb2{border-radius:13px;overflow:hidden}
 th,.tb2 th{background:linear-gradient(180deg,#FCFAF6,#F8F4ED);color:#887E72;font-weight:600;letter-spacing:.15px}

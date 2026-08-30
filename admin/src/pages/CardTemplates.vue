@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { api } from "../api";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
+import AppSelect from "../components/AppSelect.vue";
 import { showToast } from "../composables/useToast";
 
 const rows = ref<any[]>([]);
@@ -22,6 +23,9 @@ const CAT_TABLE: Record<string, string> = {
   FOOD: "酒水",
   OTHER: "其他",
 };
+const catOpts = computed(() =>
+  Object.entries(CAT_FORM).map(([value, label]) => ({ value, label })),
+);
 
 function blank() {
   return {
@@ -229,31 +233,29 @@ onMounted(load);
               </label>
               <label class="field">
                 <span class="fld">分类 *</span>
-                <select v-model="form.cat" class="inp">
-                  <option v-for="(label, key) in CAT_FORM" :key="key" :value="key">{{ label }}</option>
-                </select>
+                <AppSelect v-model="form.cat" :options="catOpts" no-margin />
               </label>
               <label class="field">
                 <span class="fld">积分价 <b class="hint-red">（0 = 仅奖励发放，不进兑换页）</b></span>
-                <input v-model.number="form.cost" type="number" min="0" class="inp" />
+                <input v-model.number="form.cost" type="number" min="0" class="inp inp-num" />
               </label>
               <label class="field">
                 <span class="fld">有效期（天）</span>
-                <input v-model.number="form.days" type="number" min="1" class="inp" />
+                <input v-model.number="form.days" type="number" min="1" class="inp inp-num" />
               </label>
               <label class="field">
                 <span class="fld">每人兑换上限（-1 不限）</span>
-                <input v-model.number="form.perLimit" type="number" class="inp" />
+                <input v-model.number="form.perLimit" type="number" class="inp inp-num" />
               </label>
               <label class="field">
                 <span class="fld">库存（-1 不限）</span>
-                <input v-model.number="form.stock" type="number" class="inp" />
+                <input v-model.number="form.stock" type="number" class="inp inp-num" />
               </label>
             </div>
 
-            <label class="check-row">
-              <input v-model="form.exch" type="checkbox" />
+            <label class="toggle-row">
               <span class="tiny">出现在兑换页（积分可兑换）</span>
+              <input v-model="form.exch" type="checkbox" class="ui-toggle" />
             </label>
 
             <div v-if="form.cat === 'OTHER'" class="field">
@@ -361,6 +363,34 @@ onMounted(load);
   width: 100%;
   margin: 0;
 }
+.form-grid .inp-num {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.inp-num::-webkit-outer-spin-button,
+.inp-num::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.inp-num[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+.toggle-row .tiny {
+  color: var(--ink2);
+  line-height: 1.5;
+}
 .field {
   display: block;
   margin-bottom: 8px;
@@ -375,16 +405,6 @@ onMounted(load);
 .hint-red {
   color: var(--red);
   font-weight: 500;
-}
-.check-row {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin-bottom: 8px;
-  cursor: pointer;
-}
-.check-row input {
-  margin: 0;
 }
 .save-btn {
   width: 100%;

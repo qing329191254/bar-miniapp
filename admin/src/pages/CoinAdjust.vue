@@ -182,6 +182,7 @@ onMounted(load);
       </div>
     </AppAsyncPage>
 
+    <Teleport to="body">
     <div v-if="dlg" class="adj-mask" @click.self="closeDlg">
       <div class="adj-dialog">
         <div class="st">{{ dlg.mode === "approve" ? "通过金币调整" : "驳回金币调整" }}</div>
@@ -210,6 +211,7 @@ onMounted(load);
         </div>
       </div>
     </div>
+    </Teleport>
   </div>
 </template>
 
@@ -264,16 +266,6 @@ onMounted(load);
   word-break: break-word;
   vertical-align: top;
   line-height: 1.5;
-}
-.adj-mask {
-  position: fixed;
-  inset: 0;
-  background: rgba(28, 27, 25, 0.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 200;
-  padding: 16px;
 }
 .adj-dialog {
   background: #fff;

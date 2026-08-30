@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { api, DEFAULT_PAGE_SIZE, pageQs } from "../api";
 import AppPagination from "../components/AppPagination.vue";
 import AppDateInput from "../components/AppDateInput.vue";
+import AppSelect from "../components/AppSelect.vue";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
 import { showToast } from "../composables/useToast";
 import { csvFilename, downloadXlsx } from "../exportCsv";
@@ -173,6 +174,17 @@ const hdrNote = computed(() => {
   if (pending.value.length) parts.push(`待确认 ${pending.value.length} 张`);
   return parts.join(" · ");
 });
+const opOpts = computed(() => [
+  { value: 0, label: "全部操作人" },
+  ...(data.value?.staff || []).map((s: any) => ({
+    value: s.id,
+    label: `${s.nick} · ${ROLE[s.role] || s.role}`,
+  })),
+]);
+const statusOpts = computed(() => [
+  { value: "", label: "全部状态" },
+  ...Object.entries(STATUS).map(([key, value]) => ({ value: key, label: value[0] })),
+]);
 const tableSummary = computed(() => {
   if (!rows.value.length) return null;
   const uids = new Set(rows.value.map((r: any) => r.uid));
@@ -258,17 +270,11 @@ watch([opUid, status], () => load(true));
         <div class="flt-extra">
           <label class="flt-field">
             <span class="fld">经手员工</span>
-            <select v-model.number="opUid" class="inp flt-select">
-              <option :value="0">全部操作人</option>
-              <option v-for="s in data.staff || []" :key="s.id" :value="s.id">{{ s.nick }} · {{ ROLE[s.role] || s.role }}</option>
-            </select>
+            <AppSelect v-model="opUid" :options="opOpts" no-margin class="flt-select" />
           </label>
           <label class="flt-field">
             <span class="fld">单据状态</span>
-            <select v-model="status" class="inp flt-select">
-              <option value="">全部状态</option>
-              <option v-for="([key, value]) in Object.entries(STATUS)" :key="key" :value="key">{{ value[0] }}</option>
-            </select>
+            <AppSelect v-model="status" :options="statusOpts" no-margin class="flt-select" />
           </label>
         </div>
       </div>
@@ -407,7 +413,7 @@ watch([opUid, status], () => load(true));
 .flt-extra { display: flex; gap: 10px; margin-top: 9px; flex-wrap: wrap; }
 .flt-field { display: block; }
 .flt-field .fld { display: block; color: var(--ink2); font-size: 12px; margin-bottom: 4px; }
-.flt-select { max-width: 170px; margin: 0; }
+.flt-field :deep(.flt-select) { width: 170px; max-width: 170px; }
 .wdr-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 12px; }
 .wdr-wait { font-size: 17px; }
 .timeout-card { margin-bottom: 12px; }

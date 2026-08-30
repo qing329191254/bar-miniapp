@@ -235,6 +235,7 @@ watch(id, load);
       <div v-else class="note">该申请已处理完成（{{ ST[data.status]?.[0] }}），无法再次操作。如仍需注销，请让顾客从小程序重新提交申请。</div>
     </AppAsyncPage>
 
+    <Teleport to="body">
     <div v-if="dlg" class="deact-mask" @click.self="closeDlg">
       <div class="deact-dialog">
         <div class="st">{{ dlg === "exec" ? "确认执行注销" : "驳回注销申请" }}</div>
@@ -262,6 +263,7 @@ watch(id, load);
         </div>
       </div>
     </div>
+    </Teleport>
   </div>
 </template>
 
@@ -362,16 +364,6 @@ watch(id, load);
   margin-top: 7px;
   color: var(--ink3);
   line-height: 1.7;
-}
-.deact-mask {
-  position: fixed;
-  inset: 0;
-  background: rgba(28, 27, 25, 0.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 200;
-  padding: 16px;
 }
 .deact-dialog {
   background: #fff;

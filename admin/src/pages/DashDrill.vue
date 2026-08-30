@@ -313,7 +313,7 @@ watch([tablePage, tablePageSize], () => load());
           </table>
         </div>
         <div class="card alert-games-card">
-          <div class="st">今日对局逐条 <em>{{ data.games?.length || 0 }} 局 · 可直接作废异常记录</em></div>
+          <div class="st">今日对局逐条 <em>{{ rowTotal }} 局 · 可直接作废异常记录</em></div>
           <table class="tb2 tb-even tb-even-7" data-cols="clclccc">
             <thead><tr><th>时间</th><th>项目</th><th>桌台</th><th>玩家与得分</th><th>积分</th><th>录入人</th><th class="col-op">操作</th></tr></thead>
             <tbody>
@@ -334,6 +334,7 @@ watch([tablePage, tablePageSize], () => load());
       </template>
     </AppAsyncPage>
 
+    <Teleport to="body">
     <div v-if="voidPreview" class="void-mask" @click.self="closeVoid">
       <div class="void-dialog">
         <div class="st">作废影响预览 <em>{{ voidPreview.pname }}</em></div>
@@ -366,6 +367,7 @@ watch([tablePage, tablePageSize], () => load());
         </div>
       </div>
     </div>
+    </Teleport>
   </div>
 </template>
 
@@ -401,16 +403,6 @@ watch([tablePage, tablePageSize], () => load());
   color: #a32d2d;
   border: 1px solid #e9c4c4;
   background: #fff;
-}
-.void-mask {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  background: rgba(28, 27, 25, 0.42);
 }
 .void-dialog {
   width: min(560px, 100%);

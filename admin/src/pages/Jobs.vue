@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { api } from "../api";
 import AppDateInput from "../components/AppDateInput.vue";
+import AppSelect from "../components/AppSelect.vue";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
 
 const router = useRouter();
@@ -61,6 +62,13 @@ function openDetail(uid: number) {
 const summary = computed(() => data.value?.summary || { acts: 0, amount: 0, verifies: 0, games: 0 });
 const rows = computed(() => data.value?.rows || []);
 const showTotal = computed(() => rows.value.length > 1);
+const opOpts = computed(() => [
+  { value: 0, label: "全部操作人" },
+  ...(data.value?.staff || []).map((s: any) => ({
+    value: s.id,
+    label: `${s.nick} · ${ROLE[s.role] || s.role}`,
+  })),
+]);
 
 async function load() {
   loading.value = true;
@@ -107,10 +115,7 @@ watch(opUid, () => load());
         <div class="flt-extra">
           <label class="flt-field">
             <span class="fld">操作人</span>
-            <select v-model.number="opUid" class="inp flt-select">
-              <option :value="0">全部操作人</option>
-              <option v-for="s in data.staff || []" :key="s.id" :value="s.id">{{ s.nick }} · {{ ROLE[s.role] || s.role }}</option>
-            </select>
+            <AppSelect v-model="opUid" :options="opOpts" no-margin class="flt-select" />
           </label>
         </div>
       </div>
@@ -208,7 +213,7 @@ watch(opUid, () => load());
 .flt-custom { display: flex; align-items: center; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
 .flt-extra { margin-top: 9px; }
 .flt-field .fld { display: block; color: var(--ink2); font-size: 12px; margin-bottom: 4px; }
-.flt-select { max-width: 170px; margin: 0; }
+.flt-field :deep(.flt-select) { width: 170px; max-width: 170px; }
 .job-metrics { margin-bottom: 12px; }
 .table-card { padding: 0; overflow: auto; }
 .staff-cell { display: flex; align-items: center; gap: 7px; }

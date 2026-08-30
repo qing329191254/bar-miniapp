@@ -1229,10 +1229,15 @@ def job_detail(
     }
 
 
-def champ_count(sess: Session, uid, month=False) -> int:
+def champ_count(sess: Session, uid, dim: str = "ALL") -> int:
     q = sess.query(Champ).filter(Champ.uid == uid)
-    if month:
+    if dim == "MONTH":
         q = q.filter(Champ.date.startswith(current_month()))
+    elif dim == "WEEK":
+        today = business_today()
+        monday = today - timedelta(days=today.weekday())
+        sunday = monday + timedelta(days=6)
+        q = q.filter(Champ.date >= monday.isoformat(), Champ.date <= sunday.isoformat())
     return q.count()
 
 
@@ -1259,11 +1264,11 @@ def rank_rows(sess: Session, kind: str, dim: str, subject: str):
             rows = [{"t": t, "v": sum(pval(x) for x in people if x.team_id == t.id),
                      "ms": [x for x in people if x.team_id == t.id]} for t in teams]
     else:
-        month = dim == "MONTH"
+        cdim = "WEEK" if dim == "WEEK" else "ALL"
         if subject == "USER":
-            rows = [{"x": x, "v": champ_count(sess, x.id, month)} for x in people]
+            rows = [{"x": x, "v": champ_count(sess, x.id, cdim)} for x in people]
         else:
-            rows = [{"t": t, "v": sum(champ_count(sess, x.id, month) for x in people if x.team_id == t.id),
+            rows = [{"t": t, "v": sum(champ_count(sess, x.id, cdim) for x in people if x.team_id == t.id),
                      "ms": [x for x in people if x.team_id == t.id]} for t in teams]
     rows = [r for r in rows if r["v"] > 0]
     rows.sort(key=lambda r: -r["v"])

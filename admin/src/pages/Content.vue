@@ -207,6 +207,7 @@ function confirmDelete() {
       </div>
     </div>
 
+    <Teleport to="body">
     <div v-if="deleteDlg" class="dlg-mask" @click.self="deleteDlg = null">
       <section class="dlg">
         <div class="st">{{ deleteDlg.kind === "photo" ? "删除相册图片" : "删除玩法说明" }}</div>
@@ -225,6 +226,7 @@ function confirmDelete() {
         </div>
       </section>
     </div>
+    </Teleport>
   </div>
   </AppAsyncPage>
 </template>
@@ -375,15 +377,6 @@ function confirmDelete() {
   overflow: hidden;
 }
 .pv-pic img { width: 100%; height: auto; max-height: 220px; object-fit: contain; display: block; }
-.dlg-mask {
-  position: fixed;
-  z-index: 30;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  padding: 20px;
-  background: rgba(0, 0, 0, 0.38);
-}
 .dlg {
   width: min(480px, 100%);
   background: #fff;

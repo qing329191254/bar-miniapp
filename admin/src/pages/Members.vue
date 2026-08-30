@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { api, DEFAULT_PAGE_SIZE, pageQs, savedUser } from "../api";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
 import AppPagination from "../components/AppPagination.vue";
+import AppSelect from "../components/AppSelect.vue";
 import { showToast } from "../composables/useToast";
 
 const route = useRoute();
@@ -26,6 +27,9 @@ const acting = ref(false);
 
 const uid = computed(() => Number(route.query.uid || 0));
 const me = computed(() => detail.value?.member || null);
+const cardTplOpts = computed(() =>
+  (detail.value?.cardTpls || []).map((t: any) => ({ value: t.id, label: t.name })),
+);
 
 type AdjKind = "coin" | "point" | "shard" | "card";
 const adjOpen = ref<AdjKind | null>(null);
@@ -365,8 +369,8 @@ watch(kw, () => {
         </div>
       </div>
 
-      <div class="note rd">
-        <b>手动调整规则：</b>老板可直接调整金币，店长提交后需老板审批；积分与碎片仅老板可调整；店长与老板均可补发卡券。每次操作必须填写原因并保留记录。碎片会影响周榜排名与宝箱卡归属，已完成结算的奖励不会随之后续调整而改变。
+      <div class="note rd multi">
+        <p><b>手动调整规则：</b>老板可直接调整金币，店长提交后需老板审批；积分与碎片仅老板可调整；店长与老板均可补发卡券。每次操作必须填写原因并保留记录。碎片会影响周榜排名与宝箱卡归属，已完成结算的奖励不会随之后续调整而改变。</p>
       </div>
     </div>
 
@@ -410,6 +414,7 @@ watch(kw, () => {
       </div>
     </div>
 
+    <Teleport to="body">
     <div v-if="adjOpen" class="dlg-mask" @click.self="adjOpen = null">
       <section class="dlg">
         <div class="st">
@@ -432,9 +437,7 @@ watch(kw, () => {
 
         <template v-if="adjOpen === 'card'">
           <div class="fld">卡券模板</div>
-          <select v-model.number="adjForm.tpl" class="inp">
-            <option v-for="t in detail?.cardTpls || []" :key="t.id" :value="t.id">{{ t.name }}</option>
-          </select>
+          <AppSelect v-model="adjForm.tpl" :options="cardTplOpts" no-margin class="adj-select" />
           <div class="fld">数量</div>
           <input v-model.number="adjForm.qty" class="inp" type="number" min="1" />
         </template>
@@ -472,6 +475,7 @@ watch(kw, () => {
         </div>
       </section>
     </div>
+    </Teleport>
   </AppAsyncPage>
 </template>
 
@@ -510,16 +514,13 @@ watch(kw, () => {
 .reject-note { margin: 7px 14px 14px; color: var(--ink3); }
 .adj-btns { gap: 8px; flex-wrap: wrap; }
 .mgr-note { margin-top: 7px; color: var(--ink3); line-height: 1.7; }
-.note.rd { margin-top: 12px; padding: 12px; border-radius: 10px; font-size: 12px; line-height: 1.6; }
-.dlg-mask {
-  position: fixed; z-index: 30; inset: 0; display: grid; place-items: center;
-  padding: 20px; background: rgba(0, 0, 0, 0.38);
-}
+.note.rd { margin-top: 12px; padding: 12px 12px 12px 38px; border-radius: 10px; font-size: 12px; line-height: 1.6; }
 .dlg {
   width: min(520px, 100%); background: #fff; border-radius: 16px; padding: 24px;
   box-shadow: 0 18px 45px rgba(0, 0, 0, 0.2);
 }
 .dlg .inp { width: 100%; margin-bottom: 8px; }
+.dlg :deep(.adj-select) { margin-bottom: 8px; }
 .dlg-actions { display: grid; grid-template-columns: 1fr 1.6fr; gap: 10px; margin-top: 16px; }
 .dlg-actions .btn { width: 100%; }
 .shard-hint { margin-bottom: 8px; color: var(--ink3); }

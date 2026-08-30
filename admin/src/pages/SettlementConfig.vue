@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { api } from "../api";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
+import AppSelect from "../components/AppSelect.vue";
 import { showToast } from "../composables/useToast";
 
 type Config = {
@@ -20,6 +21,8 @@ const teamSubs=["TREASURE_TEAM","TREASURE_SILVER","TREASURE_DIAMOND"];
 const templateMap=computed(()=>Object.fromEntries(templates.value.map(t=>[t.sub,t])));
 const prizeRows=computed(()=>{const half=Math.ceil(cfg.value.rankRange/2);return Array.from({length:half},(_,i)=>[i+1,i+1+half<=cfg.value.rankRange?i+1+half:0])});
 const dimHint=computed(()=>cfg.value.rankDim==="WEEK"?"周一 00:00 重置 · 结算发宝箱卡":"按自然月累计 · 随月底清零归零");
+const personalOpts=computed(()=>personalSubs.map((sub)=>({value:sub,label:optionName(sub)})));
+const teamOpts=computed(()=>teamSubs.map((sub)=>({value:sub,label:optionName(sub)})));
 
 function setRange(value:number|string){
   const n=Math.max(1,Math.min(20,Math.floor(Number(value)||1))); cfg.value.rankRange=n;
@@ -48,7 +51,7 @@ onMounted(load);
         <div class="tb-wrap"><table class="tb2 prize-table"><thead><tr><th>名次</th><th>奖励卡型</th><th>名次</th><th>奖励卡型</th></tr></thead><tbody>
           <tr v-for="pair in prizeRows" :key="pair[0]">
             <template v-for="rank in pair" :key="rank||'empty'">
-              <template v-if="rank"><td>第 {{ rank }} 名</td><td><select v-model="cfg.prizeMap[String(rank)]" class="inp prize-select"><option v-for="sub in personalSubs" :key="sub" :value="sub">{{ optionName(sub) }}</option></select></td></template>
+              <template v-if="rank"><td>第 {{ rank }} 名</td><td><AppSelect v-model="cfg.prizeMap[String(rank)]" :options="personalOpts" compact no-margin class="prize-select" /></td></template>
               <template v-else><td></td><td></td></template>
             </template>
           </tr>
@@ -58,12 +61,12 @@ onMounted(load);
 
       <section class="card">
         <div class="st">战队奖励</div>
-        <label class="setting-row"><span><b>夺冠战队奖励</b><small>战队榜第 1 全员发放</small></span><input v-model="cfg.teamReward" type="checkbox" class="toggle"/></label>
-        <label v-if="cfg.teamReward" class="setting-row"><span><b>奖励卡型</b></span><select v-model="cfg.teamCard" class="inp team-select"><option v-for="sub in teamSubs" :key="sub" :value="sub">{{ optionName(sub) }}</option></select></label>
-        <label class="setting-row"><span><b>本人需有碎片</b><small>碎片为 0 的成员跳过，结算记录标记为「本周期无碎片」</small></span><input v-model="cfg.reqShard" type="checkbox" class="toggle"/></label>
+        <label class="setting-row"><span><b>夺冠战队奖励</b><small>战队榜第 1 全员发放</small></span><input v-model="cfg.teamReward" type="checkbox" class="ui-toggle"/></label>
+        <label v-if="cfg.teamReward" class="setting-row"><span><b>奖励卡型</b></span><AppSelect v-model="cfg.teamCard" :options="teamOpts" no-margin class="team-select" /></label>
+        <label class="setting-row"><span><b>本人需有碎片</b><small>碎片为 0 的成员跳过，结算记录标记为「本周期无碎片」</small></span><input v-model="cfg.reqShard" type="checkbox" class="ui-toggle"/></label>
       </section>
 
-      <section class="card"><div class="st">奖励叠加</div><label class="setting-row no-border"><span><b>同一用户战队奖 + 个人奖可同发</b></span><input v-model="cfg.stack" type="checkbox" class="toggle"/></label></section>
+      <section class="card"><div class="st">奖励叠加</div><label class="setting-row no-border"><span><b>同一用户战队奖 + 个人奖可同发</b></span><input v-model="cfg.stack" type="checkbox" class="ui-toggle"/></label></section>
 
       <section class="card cap-card">
         <div class="st">结算发放上限 <em>重要资金规则 · 仅老板可编辑</em></div>
@@ -78,5 +81,5 @@ onMounted(load);
 </template>
 
 <style scoped>
-.settle-config-page{width:100%;min-width:0}.settle-config-hdr .hdr-note{position:static;transform:none;margin-left:auto;text-align:right;pointer-events:auto;white-space:normal}.dimension-row,.range-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.dimension-row{justify-content:space-between}.chip-row{display:flex;gap:6px}.chip{font-family:inherit}.section-note{margin:9px 0 0}.range-row{margin-bottom:10px}.custom-label{margin-left:4px}.range-input{width:78px;margin:0;padding:4px 7px;font-size:12px}.prize-table th:nth-child(odd){width:14%}.prize-table th:nth-child(even){width:36%}.prize-select{margin:0;padding:5px 30px 5px 8px;font-size:12px}.config-footnote{margin-top:7px;color:var(--ink3);font-size:11px;line-height:1.7}.setting-row{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:11px 0;border-bottom:1px solid var(--line);cursor:pointer}.setting-row.no-border{border-bottom:0}.setting-row span{min-width:0}.setting-row b{display:block;font-size:13px;font-weight:500}.setting-row small{display:block;margin-top:2px;color:var(--ink2);font-size:11px;font-weight:400}.team-select{width:220px;margin:0}.toggle{width:36px;height:20px;accent-color:var(--ink);cursor:pointer}.cap-input{width:90px;margin:0;padding:5px 8px;text-align:right}.cap-help b{color:var(--ink2)}.save-btn{margin-bottom:11px}.save-btn:disabled{opacity:.55;cursor:not-allowed}.final-note{margin-bottom:0}@media(max-width:720px){.settle-config-hdr .hdr-note{margin-left:0;text-align:left;width:100%}.setting-row{align-items:flex-start}.team-select{width:min(220px,50%)}.prize-table{min-width:620px}}
+.settle-config-page{width:100%;min-width:0}.settle-config-hdr .hdr-note{position:static;transform:none;margin-left:auto;text-align:right;pointer-events:auto;white-space:normal}.dimension-row,.range-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.dimension-row{justify-content:space-between}.chip-row{display:flex;gap:6px}.chip{font-family:inherit}.section-note{margin:9px 0 0}.range-row{margin-bottom:10px}.custom-label{margin-left:4px}.range-input{width:78px;margin:0;padding:4px 7px;font-size:12px}.prize-table th:nth-child(odd){width:14%}.prize-table th:nth-child(even){width:36%}.prize-table :deep(.prize-select){width:100%}.config-footnote{margin-top:7px;color:var(--ink3);font-size:11px;line-height:1.7}.setting-row{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:11px 0;border-bottom:1px solid var(--line);cursor:pointer}.setting-row.no-border{border-bottom:0}.setting-row span{min-width:0}.setting-row b{display:block;font-size:13px;font-weight:500}.setting-row small{display:block;margin-top:2px;color:var(--ink2);font-size:11px;font-weight:400}.setting-row :deep(.team-select){width:220px;flex:none}.cap-input{width:90px;margin:0;padding:5px 8px;text-align:right}.cap-help b{color:var(--ink2)}.save-btn{margin-bottom:11px}.save-btn:disabled{opacity:.55;cursor:not-allowed}.final-note{margin-bottom:0}@media(max-width:720px){.settle-config-hdr .hdr-note{margin-left:0;text-align:left;width:100%}.setting-row{align-items:flex-start}.setting-row :deep(.team-select){width:min(220px,50%)}.prize-table{min-width:620px}}
 </style>

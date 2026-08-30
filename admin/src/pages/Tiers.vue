@@ -247,12 +247,15 @@ onMounted(load);
         </table>
       </div>
 
-      <div class="note rd">
-        <b>权限说明：</b>充值档位与赠送比例仅老板可编辑。当前单笔充值上限为 ¥{{ fmt(singleLimit) }}（可在风控参数中调整），
-        <b>超过单笔上限的档位不会在顾客端展示</b>。「最划算」只能设置一个，选择新档位后会自动取消原有标记。
+      <div class="note rd multi">
+        <p>
+          <b>权限说明：</b>充值档位与赠送比例仅老板可编辑。当前单笔充值上限为 ¥{{ fmt(singleLimit) }}（可在风控参数中调整），
+          <b>超过单笔上限的档位不会在顾客端展示</b>。「最划算」只能设置一个，选择新档位后会自动取消原有标记。
+        </p>
       </div>
     </div>
 
+    <Teleport to="body">
     <div v-if="showAdd" class="dlg-mask" @click.self="showAdd = false">
       <section class="dlg">
         <div class="st">新增充值档位</div>
@@ -295,6 +298,7 @@ onMounted(load);
         </div>
       </section>
     </div>
+    </Teleport>
   </AppAsyncPage>
 </template>
 
@@ -317,11 +321,7 @@ onMounted(load);
 .tier-inp.amount { width: 90px; }
 .tier-inp.bonus { width: 80px; }
 .danger-btn { color: var(--red); border-color: #E9C4C4; }
-.note.rd { margin-top: 12px; padding: 12px; border-radius: 10px; font-size: 12px; line-height: 1.6; }
-.dlg-mask {
-  position: fixed; z-index: 30; inset: 0; display: grid; place-items: center;
-  padding: 20px; background: rgba(0, 0, 0, 0.38);
-}
+.note.rd { margin-top: 12px; padding: 12px 12px 12px 38px; border-radius: 10px; font-size: 12px; line-height: 1.6; }
 .dlg {
   width: min(520px, 100%); background: #fff; border-radius: 16px; padding: 24px;
   box-shadow: 0 18px 45px rgba(0, 0, 0, 0.2);

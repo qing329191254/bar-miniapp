@@ -73,40 +73,48 @@ onMounted(load);
         <span class="hdr-title">消息推送配置</span>
         <em class="hdr-note">统一管理订单、充值与卡券等业务提醒</em>
       </div>
-      <div class="card">
+
+      <div class="card push-card">
         <div class="st">总开关</div>
-        <div class="li">
-          <div class="gr">
+        <label class="push-row">
+          <span class="gr">
             <b>启用微信推送</b>
             <span class="mut">需在微信公众平台申请订阅消息模板（一次授权一次推送）</span>
-          </div>
-          <input v-model="cfg.enabled" type="checkbox" />
-        </div>
+          </span>
+          <input v-model="cfg.enabled" type="checkbox" class="ui-toggle" />
+        </label>
       </div>
 
-      <div class="card">
+      <div class="card push-card">
         <div class="st">推送场景</div>
-        <div v-for="scene in scenes" :key="scene.key" class="li">
-          <div class="gr">
+        <label v-for="scene in scenes" :key="scene.key" class="push-row" :class="{ 'no-border': scene.key === 'settle' }">
+          <span class="gr">
             <b>{{ scene.label }}</b>
             <span class="mut">{{ scene.note }}</span>
-          </div>
-          <input v-model="cfg[scene.key]" type="checkbox" />
-        </div>
+          </span>
+          <input v-model="cfg[scene.key]" type="checkbox" class="ui-toggle" :disabled="!cfg.enabled" />
+        </label>
       </div>
 
-      <div class="card">
+      <div class="card push-card">
         <div class="st">订阅消息模板 ID</div>
-        <div v-for="field in tplFields" :key="field.key" class="li">
-          <div class="gr"><b>{{ field.label }}</b></div>
+        <div v-for="(field, index) in tplFields" :key="field.key" class="push-row" :class="{ 'no-border': index === tplFields.length - 1 }">
+          <span class="gr"><b>{{ field.label }}</b></span>
           <input v-model="cfg[field.key]" class="inp tpl-inp" />
         </div>
       </div>
 
-      <button class="btn pri save-btn" :disabled="saving" @click="save">保存配置</button>
+      <div class="push-actions">
+        <button class="btn gold save-btn" :disabled="saving" @click="save">
+          {{ saving ? "保存中…" : "保存配置" }}
+        </button>
+      </div>
 
-      <div class="note">
-        <b>替代说明：</b>已移除「打印机配置」与「语音播报」（含强制播报）。新单/待办到达通过微信订阅消息推送店员端；推送配置为全局，店员本机不再有开关。<b>订阅消息为一次性授权</b>，店员需在接单场景周期性授权，或在订单详情提供「开启提醒」入口。
+      <div class="side-note multi">
+        <div class="side-note-body">
+          <p><b>替代说明：</b>已移除「打印机配置」与「语音播报」（含强制播报）。新单/待办到达通过微信订阅消息推送店员端；推送配置为全局，店员本机不再有开关。</p>
+          <p>订阅消息为一次性授权，店员需在接单场景周期性授权，或在订单详情提供「开启提醒」入口。</p>
+        </div>
       </div>
     </div>
   </AppAsyncPage>
@@ -114,17 +122,44 @@ onMounted(load);
 
 <style scoped>
 .push-hdr .hdr-note{position:static;transform:none;margin-left:auto;text-align:right;pointer-events:auto;white-space:normal}
-.mut { display: block; font-size: 11px; color: var(--ink3); margin-top: 1px; }
-.tpl-inp { max-width: 280px; margin: 0; }
-.save-btn { margin-top: 4px; }
-.note {
-  margin-top: 12px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: #fff;
-  font-size: 12px;
-  line-height: 1.7;
+.push-card{padding-bottom:4px}
+.push-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:20px;
+  padding:12px 0;
+  border-bottom:1px solid var(--line);
+  cursor:pointer;
 }
-.card .li:last-child { border-bottom: none; }
+.push-row.no-border{border-bottom:none}
+.gr{flex:1;min-width:0}
+.gr b{font-size:13px;font-weight:500}
+.mut{
+  display:block;
+  font-size:11px;
+  color:var(--ink3);
+  margin-top:2px;
+  line-height:1.5;
+}
+.tpl-inp{
+  width:min(280px,100%);
+  margin:0;
+}
+.push-actions{
+  display:flex;
+  justify-content:flex-end;
+  margin-top:2px;
+}
+.save-btn{
+  min-width:112px;
+  margin:0;
+}
+.save-btn:disabled{opacity:.55;cursor:not-allowed}
+@media (max-width:640px){
+  .push-row{align-items:flex-start;flex-direction:column;gap:10px}
+  .tpl-inp{width:100%}
+  .push-actions{justify-content:stretch}
+  .save-btn{width:100%}
+}
 </style>

@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
-import { api } from "../api";
+import { onMounted, ref } from "vue";
+import { api, DEFAULT_PAGE_SIZE } from "../api";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
+import AppPagination from "../components/AppPagination.vue";
+import { usePagination } from "../composables/usePagination";
 import { showToast } from "../composables/useToast";
 import { csvFilename, downloadXlsx } from "../exportCsv";
 
@@ -18,7 +20,11 @@ const rows = ref<LogRow[]>([]);
 const loading = ref(true);
 const err = ref("");
 
-const total = computed(() => rows.value.length);
+const logsPg = usePagination(rows, DEFAULT_PAGE_SIZE);
+const shown = logsPg.items;
+const tablePage = logsPg.page;
+const tablePageSize = logsPg.pageSize;
+const rowTotal = logsPg.total;
 
 async function load() {
   loading.value = true;
@@ -60,7 +66,6 @@ onMounted(load);
       </div>
       <div class="toolbar row">
         <button class="btn sm" @click="exportLogs">导出日志</button>
-        <span class="total">共 {{ total }} 条</span>
       </div>
 
       <div class="card tb-wrap">
@@ -74,7 +79,7 @@ onMounted(load);
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(row, i) in rows" :key="`${row.t}-${row.action}-${i}`">
+            <tr v-for="(row, i) in shown" :key="`${row.t}-${row.action}-${i}`">
               <td class="tiny">{{ row.t }}</td>
               <td>
                 {{ row.op }}
@@ -85,11 +90,12 @@ onMounted(load);
               </td>
               <td class="tiny">{{ row.detail }}</td>
             </tr>
-            <tr v-if="!rows.length">
+            <tr v-if="!shown.length">
               <td colspan="4" class="empty-row">暂无日志</td>
             </tr>
           </tbody>
         </table>
+        <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
       </div>
     </div>
   </AppAsyncPage>
@@ -98,7 +104,6 @@ onMounted(load);
 <style scoped>
 .logs-hdr .hdr-note{position:static;transform:none;margin-left:auto;text-align:right;pointer-events:auto;white-space:normal}
 .toolbar { gap: 8px; margin-bottom: 11px; align-items: center; }
-.total { margin-left: auto; font-size: 11px; color: var(--ink3); }
 .tb-wrap { padding: 0; overflow: auto; }
 .tiny { font-size: 11px; color: var(--ink3); }
 .role { margin-top: 2px; }

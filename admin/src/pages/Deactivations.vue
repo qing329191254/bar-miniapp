@@ -131,8 +131,10 @@ onMounted(load);
         </table>
       </div>
 
-      <div class="note rd">
-        <b>注销操作不可撤销，请分两步处理：</b>顾客从小程序提交申请后，账号与资产仍保持原状；店长需先核对并结清金币、积分和卡券，再在本页确认注销。申请处理完成前，相关资产仍会计入门店负债。
+      <div class="side-note warn multi">
+        <div class="side-note-body">
+          <p><b>注销操作不可撤销，请分两步处理：</b>顾客从小程序提交申请后，账号与资产仍保持原状；店长需先核对并结清金币、积分和卡券，再在本页确认注销。申请处理完成前，相关资产仍会计入门店负债。</p>
+        </div>
       </div>
     </AppAsyncPage>
   </div>
@@ -189,13 +191,6 @@ onMounted(load);
 .pill.grey {
   background: #f5f4f0;
   color: #6b6a65;
-}
-.note.rd {
-  margin-top: 12px;
-  padding: 12px;
-  border-radius: 10px;
-  font-size: 12px;
-  line-height: 1.6;
 }
 @media (max-width: 900px) {
   .g4 {

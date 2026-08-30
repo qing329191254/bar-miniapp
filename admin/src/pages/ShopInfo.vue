@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { api } from "../api";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
+import AppHourSelect from "../components/AppHourSelect.vue";
 import { showToast } from "../composables/useToast";
 
 type ShopInfo = {
@@ -42,7 +43,7 @@ const bizDayLabel = computed(() => {
 
 const bizDayHint = computed(() => {
   const h = String(form.value.bizDayStart ?? 6).padStart(2, "0");
-  return `:00 · 营业日按「当日 ${h}:00 ~ 次日 ${h}:00」切分`;
+  return `营业日按「当日 ${h}:00 ~ 次日 ${h}:00」切分`;
 });
 
 function clampBizDay(v: number) {
@@ -142,14 +143,10 @@ onMounted(load);
           <div class="field">
             <div class="fld">营业日起点 <span class="opt">默认 06:00 · 仅开业初期可调</span></div>
             <div class="biz-row">
-              <input
-                v-model.number="form.bizDayStart"
-                class="inp biz-inp"
-                type="number"
-                min="0"
-                max="23"
-                @change="form.bizDayStart = clampBizDay(form.bizDayStart)"
-              />
+              <div class="biz-time-control">
+                <AppHourSelect v-model="form.bizDayStart" />
+                <span class="biz-unit">:00</span>
+              </div>
               <span class="hint inline">{{ bizDayHint }}</span>
             </div>
             <div class="hint warn">
@@ -180,8 +177,11 @@ onMounted(load);
               <div v-if="form.notice.trim()" class="preview-notice">{{ form.notice.trim() }}</div>
             </div>
           </div>
-          <div class="note side-note">
-            <b>展示位置：</b>小程序「我的 → 帮助与联系 → 联系店员」。请确保门店名称、地址和电话真实有效，方便顾客顺利到店或及时联系工作人员。
+          <div class="side-note multi">
+            <div class="side-note-body">
+              <p><b>展示位置：</b>小程序「我的 → 帮助与联系 → 联系店员」。</p>
+              <p>请确保门店名称、地址和电话真实有效，方便顾客顺利到店或及时联系工作人员。</p>
+            </div>
           </div>
         </aside>
       </div>
@@ -208,7 +208,7 @@ onMounted(load);
 }
 .note.rd {
   margin-bottom: 12px;
-  padding: 12px;
+  padding: 12px 12px 12px 38px;
   border-radius: 10px;
   font-size: 12px;
   line-height: 1.6;
@@ -252,14 +252,28 @@ onMounted(load);
 }
 .biz-row {
   display: flex;
-  gap: 7px;
+  gap: 10px;
   align-items: center;
   flex-wrap: wrap;
 }
-.biz-inp {
-  max-width: 110px;
-  text-align: right;
-  margin: 0;
+.biz-time-control {
+  display: inline-flex;
+  align-items: stretch;
+  flex: none;
+  border-radius: 9px;
+  box-shadow: 0 3px 9px rgba(74,52,28,.04);
+}
+.biz-unit {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 11px;
+  border: 1px solid rgba(82,59,32,.18);
+  border-left: 0;
+  border-radius: 0 9px 9px 0;
+  background: linear-gradient(180deg,#FBF8F2,#F5EFE6);
+  color: var(--ink2);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 .notice-inp {
   height: 78px;
@@ -291,13 +305,7 @@ onMounted(load);
   line-height: 1.7;
 }
 .side-note {
-  margin-top: 12px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: #fff;
-  font-size: 12px;
-  line-height: 1.7;
+  margin-top: 0;
 }
 @media (max-width: 960px) {
   .layout {

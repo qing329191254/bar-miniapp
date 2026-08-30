@@ -162,6 +162,7 @@ const pendingWdr = computed(() =>
     </div>
     <div v-if="coll === 'gameRecords'" class="note rd records-note"><b>作废规则：</b>余额充足时将直接扣减；余额不足会记为负数，并在顾客端显示「待抵扣」；已兑换但未核销的卡券将优先作废。跨月记录因积分已清零，不再重复扣减。作废原因必填并记入操作日志。</div>
 
+    <Teleport to="body">
     <div v-if="voidPreview" class="void-mask" @click.self="closeVoid">
       <div class="void-dialog">
         <div class="st">作废影响预览 <em>{{ voidPreview.pname }}</em></div>
@@ -184,6 +185,7 @@ const pendingWdr = computed(() =>
         <div class="void-actions"><button class="btn ghost" :disabled="voiding" @click="closeVoid">取消</button><button class="btn void-submit" :disabled="voiding || voidPreview._err" @click="submitVoid">{{ voiding ? "处理中…" : "确认作废" }}</button></div>
       </div>
     </div>
+    </Teleport>
   </div>
   </AppAsyncPage>
 </template>
@@ -196,7 +198,6 @@ const pendingWdr = computed(() =>
 .records-status-void{background:var(--redbg);color:var(--red)}
 .records-void-btn{border:1px solid #E9C4C4;background:#fff;color:var(--red)}
 .records-note{margin-top:12px}
-.void-mask{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(28,27,25,.42)}
 .void-dialog{width:min(560px,100%);max-height:min(90vh,640px);overflow:auto;padding:18px;border-radius:14px;background:#fff;box-shadow:0 18px 48px rgba(28,27,25,.24)}
 .void-table td{vertical-align:top}.void-pill-warn{background:var(--redbg);color:var(--red)}.void-pill-ok{background:var(--greenbg);color:var(--green)}
 .void-card-opt{display:block;margin-top:6px;line-height:1.5}.void-reason-label{margin:10px 0 6px}.void-reason{min-height:72px;resize:vertical}

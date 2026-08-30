@@ -220,7 +220,11 @@ async function submit() {
               <td><b>{{ p.nick }}</b></td>
               <td><input class="inp score-input" type="number" v-model.number="p.pts" /></td>
               <td><input class="inp score-input" type="number" v-model.number="p.sh" /></td>
-              <td><input type="checkbox" :checked="!!form.winners[p.uid]" @change="form.winners[p.uid] = ($event.target as HTMLInputElement).checked" /></td>
+              <td class="col-champ">
+                <label class="champ-check">
+                  <input v-model="form.winners[p.uid]" type="checkbox" class="ui-check" />
+                </label>
+              </td>
               <td class="tiny" style="cursor:pointer" @click="remove(p.uid)">移除</td>
             </tr>
             <tr v-if="!form.players.length">
@@ -270,6 +274,8 @@ async function submit() {
 .search-result:hover{background:rgba(28,27,25,.035);margin:0 -12px;padding-left:12px;padding-right:12px}
 .search-result.added{opacity:.45;cursor:default}
 .player-table td{padding-top:7px;padding-bottom:7px}
+.player-table td.col-champ{text-align:center}
+.champ-check{display:inline-flex;align-items:center;justify-content:center;margin:0;cursor:pointer}
 .score-input{display:block;width:72px;margin:0 auto;padding:5px 7px;text-align:center}
 .submit-btn{padding:8px 20px}
 .submit-btn:disabled{background:#D8D6D0;color:#8C8981;opacity:1;cursor:not-allowed}

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { api } from "../api";
+import { api, DEFAULT_PAGE_SIZE } from "../api";
 import AppSelect from "../components/AppSelect.vue";
 import ImgField from "../components/ImgField.vue";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
+import AppPagination from "../components/AppPagination.vue";
+import { usePagination } from "../composables/usePagination";
 import { showToast } from "../composables/useToast";
 
 const products = ref<any[]>([]);
@@ -12,7 +14,9 @@ const tpls = ref<any[]>([]);
 const edit = ref<any>(null);
 const catDlg = ref<null | "add" | { id: number; name: string }>(null);
 const catForm = ref({ name: "", sort: 9 });
+const deleteCatTarget = ref<any>(null);
 const catBusy = ref(false);
+const deletingCat = ref(false);
 const loading = ref(true);
 const loaded = ref(false);
 const err = ref("");
@@ -51,9 +55,28 @@ function imageUrl(value: unknown) {
 }
 const online = computed(() => products.value.filter((p) => !p.offline));
 const offline = computed(() => products.value.filter((p) => p.offline));
+const allProducts = computed(() => [...online.value, ...offline.value]);
+const prodPg = usePagination(allProducts, DEFAULT_PAGE_SIZE);
+const shownProducts = prodPg.items;
+const tablePage = prodPg.page;
+const tablePageSize = prodPg.pageSize;
+const rowTotal = prodPg.total;
+
+const deleteCatHint = computed(() => {
+  const c = deleteCatTarget.value;
+  if (!c) return "";
+  const offlineN = products.value.filter((p) => p.cid === c.id && p.offline).length;
+  if (!offlineN) return "";
+  return `该分类下有 ${offlineN} 个已下架商品，删除后它们将归为「未分类」，重新上架前需先改分类。`;
+});
 const catOpts = computed(() =>
   cats.value.filter((c) => !c.disabled).map((c) => ({ value: c.id, label: c.name })),
 );
+const tplOpts = computed(() => tpls.value.map((t) => ({ value: t.id, label: t.name })));
+const typeOpts = [
+  { value: "SINGLE", label: "单品（下单核销）" },
+  { value: "COMBO", label: "套餐（下单自动发卡）" },
+];
 const catRows = computed(() =>
   [...cats.value].sort((a, b) => (a.sort || 99) - (b.sort || 99)),
 );
@@ -167,18 +190,22 @@ async function toggleCat(c: any) {
   }
 }
 
-async function deleteCat(c: any) {
-  const offlineN = products.value.filter((p) => p.cid === c.id && p.offline).length;
-  const tip = offlineN
-    ? `该分类下有 ${offlineN} 个已下架商品，删除后它们将归为「未分类」，重新上架前需先改分类。`
-    : "";
-  if (!window.confirm(`确认删除分类「${c.name}」？${tip ? "\n" + tip : ""}`)) return;
+function deleteCat(c: any) {
+  deleteCatTarget.value = c;
+}
+
+async function confirmDeleteCat() {
+  if (!deleteCatTarget.value) return;
+  deletingCat.value = true;
   try {
-    await api(`/admin/cats/${c.id}`, { method: "DELETE" });
+    await api(`/admin/cats/${deleteCatTarget.value.id}`, { method: "DELETE" });
+    deleteCatTarget.value = null;
     showToast("已删除");
     await load();
   } catch (e: any) {
     showToast(e?.message || "删除失败", true);
+  } finally {
+    deletingCat.value = false;
   }
 }
 
@@ -232,14 +259,14 @@ async function save() {
           >＋ 新增商品</button>
         </div>
         <div class="tb-wrap">
-          <table class="tb2" data-cols="lcccccc">
+          <table class="tb2 prod-table" data-cols="lcccccc">
             <thead>
-              <tr><th>商品</th><th>分类</th><th>价格</th><th>类型</th><th>发放配置</th><th>状态</th><th>操作</th></tr>
+              <tr><th>商品</th><th>分类</th><th>价格</th><th>类型</th><th>发放配置</th><th>状态</th><th class="col-op">操作</th></tr>
             </thead>
             <tbody>
-            <tr v-for="p in online" :key="p.id">
+            <tr v-for="p in shownProducts" :key="p.id" :style="p.offline ? 'opacity:.55' : ''">
               <td>
-                <div class="row" style="gap:8px">
+                <div v-if="!p.offline" class="row" style="gap:8px">
                   <img v-if="imageUrl(p.img)" class="pimg" :src="imageUrl(p.img)" alt="" />
                   <div v-else class="pimg empty">{{ (p.name || "商").slice(0,1) }}</div>
                   <div>
@@ -247,31 +274,29 @@ async function save() {
                     <div class="tiny">{{ p.desc || "—" }}</div>
                   </div>
                 </div>
+                <b v-else>{{ p.name }}</b>
               </td>
               <td class="tiny">{{ catName(p.cid) }}</td>
               <td><b>{{ p.price }}</b></td>
               <td><span class="pill" :class="p.type === 'COMBO' ? 'combo-pill' : 'single-pill'">{{ p.type === "COMBO" ? "套餐发卡" : "单品" }}</span></td>
               <td class="tiny combo-cell">{{ comboText(p) }}</td>
-              <td><span class="pill" :style="{ color: p.soldOut ? '#A32D2D' : '#3B6D11' }">{{ p.soldOut ? "已估清" : "在售" }}</span></td>
               <td>
-                <button class="btn ghost" @click="openEdit(p)">编辑</button>
-                <button class="btn ghost" @click="toggleSold(p)">{{ p.soldOut ? "恢复" : "估清" }}</button>
-                <button class="btn ghost" style="color:#A32D2D" @click="toggleOff(p, true)">下架</button>
+                <span v-if="p.offline" class="pill" style="color:#6B6A65">已下架</span>
+                <span v-else class="pill" :style="{ color: p.soldOut ? '#A32D2D' : '#3B6D11' }">{{ p.soldOut ? "已估清" : "在售" }}</span>
+              </td>
+              <td class="col-op">
+                <div v-if="!p.offline" class="prod-ops">
+                  <button class="btn sm ghost" @click="openEdit(p)">编辑</button>
+                  <button class="btn sm ghost" @click="toggleSold(p)">{{ p.soldOut ? "恢复" : "估清" }}</button>
+                  <button class="btn sm ghost prod-off-btn" @click="toggleOff(p, true)">下架</button>
+                </div>
+                <button v-else class="btn sm ghost" @click="toggleOff(p, false)">重新上架</button>
               </td>
             </tr>
-            <tr v-if="offline.length"><td colspan="7" class="tiny" style="background:#FAF9F5">— 已下架 {{ offline.length }} 个 —</td></tr>
-            <tr v-for="p in offline" :key="'o'+p.id" style="opacity:.55">
-              <td>{{ p.name }}</td>
-              <td class="tiny">{{ catName(p.cid) }}</td>
-              <td>{{ p.price }}</td>
-              <td><span class="pill single-pill">{{ p.type === "COMBO" ? "套餐发卡" : "单品" }}</span></td>
-              <td class="tiny combo-cell">{{ comboText(p) }}</td>
-              <td><span class="pill" style="color:#6B6A65">已下架</span></td>
-              <td><button class="btn ghost" @click="toggleOff(p, false)">重新上架</button></td>
-            </tr>
-            <tr v-if="!online.length && !offline.length"><td colspan="7" class="table-empty">暂无商品，可点击右上角新增</td></tr>
+            <tr v-if="!allProducts.length"><td colspan="7" class="table-empty">暂无商品，可点击右上角新增</td></tr>
             </tbody>
           </table>
+          <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
         </div>
 
         <div class="card cat-section">
@@ -305,7 +330,7 @@ async function save() {
                 <div class="row cat-ops">
                   <button class="btn sm" @click="openCatRename(c)">改名</button>
                   <button class="btn sm" @click="toggleCat(c)">{{ c.disabled ? "启用" : "停用" }}</button>
-                  <button class="btn sm cat-del" @click="deleteCat(c)">删除</button>
+                  <button class="btn sm dan" @click="deleteCat(c)">删除</button>
                 </div>
               </td>
             </tr>
@@ -336,18 +361,15 @@ async function save() {
             </label>
             <label class="field">
               <span class="fld">分类 *</span>
-              <AppSelect v-if="edit" v-model="edit.cid" :options="catOpts" />
+              <AppSelect v-model="edit.cid" :options="catOpts" no-margin />
             </label>
             <label class="field">
               <span class="fld">金币价格 *</span>
-              <input class="inp" type="number" v-model.number="edit.price" />
+              <input class="inp inp-num" type="number" v-model.number="edit.price" />
             </label>
             <label class="field">
               <span class="fld">类型 *</span>
-              <select v-model="edit.type" class="inp" @change="onTypeChange">
-                <option value="SINGLE">单品（下单核销）</option>
-                <option value="COMBO">套餐（下单自动发卡）</option>
-              </select>
+              <AppSelect v-model="edit.type" :options="typeOpts" no-margin @change="onTypeChange" />
             </label>
           </div>
           <div class="fld">描述</div>
@@ -356,22 +378,21 @@ async function save() {
             <div class="fld">发放配置 *</div>
             <div v-if="!(edit.combo || []).length" class="tiny combo-empty">尚未配置发放内容</div>
             <div v-for="(row, i) in edit.combo || []" :key="i" class="combo-row">
-              <select v-model.number="row.tpl" class="inp combo-tpl">
-                <option v-for="t in tpls" :key="t.id" :value="t.id">{{ t.name }}</option>
-              </select>
-              <input v-model.number="row.qty" class="inp combo-qty" type="number" min="1" />
+              <AppSelect v-model="row.tpl" :options="tplOpts" compact no-margin class="combo-tpl" />
+              <input v-model.number="row.qty" class="inp combo-qty inp-num" type="number" min="1" />
               <button type="button" class="btn sm" @click="removeComboRow(i)">删</button>
             </div>
             <button type="button" class="btn sm combo-add" @click="addComboRow">＋ 添加发放项</button>
           </div>
           <div class="fld">每日限量（-1 不限）</div>
-          <input v-model.number="edit.dailyLimit" class="inp" type="number" />
+          <input v-model.number="edit.dailyLimit" class="inp inp-num limit-inp" type="number" />
           <button class="btn" style="width:100%;margin-top:8px" @click="save">{{ edit.id ? "保存修改" : "创建商品" }}</button>
         </div>
       </div>
     </div>
     <div class="note prod-note"><b>商品说明：</b>单品按正常流程下单、接单与出单；套餐在店员接单后，会按设置自动发放卡券。商品下架后不再对外展示，历史订单仍会保留。</div>
 
+    <Teleport to="body">
     <div v-if="catDlg" class="cat-mask" @click.self="closeCatDlg">
       <div class="cat-dialog">
         <div class="st">{{ catDlg === 'add' ? '新增商品分类' : '分类改名' }}</div>
@@ -385,17 +406,34 @@ async function save() {
         </div>
       </div>
     </div>
+    <div v-if="deleteCatTarget" class="dlg-mask" @click.self="deleteCatTarget = null">
+      <section class="dlg dlg-confirm">
+        <div class="st">删除商品分类</div>
+        <p class="dlg-body">确认删除分类「<b>{{ deleteCatTarget.name }}</b>」？</p>
+        <p v-if="deleteCatHint" class="tiny dlg-hint">{{ deleteCatHint }}</p>
+        <div class="dlg-actions">
+          <button class="btn ghost" @click="deleteCatTarget = null">取消</button>
+          <button class="btn dan" :disabled="deletingCat" @click="confirmDeleteCat">确认删除</button>
+        </div>
+      </section>
+    </div>
+    </Teleport>
   </div>
   </AppAsyncPage>
 </template>
 
 <style scoped>
 .prod-page {
-  flex: 1;
-  min-height: 0;
+  flex: none;
+  min-height: auto;
   display: flex;
   flex-direction: column;
   width: 100%;
+}
+.prod-page .prod-grid {
+  flex: none;
+  min-height: auto;
+  align-items: start;
 }
 .prod-page .hdr { flex: none; }
 .products-hdr .hdr-note { position: static; transform: none; margin-left: auto; text-align: right; pointer-events: auto; white-space: normal; }
@@ -403,15 +441,28 @@ async function save() {
   .products-hdr .hdr-note { margin-left: 0; text-align: left; width: 100%; }
 }
 .prod-list {
-  min-height: 0;
   display: flex;
   flex-direction: column;
   margin-bottom: 0;
-  overflow: hidden;
+  min-height: auto;
+  overflow: visible;
 }
 .tb-wrap {
-  flex: none;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: visible;
+}
+.prod-table :is(th, td):nth-child(7) {
+  width: 1%;
+  white-space: nowrap;
+}
+.prod-ops {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+}
+.prod-off-btn {
+  color: #a32d2d;
 }
 .prod-side {
   min-height: 0;
@@ -448,18 +499,7 @@ async function save() {
   margin: 0;
 }
 .cat-ops { gap: 4px; flex-wrap: wrap; }
-.cat-del { color: var(--red); border-color: #E9C4C4; }
 .cat-foot { margin-top: 8px; color: var(--ink3); line-height: 1.65; }
-.cat-mask {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.35);
-  z-index: 40;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
-}
 .cat-dialog {
   background: var(--card);
   border-radius: 14px;
@@ -473,6 +513,32 @@ async function save() {
   margin-top: 14px;
   justify-content: flex-end;
 }
+.dlg {
+  width: min(400px, 100%);
+  background: #fff;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.2);
+}
+.dlg .st { margin-bottom: 12px; }
+.dlg-body {
+  font-size: 13px;
+  line-height: 1.65;
+  margin: 0;
+  color: var(--ink2);
+}
+.dlg-hint {
+  margin-top: 8px;
+  line-height: 1.6;
+  color: var(--ink3);
+}
+.dlg-actions {
+  display: grid;
+  grid-template-columns: 1fr 1.6fr;
+  gap: 10px;
+  margin-top: 18px;
+}
+.dlg-actions .btn { width: 100%; }
 .fld {
   font-size: 12px;
   color: var(--ink2);
@@ -489,7 +555,12 @@ async function save() {
 .edit-grid .field { display: block; min-width: 0; }
 .edit-grid .fld { margin-top: 0; margin-bottom: 4px; }
 .edit-grid .inp { width: 100%; margin: 0; }
-.edit-grid :deep(.sel) { width: 100%; }
+.edit-grid :deep(.sel) { width: 100%; margin-bottom: 0; }
+.inp-num { text-align: center; font-variant-numeric: tabular-nums; }
+.inp-num::-webkit-outer-spin-button,
+.inp-num::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.inp-num[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+.limit-inp { max-width: 120px; }
 .img-block {
   display: flex;
   gap: 10px;
@@ -508,12 +579,13 @@ async function save() {
 }
 .img-note + .img-note { margin-top: 2px; }
 .combo-cell { max-width: 220px; line-height: 1.5; }
-.single-pill { border: 1px solid var(--line); color: var(--ink2); background: transparent; }
-.combo-pill { background: #F3EEFB; color: #4A2A7A; }
+.single-pill { border: 1px solid var(--line); color: var(--ink2); background: transparent; white-space: nowrap; }
+.combo-pill { background: #F3EEFB; color: #4A2A7A; white-space: nowrap; }
 .combo-editor { margin-top: 4px; }
 .combo-empty { margin-bottom: 6px; color: var(--ink3); }
 .combo-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
-.combo-tpl { flex: 1; margin: 0; min-width: 0; }
-.combo-qty { width: 64px; margin: 0; text-align: right; }
+.combo-tpl { flex: 1; min-width: 0; }
+.combo-row :deep(.combo-tpl.sel) { flex: 1; min-width: 0; margin-bottom: 0; }
+.combo-qty { width: 64px; margin: 0; }
 .combo-add { margin-top: 2px; }
 </style>

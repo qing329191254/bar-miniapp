@@ -4,6 +4,7 @@ import { useRouter } from "vue-router";
 import { api, DEFAULT_PAGE_SIZE, pageQs } from "../api";
 import AppPagination from "../components/AppPagination.vue";
 import AppDateInput from "../components/AppDateInput.vue";
+import AppSelect from "../components/AppSelect.vue";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
 import { showToast } from "../composables/useToast";
 
@@ -48,6 +49,7 @@ const now = ref(Date.now());
 const rejectTarget = ref<any | null>(null);
 const rejectReason = ref("");
 const rejecting = ref(false);
+const confirmTarget = ref<any | null>(null);
 const actingId = ref(0);
 let timer: number | undefined;
 
@@ -109,6 +111,20 @@ const hdrNote = computed(() => {
   if (pending.value.length) parts.push(`待确认 ${pending.value.length} 张`);
   return parts.join(" · ");
 });
+const opOpts = computed(() => [
+  { value: 0, label: "全部操作人" },
+  ...(data.value?.staff || []).map((s: any) => ({
+    value: s.id,
+    label: `${s.nick} · ${ROLE[s.role] || s.role}`,
+  })),
+]);
+const memberOpts = computed(() => [
+  { value: 0, label: "全部会员" },
+  ...(data.value?.members || []).map((m: any) => ({
+    value: m.id,
+    label: `${m.nick} ${m.tail || ""}`.trim(),
+  })),
+]);
 
 async function load(resetPage = false) {
   if (resetPage) tablePage.value = 1;
@@ -135,11 +151,20 @@ async function load(resetPage = false) {
   }
 }
 
-async function confirmOne(r: any) {
-  if (!window.confirm(`确认收款 ${r.no} · ¥${fmt(r.amount)}？`)) return;
+function openConfirm(r: any) {
+  confirmTarget.value = r;
+}
+function closeConfirm() {
+  if (actingId.value) return;
+  confirmTarget.value = null;
+}
+async function confirmOne() {
+  const r = confirmTarget.value;
+  if (!r) return;
   actingId.value = r.id;
   try {
     await api(`/admin/recharges/${r.id}/confirm`, { method: "POST" });
+    confirmTarget.value = null;
     await load();
   } catch (e: any) {
     showToast(e?.message || "确认失败", true);
@@ -216,17 +241,11 @@ watch([opUid, memberUid], () => load(true));
         <div class="flt-extra">
           <label class="flt-field">
             <span class="fld">操作人</span>
-            <select v-model.number="opUid" class="inp flt-select">
-              <option :value="0">全部操作人</option>
-              <option v-for="s in data.staff || []" :key="s.id" :value="s.id">{{ s.nick }} · {{ ROLE[s.role] || s.role }}</option>
-            </select>
+            <AppSelect v-model="opUid" :options="opOpts" no-margin class="flt-select" />
           </label>
           <label class="flt-field">
             <span class="fld">充值人</span>
-            <select v-model.number="memberUid" class="inp flt-select">
-              <option :value="0">全部会员</option>
-              <option v-for="m in data.members || []" :key="m.id" :value="m.id">{{ m.nick }} {{ m.tail }}</option>
-            </select>
+            <AppSelect v-model="memberUid" :options="memberOpts" no-margin class="flt-select" />
           </label>
         </div>
       </div>
@@ -274,7 +293,7 @@ watch([opUid, memberUid], () => load(true));
           </div>
           <span class="tiny remain">{{ remain(r.expireAt) }}</span>
           <button class="btn sm ghost" :disabled="actingId === r.id" @click="openReject(r)">拒绝</button>
-          <button class="btn sm rc-confirm" :disabled="actingId === r.id" @click="confirmOne(r)">{{ actingId === r.id ? "处理中…" : "确认收款" }}</button>
+          <button class="btn sm rc-confirm" :disabled="actingId === r.id" @click="openConfirm(r)">{{ actingId === r.id ? "处理中…" : "确认收款" }}</button>
         </div>
         <div class="tiny pending-foot">请顾客在吧台提供单号后 4 位（红色部分），核对无误后再确认到账。金额不可修改，系统会自动避免重复入账。</div>
       </div>
@@ -307,7 +326,7 @@ watch([opUid, memberUid], () => load(true));
               <td class="tiny">{{ r.at || r.created || "—" }}</td>
               <td class="tiny">{{ remarkText(r) || "—" }}</td>
               <td class="col-op">
-                <button v-if="r.status === 'PENDING_PAY'" class="btn sm rc-confirm" :disabled="actingId === r.id" @click="confirmOne(r)">确认</button>
+                <button v-if="r.status === 'PENDING_PAY'" class="btn sm rc-confirm" :disabled="actingId === r.id" @click="openConfirm(r)">确认</button>
                 <span v-else class="tiny">—</span>
               </td>
             </tr>
@@ -320,11 +339,25 @@ watch([opUid, memberUid], () => load(true));
       </div>
 
       <div class="note">
-        <b>口径：</b>「实收」为顾客实际支付现金，计入营业收入统计；「赠送」为平台负债，用户消费时才核销，不计收入。待付款单超时自动取消，不占用额度。<br />
-        <b>到账确认规则：</b>充值金额不可修改，同一会员同时只能有一张待付款订单；拒绝时需填写原因。每次确认都会记录操作人、时间、单号及余额变化，便于后续核对。
+        <div class="note-body">
+          <p><b>口径：</b>「实收」为顾客实际支付现金，计入营业收入统计；「赠送」为平台负债，用户消费时才核销，不计收入。待付款单超时自动取消，不占用额度。</p>
+          <p><b>到账确认规则：</b>充值金额不可修改，同一会员同时只能有一张待付款订单；拒绝时需填写原因。每次确认都会记录操作人、时间、单号及余额变化，便于后续核对。</p>
+        </div>
       </div>
     </AppAsyncPage>
 
+    <Teleport to="body">
+    <div v-if="confirmTarget" class="reject-mask" @click.self="closeConfirm">
+      <div class="reject-dialog">
+        <div class="st">确认收款 <em>{{ confirmTarget.no }}</em></div>
+        <div class="reject-info">{{ memberLabel(confirmTarget) }} · ¥{{ fmt(confirmTarget.amount) }} + 赠 {{ fmt(confirmTarget.bonus) }}</div>
+        <div class="tiny confirm-tip">请核对单号后 4 位与顾客付款金额，确认后将入账并记录操作人。</div>
+        <div class="reject-actions">
+          <button class="btn ghost" :disabled="!!actingId" @click="closeConfirm">取消</button>
+          <button class="btn rc-confirm" :disabled="!!actingId" @click="confirmOne">{{ actingId ? "处理中…" : "确认收款" }}</button>
+        </div>
+      </div>
+    </div>
     <div v-if="rejectTarget" class="reject-mask" @click.self="closeReject">
       <div class="reject-dialog">
         <div class="st">拒绝充值单 <em>{{ rejectTarget.no }}</em></div>
@@ -337,6 +370,7 @@ watch([opUid, memberUid], () => load(true));
         </div>
       </div>
     </div>
+    </Teleport>
   </div>
 </template>
 
@@ -348,7 +382,8 @@ watch([opUid, memberUid], () => load(true));
 .flt-extra { display: flex; gap: 10px; margin-top: 9px; flex-wrap: wrap; }
 .flt-field { display: block; }
 .flt-field .fld { display: block; color: var(--ink2); font-size: 12px; margin-bottom: 4px; }
-.flt-select { max-width: 170px; margin: 0; }
+.flt-field :deep(.flt-select) { width: 170px; max-width: 170px; }
+.confirm-tip { margin-bottom: 12px; color: var(--ink2); line-height: 1.6; }
 .rc-metrics { margin-bottom: 12px; }
 .op-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .op-cell { background: #faf9f5; border-radius: 9px; padding: 10px 12px; }
@@ -365,7 +400,6 @@ watch([opUid, memberUid], () => load(true));
 .bonus-col { color: #ba7517; }
 .rc-confirm { margin: 0; background: #ba7517; border-color: #ba7517; color: #fff; }
 .empty-row { text-align: center; padding: 26px; color: var(--ink3); }
-.reject-mask { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(28, 27, 25, 0.42); }
 .reject-dialog { width: min(440px, 100%); padding: 18px; border-radius: 14px; background: #fff; box-shadow: 0 18px 48px rgba(28, 27, 25, 0.24); }
 .reject-info { margin-bottom: 12px; padding: 10px 12px; border-radius: 9px; background: #fdf4e3; color: #6b6a65; font-size: 13px; }
 .reject-label { margin-bottom: 6px; }

@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { api } from "../api";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
+import AppSelect from "../components/AppSelect.vue";
 import { showToast } from "../composables/useToast";
 
 type Member = { id: number; nick: string; no: string; champions: number; shard: number };
@@ -104,9 +105,12 @@ async function saveTeam() {
   }
 }
 
-function onMoveSelect(member: Member, from: Team, event: Event) {
-  const value = Number((event.target as HTMLSelectElement).value || 0);
-  (event.target as HTMLSelectElement).value = "0";
+function moveTeamOptions(from: Team) {
+  return activeTeams.value.filter((x) => x.id !== from.id).map((t) => ({ value: t.id, label: t.name }));
+}
+
+function onMoveSelect(member: Member, from: Team, teamId: number) {
+  const value = Number(teamId || 0);
   if (!value) return;
   const to = teams.value.find((t) => t.id === value);
   if (!to || to.id === from.id) return;
@@ -176,13 +180,15 @@ onMounted(load);
       </div>
 
       <section v-for="team in teams" :key="team.id" class="card team-card">
-        <div class="st team-head">
-          <span>
-            {{ team.name }}
-            <span v-if="team.status === 'DISABLED'" class="disabled-tag">（已停用）</span>
-          </span>
-          <em class="team-stats">{{ team.members.length }} 名成员 · 战队冠军 {{ team.champions }}（实时聚合）</em>
-          <button class="btn sm edit-btn" @click="openEdit(team)">编辑</button>
+        <div class="team-head">
+          <div class="team-head-main">
+            <span class="team-name">
+              {{ team.name }}
+              <span v-if="team.status === 'DISABLED'" class="disabled-tag">（已停用）</span>
+            </span>
+            <em class="team-stats">{{ team.members.length }} 名成员 · 战队冠军 {{ team.champions }}（实时聚合）</em>
+          </div>
+          <button class="btn sm ghost edit-btn" @click="openEdit(team)">编辑</button>
         </div>
         <div class="tb-wrap">
           <table class="tb2 team-member-table">
@@ -201,16 +207,16 @@ onMounted(load);
                 <td>{{ member.champions }}</td>
                 <td>{{ fmt(member.shard) }}</td>
                 <td>
-                  <select class="inp move-select" @change="onMoveSelect(member, team, $event)">
-                    <option value="0">选择战队</option>
-                    <option
-                      v-for="item in activeTeams.filter((x) => x.id !== team.id)"
-                      :key="item.id"
-                      :value="item.id"
-                    >
-                      {{ item.name }}
-                    </option>
-                  </select>
+                  <AppSelect
+                    class="move-sel"
+                    :model-value="0"
+                    :options="moveTeamOptions(team)"
+                    placeholder="选择战队"
+                    compact
+                    no-margin
+                    action
+                    @change="onMoveSelect(member, team, $event)"
+                  />
                 </td>
                 <td><button class="btn sm" @click="removeDlg = member">移出</button></td>
               </tr>
@@ -224,11 +230,14 @@ onMounted(load);
 
       <section v-if="!teams.length" class="card list-empty">暂无战队，可使用上方按钮创建</section>
 
-      <div class="note">
-        <b>调队后果：</b>冠军数归属新战队且实时聚合，拖一个人会同时改变两个战队的排名。已发放的历史奖励不受影响（依据快照）。停用的战队不再出现在调队目标中。
+      <div class="side-note">
+        <div class="side-note-body">
+          <b>调队后果：</b>冠军数归属新战队且实时聚合，拖一个人会同时改变两个战队的排名。已发放的历史奖励不受影响（依据快照）。停用的战队不再出现在调队目标中。
+        </div>
       </div>
     </div>
 
+    <Teleport to="body">
     <div v-if="showNew" class="dlg-mask" @click.self="showNew = false">
       <section class="dlg">
         <div class="st">新增战队</div>
@@ -287,6 +296,7 @@ onMounted(load);
         </div>
       </section>
     </div>
+    </Teleport>
   </AppAsyncPage>
 </template>
 
@@ -302,36 +312,39 @@ onMounted(load);
 .toolbar { gap: 8px; margin-bottom: 11px; align-items: center; }
 .team-card { margin-bottom: 12px; padding-bottom: 0; overflow: hidden; }
 .team-head {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 14px 14px 0 8px;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
 }
-.team-head > span:first-child { justify-self: start; min-width: 0; }
+.team-head-main {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.team-name {
+  font-size: 14px;
+  font-weight: 650;
+  color: #352d24;
+}
 .team-stats {
-  justify-self: center;
   margin: 0;
-  transform: translateX(-12px);
   font-style: normal;
   font-size: 11px;
   color: var(--ink3);
   font-weight: 400;
-  text-align: center;
-  white-space: nowrap;
 }
-.edit-btn { justify-self: end; margin-left: 0; flex: none; }
+.edit-btn { flex: none; margin: 0; }
 .team-member-table :is(th, td):nth-child(5) { text-align: center; }
 .disabled-tag { color: var(--red); font-size: 12px; font-weight: 400; }
 .tb-wrap { overflow-x: auto; }
-.move-select { padding: 4px 7px; font-size: 12px; width: 100%; max-width: 180px; }
+.move-sel { max-width: 180px; }
 .empty-row { text-align: center; color: var(--ink3); padding: 18px; font-size: 12px; }
 .list-empty { text-align: center; color: var(--ink2); padding: 24px; }
-.note { margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; font-size: 12px; line-height: 1.7; }
-.dlg-mask {
-  position: fixed; z-index: 30; inset: 0; display: grid; place-items: center;
-  padding: 20px; background: rgba(0, 0, 0, 0.38);
-}
 .dlg {
   width: min(520px, 100%); background: #fff; border-radius: 16px; padding: 24px;
   box-shadow: 0 18px 45px rgba(0, 0, 0, 0.2);
@@ -346,13 +359,14 @@ onMounted(load);
 .dlg-actions .btn { width: 100%; }
 @media (max-width: 720px) {
   .team-head {
-    grid-template-columns: 1fr;
-    justify-items: start;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
   }
-  .team-stats {
-    justify-self: start;
-    white-space: normal;
+  .team-head-main {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
   }
-  .edit-btn { justify-self: start; }
 }
 </style>

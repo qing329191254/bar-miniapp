@@ -232,7 +232,11 @@ onMounted(load);
           </div>
           <div class="tiny agreement-foot">同意人数统计自顾客注册，以及协议重大变更后的再次确认记录。</div>
         </div>
-        <div class="note rd"><b>合规底线：</b>须覆盖个人信息收集与用途、账号注销与资产处理、金币性质与退款规则、积分清零、卡券有效期与争议解决方式。</div>
+        <div class="side-note warn">
+          <div class="side-note-body">
+            <b>合规底线：</b>须覆盖个人信息收集与用途、账号注销与资产处理、金币性质与退款规则、积分清零、卡券有效期与争议解决方式。
+          </div>
+        </div>
       </div>
     </div>
 
@@ -288,7 +292,6 @@ onMounted(load);
 
 <style scoped>
 .agreement-hdr .hdr-note{position:static;transform:none;margin-left:auto;text-align:right;pointer-events:auto;white-space:normal}
-.dlg-mask{position:fixed;z-index:30;inset:0;display:grid;place-items:center;padding:20px;background:rgba(0,0,0,.38)}
 .dlg{width:min(480px,100%);background:#fff;border-radius:16px;padding:24px;box-shadow:0 18px 45px rgba(0,0,0,.2)}
 .dlg-body{margin:8px 0 0;font-size:13px;line-height:1.65;color:var(--ink2)}
 .dlg-warn{display:block;margin-top:8px;color:var(--red);font-size:12px}

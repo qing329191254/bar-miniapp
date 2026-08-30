@@ -5,7 +5,6 @@ import "./style.css";
 import { savedUser, token } from "./api";
 import Login from "./pages/Login.vue";
 import Dashboard from "./pages/Dashboard.vue";
-import Collection from "./pages/Collection.vue";
 import Jobs from "./pages/Jobs.vue";
 import JobDetail from "./pages/JobDetail.vue";
 import Orders from "./pages/Orders.vue";
@@ -75,7 +74,7 @@ const router = createRouter({
     { path: "/rankHistory", component: SettlementHistory },
     { path: "/settlecfg", component: SettlementConfig },
     { path: "/projects", component: ProjectConfig },
-    { path: "/:coll", component: Collection },
+    { path: "/:pathMatch(.*)*", redirect: "/dash" },
   ],
 });
 const BOSS_ONLY = new Set(["/tiers", "/staff", "/logs", "/cfg", "/settlecfg", "/liabCoin", "/liabPoint", "/liabCard"]);
