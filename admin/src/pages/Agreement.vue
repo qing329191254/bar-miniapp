@@ -42,6 +42,10 @@ const selectedLogs = computed(() => {
     .filter((x) => !key || String(x.user?.nick || "").toLowerCase().includes(key) || String(x.user?.no || "").includes(key) || String(x.uid).includes(key));
 });
 const logsPg = usePagination(selectedLogs, DEFAULT_PAGE_SIZE);
+const pagedLogs = logsPg.items;
+const logsPage = logsPg.page;
+const logsPageSize = logsPg.pageSize;
+const logsTotal = logsPg.total;
 
 function asList<T>(res: T[] | { items?: T[] } | null | undefined): T[] {
   if (Array.isArray(res)) return res;
@@ -182,31 +186,34 @@ onMounted(async () => {
       </div>
     </div>
 
-    <div v-if="openVer != null" class="dlg-mask agreement-user-mask" @click.self="closeUserList">
-      <section class="dlg agreement-user-dlg">
-        <div class="st agreement-user-hdr">
-          <span>v{{ openVer }} 已同意用户 <em>{{ selectedLogs.length }} 人</em></span>
-          <button type="button" class="agreement-close" @click="closeUserList">收起</button>
-        </div>
-        <input v-model="keyword" class="inp" placeholder="搜索昵称 / 会员号 / ID" />
-        <div class="tb-wrap agreement-users">
-          <table class="tb2">
-            <thead><tr><th>昵称</th><th>会员号</th><th>同意时间</th><th>状态</th></tr></thead>
-            <tbody>
-              <tr v-for="x in logsPg.items" :key="`${x.uid}-${x.at}`">
-                <td>{{ x.user?.nick || '未知用户' }}</td>
-                <td>{{ x.user?.no || `uid ${x.uid}` }}</td>
-                <td class="tiny">{{ x.at }}</td>
-                <td><span class="pill" :class="x.user?.status === 'ACTIVE' ? 'agreement-live' : 'agreement-off'">{{ x.user?.status === 'ACTIVE' ? '正常' : '已注销' }}</span></td>
-              </tr>
-              <tr v-if="!selectedLogs.length"><td colspan="4" class="tiny agreement-empty">{{ count(openVer!) ? '无匹配记录' : '该版本暂无同意记录' }}</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <AppPagination v-model:page="logsPg.page" v-model:page-size="logsPg.pageSize" :total="logsPg.total" />
-      </section>
-    </div>
+    <Teleport to="body">
+      <div v-if="openVer != null" class="dlg-mask agreement-user-mask" @click.self="closeUserList">
+        <section class="dlg agreement-user-dlg">
+          <div class="st agreement-user-hdr">
+            <span>v{{ openVer }} 已同意用户 <em>{{ selectedLogs.length }} 人</em></span>
+            <button type="button" class="agreement-close" @click="closeUserList">收起</button>
+          </div>
+          <input v-model="keyword" class="inp" placeholder="搜索昵称 / 会员号 / ID" />
+          <div class="tb-wrap agreement-users">
+            <table class="tb2">
+              <thead><tr><th>昵称</th><th>会员号</th><th>同意时间</th><th>状态</th></tr></thead>
+              <tbody>
+                <tr v-for="x in pagedLogs" :key="`${x.uid}-${x.at}`">
+                  <td>{{ x.user?.nick || '未知用户' }}</td>
+                  <td>{{ x.user?.no || `uid ${x.uid}` }}</td>
+                  <td class="tiny">{{ x.at }}</td>
+                  <td><span class="pill" :class="x.user?.status === 'ACTIVE' ? 'agreement-live' : 'agreement-off'">{{ x.user?.status === 'ACTIVE' ? '正常' : '已注销' }}</span></td>
+                </tr>
+                <tr v-if="!selectedLogs.length"><td colspan="4" class="tiny agreement-empty">{{ count(openVer!) ? '无匹配记录' : '该版本暂无同意记录' }}</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <AppPagination v-model:page="logsPage" v-model:page-size="logsPageSize" :total="logsTotal" />
+        </section>
+      </div>
+    </Teleport>
 
+    <Teleport to="body">
     <div v-if="showPublishDlg && current" class="dlg-mask" @click.self="showPublishDlg = false">
       <section class="dlg">
         <div class="st">发布{{ docName }}</div>
@@ -221,6 +228,7 @@ onMounted(async () => {
         </div>
       </section>
     </div>
+    </Teleport>
   </div>
 </template>
 
@@ -233,5 +241,5 @@ onMounted(async () => {
 .dlg-hint{display:block;margin-top:8px;color:var(--ink3);font-size:12px}
 .dlg-actions{display:grid;grid-template-columns:1fr 1.6fr;gap:10px;margin-top:20px}
 .dlg-actions .btn{width:100%}
-.agreement-grid{display:grid;grid-template-columns:minmax(0,1fr) 390px;gap:12px}.agreement-tabs{margin-bottom:11px;flex-wrap:wrap}.agreement-meta{margin-left:auto}.agreement-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px}.agreement-ver-hint{color:var(--ink3);background:#fff;cursor:default;user-select:none}.agreement-editor{height:300px;resize:vertical;line-height:1.75}.agreement-actions{margin-top:3px}.agreement-major{margin-right:auto}.agreement-major b{color:var(--red)}.agreement-live{background:var(--greenbg);color:var(--green);margin-left:4px}.agreement-off{background:#EEECE6;color:var(--ink3)}.agreement-small{padding:4px 7px;font-size:11px}.agreement-history-table :is(th,td):nth-child(4){text-align:center}.agreement-selected td{background:#E6F1FB}.agreement-foot{margin-top:8px}.agreement-user-mask{z-index:40}.agreement-user-dlg{width:min(640px,100%);max-height:min(88vh,720px);overflow:auto}.agreement-user-hdr{margin-bottom:10px}.agreement-user-hdr em{font-style:normal;font-size:11px;color:var(--ink3);font-weight:400;margin-left:6px}.agreement-close{margin-left:auto;border:none;background:transparent;padding:0;font-size:11px;color:var(--blue);cursor:pointer}.agreement-close:hover{text-decoration:underline}.agreement-users{max-height:min(52vh,420px);overflow:auto;margin-top:8px}.agreement-empty{text-align:center;padding:16px 0}@media(max-width:1050px){.agreement-grid{grid-template-columns:1fr}.agreement-meta{width:100%;margin-left:0}.agreement-fields{grid-template-columns:1fr}}
+.agreement-grid{display:grid;grid-template-columns:minmax(0,1fr) 390px;gap:12px}.agreement-tabs{margin-bottom:11px;flex-wrap:wrap}.agreement-meta{margin-left:auto}.agreement-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px}.agreement-ver-hint{color:var(--ink3);background:#fff;cursor:default;user-select:none}.agreement-editor{height:300px;resize:vertical;line-height:1.75}.agreement-actions{margin-top:3px}.agreement-major{margin-right:auto}.agreement-major b{color:var(--red)}.agreement-live{background:var(--greenbg);color:var(--green);margin-left:4px}.agreement-off{background:#EEECE6;color:var(--ink3)}.agreement-small{padding:4px 7px;font-size:11px}.agreement-history-table :is(th,td):nth-child(4){text-align:center}.agreement-selected td{background:#E6F1FB}.agreement-foot{margin-top:8px}.agreement-user-mask{z-index:1000}.agreement-user-dlg{width:min(640px,100%);max-height:min(88vh,720px);overflow:auto}.agreement-user-hdr{margin-bottom:10px}.agreement-user-hdr em{font-style:normal;font-size:11px;color:var(--ink3);font-weight:400;margin-left:6px}.agreement-close{margin-left:auto;border:none;background:transparent;padding:0;font-size:11px;color:var(--blue);cursor:pointer}.agreement-close:hover{text-decoration:underline}.agreement-users{max-height:min(52vh,420px);overflow:auto;margin-top:8px}.agreement-empty{text-align:center;padding:16px 0}@media(max-width:1050px){.agreement-grid{grid-template-columns:1fr}.agreement-meta{width:100%;margin-left:0}.agreement-fields{grid-template-columns:1fr}}
 </style>
