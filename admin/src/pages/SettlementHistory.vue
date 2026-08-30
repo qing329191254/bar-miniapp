@@ -4,6 +4,7 @@ import { useRouter } from "vue-router";
 import { api } from "../api";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
 import AppDateInput from "../components/AppDateInput.vue";
+import { settleRewardText, settleStatusText } from "../settlementDisplay";
 
 type Row = { id:number; week:string; type:string; target?:string; nick?:string; sh?:number; status:string; desc?:string };
 type Week = { week:string; rows:Row[]; winners:number; team:number; personal:number; manual:number; granted:number; revoked:number; total:number };
@@ -43,7 +44,7 @@ const fmt=(n:number)=>Number(n||0).toLocaleString("en-US");
 function setPreset(v:string){preset.value=v;if(v!=="custom"){dateFrom.value="";dateTo.value=""}selectedWeek.value=""}
 function toggle(week:string){selectedWeek.value=selectedWeek.value===week?"":week}
 function typeMeta(type:string):[string,string]{return TYPES[type]||[type||"其他奖励","grey"]}
-function statusText(s:string){return s==="GRANTED"?"已发放":s==="REVOKED"?"已撤销":s==="SKIPPED"?"未通过":s||"—"}
+function statusText(s:string){return settleStatusText(s)}
 async function load(){loading.value=true;err.value="";try{data.value=await api("/admin/settlement/history?preset=all")}catch(e:any){err.value=e?.message||"加载失败";data.value=null}finally{loading.value=false}}
 onMounted(load);
 </script>
@@ -70,7 +71,7 @@ onMounted(load);
       <div v-if="selected" class="card detail-card">
         <div class="st">{{ selected.week }} 发放明细 <em>{{ selected.rows.length }} 条</em><button class="detail-close" @click="selectedWeek=''">收起</button></div>
         <div class="tb-wrap"><table class="tb2 detail-table" data-cols="lllccl"><thead><tr><th>获奖人</th><th>奖励类型</th><th>奖励内容</th><th>依据对象</th><th>快照碎片</th><th>状态</th></tr></thead><tbody>
-          <tr v-for="r in details" :key="r.id" :class="{revoked:r.status==='REVOKED'}"><td><b>{{ r.nick||'—' }}</b></td><td><span class="pill type-pill" :class="typeMeta(r.type)[1]">{{ typeMeta(r.type)[0] }}</span></td><td>{{ r.desc||'—' }}</td><td class="mut">{{ r.target||'—' }}</td><td>{{ r.sh?fmt(r.sh):'—' }}</td><td><span class="pill status-pill" :class="r.status.toLowerCase()">{{ statusText(r.status) }}</span></td></tr><tr v-if="!details.length"><td colspan="6" class="table-empty">该周期暂无发放明细</td></tr>
+          <tr v-for="r in details" :key="r.id" :class="{revoked:r.status==='REVOKED'}"><td><b>{{ r.nick||'—' }}</b></td><td><span class="pill type-pill" :class="typeMeta(r.type)[1]">{{ typeMeta(r.type)[0] }}</span></td><td>{{ settleRewardText(r) }}</td><td class="mut">{{ r.target||'—' }}</td><td>{{ r.sh?fmt(r.sh):'—' }}</td><td><span class="pill status-pill" :class="r.status.toLowerCase()">{{ statusText(r.status) }}</span></td></tr><tr v-if="!details.length"><td colspan="6" class="table-empty">该周期暂无发放明细</td></tr>
         </tbody></table></div>
         <div class="detail-footnote">「快照碎片」为结算时刻该获奖人/战队的当周碎片值，后续对局不会改写此数字——这是发奖的依据凭证。</div>
       </div>

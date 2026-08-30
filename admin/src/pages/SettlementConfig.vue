@@ -61,7 +61,7 @@ onMounted(load);
         <div class="st">战队奖励</div>
         <label class="setting-row"><span><b>夺冠战队奖励</b><small>战队榜第 1 全员发放</small></span><input v-model="cfg.teamReward" type="checkbox" class="toggle"/></label>
         <label v-if="cfg.teamReward" class="setting-row"><span><b>奖励卡型</b></span><select v-model="cfg.teamCard" class="inp team-select"><option v-for="sub in teamSubs" :key="sub" :value="sub">{{ optionName(sub) }}</option></select></label>
-        <label class="setting-row"><span><b>本人需有碎片</b><small>碎片为 0 的成员跳过（记录 NO_SHARD）</small></span><input v-model="cfg.reqShard" type="checkbox" class="toggle"/></label>
+        <label class="setting-row"><span><b>本人需有碎片</b><small>碎片为 0 的成员跳过，结算记录标记为「本周期无碎片」</small></span><input v-model="cfg.reqShard" type="checkbox" class="toggle"/></label>
       </section>
 
       <section class="card"><div class="st">奖励叠加</div><label class="setting-row no-border"><span><b>同一用户战队奖 + 个人奖可同发</b></span><input v-model="cfg.stack" type="checkbox" class="toggle"/></label></section>

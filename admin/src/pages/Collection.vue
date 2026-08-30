@@ -153,7 +153,7 @@ const CONTENT_LABELS: Record<string, string> = {
 const DEACT: Record<string, string> = { PENDING: "待处理", REJECTED: "已驳回", DONE: "已注销" };
 const ADJ: Record<string, string> = { PENDING: "待审批", APPROVED: "已通过", REJECTED: "已驳回" };
 const CARD: Record<string, string> = { UNUSED: "未使用", USED: "已核销", LOCKED: "核销中", VOID: "已作废", EXPIRED: "已过期" };
-const SETTLE: Record<string, string> = { GRANTED: "已发放", SKIPPED: "跳过", REVOKED: "已撤回" };
+const SETTLE: Record<string, string> = { GRANTED: "已发放", SKIPPED: "未通过", REVOKED: "已撤回" };
 const ROLE: Record<string, string> = { STAFF: "店员", MANAGER: "店长", BOSS: "老板", CUSTOMER: "会员" };
 const CAT: Record<string, string> = { GAME: "游戏卡", FOOD: "酒水小食卡", OTHER: "其他卡" };
 

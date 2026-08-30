@@ -115,6 +115,8 @@ def seed_all(reset: bool = False):
                 grant_demo_points(db, w.user_id)
                 grant_demo_coins(db, w.user_id)
                 grant_demo_sign(db, w.user_id)
+            if not db.get(Setting, "settleMeta") and SEED.get("settleMeta"):
+                db.add(Setting(k="settleMeta", v=SEED["settleMeta"]))
             db.commit()
             return {"ok": True, "skipped": True}
         s = SEED
@@ -240,6 +242,8 @@ def seed_all(reset: bool = False):
         db.add(Setting(k="seq", v=s["seq"]))
         db.add(Setting(k="ledger", v=s.get("ledger") or {}))
         db.add(Setting(k="settleWeek", v=s.get("settleWeek") or {}))
+        if s.get("settleMeta"):
+            db.add(Setting(k="settleMeta", v=s.get("settleMeta")))
         db.add(Setting(k="staff", v=s.get("staff") or {}))
         db.flush()
         # Keep demo pending tickets alive regardless of wall-clock vs prototype date.
