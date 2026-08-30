@@ -1392,13 +1392,18 @@ def admin_list(
     page_size: int = Query(15, ge=0, le=200, alias="pageSize"),
     status: str = "",
     kw: str = "",
+    include_inactive: bool = Query(False, alias="includeInactive"),
     admin: dict = Depends(admin_user),
     db: Session = Depends(get_db),
 ):
     if coll in ("agreements", "content", "config", "cfg", "push"):
         return L.setting(db, coll)
     if coll == "members":
-        q = db.query(User).filter(User.role == "CUSTOMER", User.status == "ACTIVE")
+        q = db.query(User).filter(User.role == "CUSTOMER")
+        if not include_inactive:
+            q = q.filter(User.status == "ACTIVE")
+        elif status:
+            q = q.filter(User.status == status)
         total_all = q.count()
         if kw:
             like = f"%{kw}%"
