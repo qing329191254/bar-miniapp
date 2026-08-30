@@ -5,7 +5,7 @@ import AppPagination from "../components/AppPagination.vue";
 import AppDateInput from "../components/AppDateInput.vue";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
 import { showToast } from "../composables/useToast";
-import { csvFilename, downloadCsv } from "../exportCsv";
+import { csvFilename, downloadExcelTable } from "../exportCsv";
 
 const PRESETS: [string, string][] = [
   ["today", "今天"],
@@ -99,7 +99,7 @@ function noteText(row: any) {
   return "—";
 }
 function exportFilename(rangeLabel: string) {
-  return csvFilename("提分单", rangeLabel);
+  return csvFilename("提分单", rangeLabel, "xls");
 }
 async function exportRows() {
   if (exporting.value) return;
@@ -133,7 +133,10 @@ async function exportRows() {
       row.opName ? `${row.opName}${row.opRole ? ` · ${row.opRole}` : ""}` : "—",
       noteText(row),
     ]);
-    downloadCsv(exportFilename(res.rangeLabel || ""), headers, body);
+    downloadExcelTable(exportFilename(res.rangeLabel || ""), headers, body, {
+      colWidths: [120, 110, 56, 72, 150, 72, 120, 260],
+      textCols: [0, 4],
+    });
     showToast(`已导出 ${list.length} 条提分单`);
   } catch (e: any) {
     showToast(e?.message || "导出失败", true);
