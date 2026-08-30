@@ -162,7 +162,7 @@ watch(id, load);
       <span class="hdr-title">注销申请详情 · {{ data?.no || "…" }}</span>
       <em v-if="data?.member" class="hdr-note">{{ data.member.nick }} · {{ data.member.no }} · {{ data.created }}</em>
       <span v-if="data" class="pill hdr-pill" :style="pillStyle(ST[data.status] || ['', '#6B6A65', '#F5F4F0'])">{{ ST[data.status]?.[0] }}</span>
-      <button class="btn sm ghost hdr-back" @click="back">‹ 返回列表</button>
+      <button class="btn sm hdr-back" @click="back">‹ 返回列表</button>
     </div>
 
     <p v-if="msg" class="tiny" style="color:#3B6D11;margin-bottom:10px">{{ msg }}</p>
@@ -229,7 +229,7 @@ watch(id, load);
           </span>
         </label>
         <div class="exec-actions">
-          <button class="btn ghost" @click="openReject">驳回申请</button>
+          <button class="btn reject-btn" @click="openReject">驳回申请</button>
           <button class="btn dan exec-btn" :disabled="!canExec" @click="openExec">
             {{ hasFz ? "请先处理冻结积分" : refundOk ? "确认执行注销" : "请先勾选「本金已退还」" }}
           </button>
@@ -238,7 +238,7 @@ watch(id, load);
           执行后：会员状态置「已注销」→ 金币本金与赠送清零 → 积分与碎片清零 → 未核销卡券全部作废 → 全过程记入操作日志。<b>账号壳保留</b>，历史订单与协议同意记录可追溯（协议凭证只增不删，是法律要求）。
         </div>
       </div>
-      <div v-else class="note">本申请已处于终态（{{ ST[data.status]?.[0] }}），不可再执行操作。如需重新注销，请让顾客在 C 端重新提交申请。      </div>
+      <div v-else class="note">本申请已处于终态（{{ ST[data.status]?.[0] }}），不可再执行操作。如需重新注销，请让顾客在 C 端重新提交申请。</div>
     </AppAsyncPage>
 
     <div v-if="dlg" class="deact-mask" @click.self="closeDlg">
@@ -341,6 +341,9 @@ watch(id, load);
 .exec-actions {
   display: flex;
   gap: 8px;
+}
+.reject-btn {
+  flex: 1;
 }
 .exec-btn {
   flex: 1.6;

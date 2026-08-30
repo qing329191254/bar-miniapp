@@ -77,6 +77,8 @@ class Team(Base):
     __tablename__ = "teams"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(64))
+    logo: Mapped[str] = mapped_column(String(8), default="队")
+    status: Mapped[str] = mapped_column(String(16), default="ACTIVE")
 
 
 class Champ(Base):
@@ -464,6 +466,7 @@ class VerifyLog(Base):
 class SettleLog(Base):
     __tablename__ = "settle_logs"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    uid: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     week: Mapped[str] = mapped_column(String(32), default="")
     type: Mapped[str] = mapped_column(String(32), default="")
     sub: Mapped[str] = mapped_column(String(32), default="")
@@ -473,10 +476,12 @@ class SettleLog(Base):
     status: Mapped[str] = mapped_column(String(16), default="")
     card_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     desc: Mapped[str] = mapped_column(String(128), default="")
+    force_reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
     def to_dict(self):
-        return {"id": self.id, "week": self.week, "type": self.type, "sub": self.sub, "target": self.target,
-                "nick": self.nick, "sh": self.sh, "status": self.status, "cardId": self.card_id, "desc": self.desc}
+        return {"id": self.id, "uid": self.uid, "week": self.week, "type": self.type, "sub": self.sub, "target": self.target,
+                "nick": self.nick, "sh": self.sh, "status": self.status, "cardId": self.card_id, "desc": self.desc,
+                "forceReason": self.force_reason}
 
 
 class OpLog(Base):

@@ -65,6 +65,19 @@ def seed_all(reset: bool = False):
             conn.execute(text("ALTER TABLE coin_adjusts ADD COLUMN audit_by INTEGER NULL"))
             conn.execute(text("ALTER TABLE coin_adjusts ADD COLUMN audit_at VARCHAR(24) NULL"))
             conn.execute(text("ALTER TABLE coin_adjusts ADD COLUMN audit_remark VARCHAR(128) NULL"))
+    settle_cols = {c["name"] for c in insp.get_columns("settle_logs")} if insp.has_table("settle_logs") else set()
+    if settle_cols and "uid" not in settle_cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE settle_logs ADD COLUMN uid INTEGER NULL"))
+            conn.execute(text("CREATE INDEX ix_settle_logs_uid ON settle_logs (uid)"))
+    if settle_cols and "force_reason" not in settle_cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE settle_logs ADD COLUMN force_reason VARCHAR(128) NULL"))
+    team_cols = {c["name"] for c in insp.get_columns("teams")} if insp.has_table("teams") else set()
+    if team_cols and "logo" not in team_cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE teams ADD COLUMN logo VARCHAR(8) NOT NULL DEFAULT '队'"))
+            conn.execute(text("ALTER TABLE teams ADD COLUMN status VARCHAR(16) NOT NULL DEFAULT 'ACTIVE'"))
     unique_names = {x.get("name") for x in insp.get_unique_constraints("sign_records")}
     if "uk_sign_uid_day" in unique_names or "uk_sign_uid_month_day" not in unique_names:
         with engine.begin() as conn:
@@ -115,7 +128,12 @@ def seed_all(reset: bool = False):
             ))
             db.add(_wallet(x["id"], s))
         for t in s["teams"]:
-            db.add(Team(id=t["id"], name=t["name"]))
+            name = t["name"]
+            db.add(Team(
+                id=t["id"], name=name,
+                logo=(t.get("logo") or name[:1] or "队")[:1],
+                status=t.get("status") or "ACTIVE",
+            ))
         for i, c in enumerate(s["champs"], 1):
             db.add(Champ(id=i, uid=c["uid"], event=c["event"], date=c["date"], n=c.get("n") or 0,
                          team_id=c.get("teamId"), team_name=c.get("teamName") or "", op=c.get("op") or ""))
@@ -205,7 +223,7 @@ def seed_all(reset: bool = False):
             db.add(VerifyLog(id=v["id"], card_no=v["cardNo"], tpl_name=v["tplName"], uid=v["uid"], op_uid=v["opUid"], at=v["at"]))
         for x in s["settleLogs"]:
             db.add(SettleLog(
-                id=x["id"], week=x.get("week") or "", type=x.get("type") or "", sub=x.get("sub") or "",
+                id=x["id"], uid=x.get("uid"), week=x.get("week") or "", type=x.get("type") or "", sub=x.get("sub") or "",
                 target=x.get("target") or "", nick=x.get("nick") or "", sh=x.get("sh") or 0,
                 status=x.get("status") or "", card_id=x.get("cardId"), desc=x.get("desc") or "",
             ))

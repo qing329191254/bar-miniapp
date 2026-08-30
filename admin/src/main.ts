@@ -19,16 +19,22 @@ import Content from "./pages/Content.vue";
 import Agreement from "./pages/Agreement.vue";
 import Config from "./pages/Config.vue";
 import CardTemplates from "./pages/CardTemplates.vue";
+import Tiers from "./pages/Tiers.vue";
 import WithdrawalManagement from "./pages/WithdrawalManagement.vue";
 import SignRewards from "./pages/SignRewards.vue";
 import Teams from "./pages/Teams.vue";
+import Push from "./pages/Push.vue";
+import ShopInfo from "./pages/ShopInfo.vue";
 import Settlement from "./pages/Settlement.vue";
 import SettlementHistory from "./pages/SettlementHistory.vue";
 import SettlementConfig from "./pages/SettlementConfig.vue";
+import ProjectConfig from "./pages/ProjectConfig.vue";
 import DailyBiz from "./pages/DailyBiz.vue";
 import CoinAdjust from "./pages/CoinAdjust.vue";
 import Deactivations from "./pages/Deactivations.vue";
 import DeactivationDetail from "./pages/DeactivationDetail.vue";
+import Staff from "./pages/Staff.vue";
+import Logs from "./pages/Logs.vue";
 import DashDrill from "./pages/DashDrill.vue";
 
 const router = createRouter({
@@ -58,11 +64,17 @@ const router = createRouter({
     { path: "/agreement", component: Agreement },
     { path: "/config", component: Config },
     { path: "/cardTpls", component: CardTemplates },
+    { path: "/tiers", component: Tiers },
+    { path: "/staff", component: Staff },
+    { path: "/logs", component: Logs },
     { path: "/signRules", component: SignRewards },
     { path: "/teams", component: Teams },
+    { path: "/push", component: Push },
+    { path: "/shopinfo", component: ShopInfo },
     { path: "/settle", component: Settlement },
     { path: "/rankHistory", component: SettlementHistory },
     { path: "/settlecfg", component: SettlementConfig },
+    { path: "/projects", component: ProjectConfig },
     { path: "/:coll", component: Collection },
   ],
 });

@@ -1,50 +1,238 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { api, DEFAULT_PAGE_SIZE, pageQs } from "../api";
+import { api, DEFAULT_PAGE_SIZE, pageQs, savedUser } from "../api";
+import AppAsyncPage from "../components/AppAsyncPage.vue";
 import AppPagination from "../components/AppPagination.vue";
 
 const route = useRoute();
 const router = useRouter();
+const isBoss = computed(() => savedUser()?.role === "BOSS");
+const canGrantCard = computed(() => ["BOSS", "MANAGER"].includes(savedUser()?.role || ""));
+
 const members = ref<any[]>([]);
 const memberTotal = ref(0);
+const totalAll = ref(0);
 const tablePage = ref(1);
 const tablePageSize = ref(DEFAULT_PAGE_SIZE);
-const cards = ref<any[]>([]);
-const champs = ref<any[]>([]);
-const wdrs = ref<any[]>([]);
 const kw = ref("");
+const loading = ref(true);
+const err = ref("");
+const msg = ref("");
+
+const detail = ref<any>(null);
+const detailLoading = ref(false);
+const acting = ref(false);
+
 const uid = computed(() => Number(route.query.uid || 0));
+const me = computed(() => detail.value?.member || null);
+
+type AdjKind = "coin" | "point" | "shard" | "card";
+const adjOpen = ref<AdjKind | null>(null);
+const adjForm = ref({ delta: null as number | null, tpl: 0, qty: 1, reason: "" });
+
+const WDR_ST: Record<string, [string, string, string]> = {
+  GRANTED: ["已发放", "green", "greenbg"],
+  PENDING_CONFIRM: ["待确认", "gold", "goldbg"],
+  REJECTED: ["已驳回", "red", "redbg"],
+  CANCELLED: ["已取消", "red", "redbg"],
+  CLOSED_TIMEOUT: ["已超时", "red", "redbg"],
+};
+
+function fmt(n: number) {
+  return Number(n || 0).toLocaleString("en-US");
+}
+
+function fmtPoint(av: number) {
+  if (av < 0) return `−${fmt(-av)}`;
+  return fmt(av);
+}
+
+function pointSub(p: { av?: number; fz?: number; wg?: number; mg?: number; pd?: number }) {
+  const av = Number(p.av || 0);
+  const fz = Number(p.fz || 0);
+  const wg = Number(p.wg || 0);
+  const mg = Number(p.mg || 0);
+  const pd = Number(p.pd || 0);
+  if (av < 0) return `待抵扣 ${fmt(pd || -av)}`;
+  if (fz > 0) return `冻结 ${fmt(fz)} · 周 ${fmt(wg)}`;
+  return `周 ${fmt(wg)} · 月 ${fmt(mg)}`;
+}
+
+function cardStatusText(status: string) {
+  if (status === "UNUSED") return "未使用";
+  if (status === "USED") return "已核销";
+  return "已失效";
+}
+
+function cardStatusClass(status: string) {
+  if (status === "UNUSED") return "pill green";
+  if (status === "USED") return "pill blue";
+  return "pill red";
+}
+
+function wdrOp(w: any) {
+  if (w.grantBy != null) return `${w.grantOpName || "—"} · ${w.grantAt || ""}`;
+  if (w.rejectBy != null) return `${w.rejectOpName || "—"} 驳回`;
+  if (w.status === "CANCELLED") return "顾客取消";
+  return "—";
+}
+
+function wdrStatus(w: any) {
+  const st = WDR_ST[w.status];
+  if (!st) return { text: w.status, cls: "pill" };
+  return { text: st[0], cls: `pill ${st[1]}` };
+}
 
 async function loadMembers() {
-  const params = new URLSearchParams(pageQs(tablePage.value, tablePageSize.value));
-  if (kw.value.trim()) params.set("kw", kw.value.trim());
-  const res = await api<any>(`/admin/members?${params}`);
-  if (Array.isArray(res)) {
-    members.value = res;
-    memberTotal.value = res.length;
-  } else {
-    members.value = res.items || [];
-    memberTotal.value = res.total ?? members.value.length;
+  loading.value = true;
+  err.value = "";
+  try {
+    const params = new URLSearchParams(pageQs(tablePage.value, tablePageSize.value));
+    if (kw.value.trim()) params.set("kw", kw.value.trim());
+    const res = await api<any>(`/admin/members?${params}`);
+    if (Array.isArray(res)) {
+      members.value = res;
+      memberTotal.value = res.length;
+      totalAll.value = res.length;
+    } else {
+      members.value = res.items || [];
+      memberTotal.value = res.total ?? members.value.length;
+      totalAll.value = res.totalAll ?? memberTotal.value;
+    }
+  } catch (e: any) {
+    err.value = e?.message || "加载失败";
+    members.value = [];
+  } finally {
+    loading.value = false;
   }
 }
 
-onMounted(async () => {
-  await loadMembers();
-  if (uid.value) {
-    const hit = members.value.find((x) => x.id === uid.value);
-    if (!hit) {
-      const all = await api<any[]>("/admin/members?pageSize=0");
-      members.value = all;
-      memberTotal.value = all.length;
+async function loadDetail(id = uid.value) {
+  if (!id) {
+    detail.value = null;
+    return;
+  }
+  detailLoading.value = true;
+  err.value = "";
+  try {
+    detail.value = await api(`/admin/members/${id}`);
+  } catch (e: any) {
+    err.value = e?.message || "加载会员详情失败";
+    detail.value = null;
+  } finally {
+    detailLoading.value = false;
+  }
+}
+
+function openDetail(id: number) {
+  router.push({ path: "/members", query: { uid: String(id) } });
+}
+
+function backList() {
+  router.push("/members");
+}
+
+function openAdj(kind: AdjKind) {
+  const tpls = detail.value?.cardTpls || [];
+  adjForm.value = {
+    delta: null,
+    tpl: tpls[0]?.id || 0,
+    qty: 1,
+    reason: "",
+  };
+  adjOpen.value = kind;
+  msg.value = "";
+}
+
+async function submitAdj() {
+  if (!me.value || !adjOpen.value) return;
+  const reason = adjForm.value.reason.trim();
+  if (reason.length < 2) {
+    msg.value = "原因至少 2 个字";
+    return;
+  }
+  if (adjOpen.value !== "card") {
+    const n = Number(adjForm.value.delta || 0);
+    if (!n) {
+      msg.value = "请输入调整值";
+      return;
+    }
+    if (adjOpen.value === "coin") {
+      const before = Number(me.value.coin?.total || 0);
+      if (n < 0 && -n > before) {
+        msg.value = `${isBoss.value ? "扣减失败，超出" : "扣减申请超出"}余额（当前 ${fmt(before)}）`;
+        return;
+      }
+    }
+    if (adjOpen.value === "shard") {
+      const w = Number(me.value.shard?.w || 0);
+      if (n < 0 && -n > w) {
+        msg.value = `扣减失败，超出本周碎片（当前 ${fmt(w)}）`;
+        return;
+      }
     }
   }
-  cards.value = await api("/admin/cards?pageSize=0");
-  champs.value = await api("/admin/champs?pageSize=0");
-  wdrs.value = await api("/admin/withdrawals?pageSize=0");
+  acting.value = true;
+  msg.value = "";
+  try {
+    const id = me.value.id;
+    if (adjOpen.value === "coin") {
+      const res = await api<any>(`/admin/members/${id}/adjust-coin`, {
+        method: "POST",
+        body: { data: { delta: Number(adjForm.value.delta || 0), reason } },
+      });
+      msg.value = res.pending ? "申请已提交，待老板审批后生效" : "已调整并留痕";
+    } else if (adjOpen.value === "point") {
+      await api(`/admin/members/${id}/adjust-point`, {
+        method: "POST",
+        body: { data: { delta: Number(adjForm.value.delta || 0), reason } },
+      });
+      msg.value = "已调整并留痕";
+    } else if (adjOpen.value === "shard") {
+      await api(`/admin/members/${id}/adjust-shard`, {
+        method: "POST",
+        body: { data: { delta: Number(adjForm.value.delta || 0), reason } },
+      });
+      msg.value = "已调整并留痕";
+    } else {
+      await api(`/admin/members/${id}/grant-cards`, {
+        method: "POST",
+        body: { data: { tpl: Number(adjForm.value.tpl), qty: Number(adjForm.value.qty || 1), reason } },
+      });
+      msg.value = "已补发";
+    }
+    adjOpen.value = null;
+    await loadDetail(id);
+  } catch (e: any) {
+    msg.value = e?.message || "操作失败";
+  } finally {
+    acting.value = false;
+  }
+}
+
+const rejectRemarks = computed(() =>
+  (detail.value?.withdrawals || []).filter((w: any) => w.rejectRemark).slice(0, 3),
+);
+
+onMounted(async () => {
+  if (uid.value) await loadDetail();
+  else await loadMembers();
 });
 
-watch([tablePage, tablePageSize], () => loadMembers());
+watch(uid, async (id) => {
+  msg.value = "";
+  if (id) await loadDetail(id);
+  else {
+    detail.value = null;
+    await loadMembers();
+  }
+});
+
+watch([tablePage, tablePageSize], () => {
+  if (!uid.value) loadMembers();
+});
+
 let kwTimer: number | undefined;
 watch(kw, () => {
   window.clearTimeout(kwTimer);
@@ -53,65 +241,285 @@ watch(kw, () => {
     loadMembers();
   }, 300);
 });
-
-const shown = computed(() => members.value.filter((x) => x.role === "CUSTOMER"));
-const me = computed(() => {
-  if (!uid.value) return null;
-  return members.value.find((x) => x.id === uid.value) || null;
-});
-function fmt(n: number) {
-  return Number(n || 0).toLocaleString("en-US");
-}
 </script>
 
 <template>
-  <div v-if="me">
-    <div class="hdr">会员详情 · {{ me.nick }} <em style="cursor:pointer" @click="router.push('/members')">← 返回列表</em></div>
-    <div class="card">
-      <div class="st">基本信息</div>
-      <div class="cards" style="grid-template-columns:repeat(4,1fr)">
-        <div><div class="tiny">会员号</div><b>{{ me.no }}</b></div>
-        <div><div class="tiny">手机号</div><b>{{ me.phone }}</b></div>
-        <div><div class="tiny">性别</div><b>{{ me.gender===1?'男':(me.gender===2?'女':'未知') }}</b></div>
-        <div><div class="tiny">战队</div><b>{{ me.teamName || "（无战队）" }}</b></div>
+  <AppAsyncPage :loading="uid ? detailLoading : loading" :error="err" @retry="uid ? loadDetail() : loadMembers()">
+    <div v-if="me">
+      <div class="hdr">
+        会员详情 · {{ me.nick }}
+        <em class="back" @click="backList">← 返回列表</em>
+      </div>
+      <p v-if="msg" class="notice">{{ msg }}</p>
+
+      <div class="card">
+        <div class="st">基本信息</div>
+        <div class="g4">
+          <div><div class="fld">会员号</div><div class="ro">{{ me.no }}</div></div>
+          <div><div class="fld">手机号</div><div class="ro">{{ me.phone }}</div></div>
+          <div><div class="fld">性别</div><div class="ro">{{ me.gender === 1 ? "男" : me.gender === 2 ? "女" : "未知" }}</div></div>
+          <div><div class="fld">注册时间</div><div class="ro muted">{{ detail.registered || "—" }}</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="st">资产</div>
+        <div class="g4">
+          <div class="mtr">
+            <div class="k">金币</div>
+            <div class="v gold">{{ fmt(me.coin.total) }}</div>
+            <div class="tiny">本金 {{ fmt(me.coin.p) }} / 赠送 {{ fmt(me.coin.b) }}</div>
+          </div>
+          <div class="mtr">
+            <div class="k">积分</div>
+            <div class="v" :class="me.point.av < 0 ? 'red' : 'blue'">{{ fmtPoint(me.point.av) }}</div>
+            <div class="tiny">{{ pointSub(me.point) }}</div>
+          </div>
+          <div class="mtr">
+            <div class="k">碎片</div>
+            <div class="v purple">{{ fmt(me.shard.w) }}</div>
+            <div class="tiny">周值 · 历史 {{ fmt(me.shard.t) }}</div>
+          </div>
+          <div class="mtr">
+            <div class="k">卡包</div>
+            <div class="v">{{ detail.cardStats?.unused || 0 }} 张</div>
+            <div class="tiny">已用 {{ detail.cardStats?.used || 0 }} · 失效 {{ detail.cardStats?.void || 0 }}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="st">战队</div>
+        <div class="li">
+          <div class="gr">
+            <b>{{ me.teamName || "（无战队）" }}</b>
+            <span class="mut">战队冠军 {{ detail.teamChampions || 0 }}（实时聚合）</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="st">个人冠军 <em>{{ detail.champTotal || 0 }} 次</em></div>
+        <div v-for="(ch, i) in detail.champs || []" :key="i" class="li">
+          <div class="gr">
+            <b>{{ ch.event }}</b>
+            <span class="mut">{{ ch.date }} · 参赛 {{ ch.n }} 人 · 获奖时 {{ ch.teamName }}</span>
+          </div>
+        </div>
+        <div v-if="!(detail.champs || []).length" class="tiny empty">暂无夺冠记录</div>
+      </div>
+
+      <div class="card table-card">
+        <div class="st">卡包明细</div>
+        <table class="tb2">
+          <thead><tr><th>卡券</th><th>来源</th><th>有效期</th><th>状态</th></tr></thead>
+          <tbody>
+            <tr v-for="cd in detail.cards || []" :key="cd.id">
+              <td><b>{{ cd.tplName }}</b></td>
+              <td class="tiny">{{ cd.srcDesc }}</td>
+              <td class="tiny">{{ cd.expire || `${cd.daysLeft || 30} 天` }}</td>
+              <td><span :class="cardStatusClass(cd.status)">{{ cardStatusText(cd.status) }}</span></td>
+            </tr>
+            <tr v-if="!(detail.cards || []).length"><td colspan="4" class="table-empty">暂无卡券</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card table-card">
+        <div class="st">
+          提分单明细
+          <em>累计已提出 {{ fmt(me.point.wd || 0) }} 分<span v-if="me.point.fz > 0"> · 冻结中 {{ fmt(me.point.fz) }} 分</span></em>
+        </div>
+        <table class="tb2">
+          <thead><tr><th>单号</th><th>数量</th><th>提交时间</th><th>操作人</th><th>状态</th></tr></thead>
+          <tbody>
+            <tr v-for="w in detail.withdrawals || []" :key="w.id">
+              <td><b>{{ w.no }}</b></td>
+              <td>{{ fmt(w.pts) }}</td>
+              <td class="tiny">{{ w.created }}</td>
+              <td class="tiny">{{ wdrOp(w) }}</td>
+              <td><span :class="wdrStatus(w).cls">{{ wdrStatus(w).text }}</span></td>
+            </tr>
+            <tr v-if="!(detail.withdrawals || []).length"><td colspan="5" class="table-empty">暂无提分记录</td></tr>
+          </tbody>
+        </table>
+        <div v-if="rejectRemarks.length" class="tiny reject-note">
+          驳回原因：{{ rejectRemarks.map((w: any) => `${w.no} — ${w.rejectRemark}`).join("；") }}
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="st">
+          手动调整
+          <em>{{ isBoss ? "老板可直接调整 · 每笔留痕并推送" : "店长可发起申请 / 补发卡券" }}</em>
+        </div>
+        <div v-if="isBoss" class="row adj-btns">
+          <button class="btn sm" @click="openAdj('coin')">调整金币</button>
+          <button class="btn sm" @click="openAdj('point')">调整积分</button>
+          <button class="btn sm" @click="openAdj('shard')">调整碎片</button>
+          <button class="btn sm" @click="openAdj('card')">补发卡券</button>
+        </div>
+        <div v-else>
+          <div class="row adj-btns">
+            <button class="btn sm" @click="openAdj('coin')">申请调整金币</button>
+            <button v-if="canGrantCard" class="btn sm" @click="openAdj('card')">补发卡券</button>
+          </div>
+          <div class="tiny mgr-note">
+            店长发起的金币调整<b>只创建待审批申请，不会立即改动余额</b>——须老板在「数据看板 → 异常告警 → 金币手动调整」审批通过后才落账（发起≠生效）。调整积分与碎片仅老板。
+          </div>
+        </div>
+      </div>
+
+      <div class="note rd">
+        <b>手动调整规则：</b>调整金币仅老板直接执行（店长需老板审批）；调整积分与碎片仅老板；补发卡券店长以上。原因必填，记录只可作废不可删除。<b>碎片直接影响周榜排名与宝箱卡归属</b>，若本周已结算则调整不再改变已发奖励。
       </div>
     </div>
-    <div class="cards">
-      <div class="mtr"><div class="k">金币</div><div class="v" style="color:#BA7517">{{ fmt(me.coin.total) }}</div><div class="tiny">本金 {{ fmt(me.coin.p) }} / 赠送 {{ fmt(me.coin.b) }}</div></div>
-      <div class="mtr"><div class="k">积分</div><div class="v" style="color:#185FA5">{{ fmt(me.point.av) }}</div><div class="tiny">周 {{ fmt(me.point.wg) }} · 冻结 {{ fmt(me.point.fz) }}</div></div>
-      <div class="mtr"><div class="k">碎片</div><div class="v" style="color:#534AB7">{{ fmt(me.shard.w) }}</div><div class="tiny">历史 {{ fmt(me.shard.t) }}</div></div>
-      <div class="mtr"><div class="k">卡包</div><div class="v">{{ cards.filter(c=>c.uid===me.id && c.status==='UNUSED').length }} 张</div></div>
-    </div>
-    <div class="card">
-      <div class="st">个人冠军 <em>{{ champs.filter(c=>c.uid===me.id).length }} 次</em></div>
-      <div class="li" v-for="(ch,i) in champs.filter(c=>c.uid===me.id).slice(0,6)" :key="i">
-        <div class="gr"><b>{{ ch.event }}</b><span class="tiny">{{ ch.date }} · 参赛 {{ ch.n }} 人 · 获奖时 {{ ch.teamName }}</span></div>
+
+    <div v-else>
+      <div class="hdr">会员列表 <em>{{ totalAll }} 人 · 点击查看详情</em></div>
+      <div class="row toolbar">
+        <input v-model="kw" class="inp search" placeholder="搜索昵称 / 会员号 / 手机尾号" />
       </div>
-      <div class="tiny" v-if="!champs.filter(c=>c.uid===me.id).length">暂无夺冠记录</div>
+      <div class="card table-card">
+        <table class="tb2">
+          <thead>
+            <tr>
+              <th style="width:16%">会员</th>
+              <th style="width:16%">手机</th>
+              <th style="width:14%">战队</th>
+              <th style="width:14%">金币</th>
+              <th style="width:14%">积分</th>
+              <th style="width:16%">碎片(周/总)</th>
+              <th style="width:10%"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="x in members" :key="x.id" class="click-row" @click="openDetail(x.id)">
+              <td><b>{{ x.nick }}</b><div class="tiny">{{ x.no }}</div></td>
+              <td>{{ x.phone }}</td>
+              <td class="mut">{{ x.teamName || "—" }}</td>
+              <td><b class="gold">{{ fmt(x.coin.total) }}</b></td>
+              <td><b class="blue">{{ fmt(x.point.av) }}</b></td>
+              <td class="mut">{{ fmt(x.shard.w) }} / {{ fmt(x.shard.t) }}</td>
+              <td class="tiny link">详情 ›</td>
+            </tr>
+            <tr v-if="!members.length">
+              <td colspan="7" class="table-empty">{{ kw.trim() ? "没有匹配的会员" : "暂无会员数据" }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="memberTotal" />
+      </div>
     </div>
-  </div>
-  <div v-else>
-    <div class="hdr">会员列表 <em>{{ memberTotal }} 人 · 点击查看详情</em></div>
-    <input class="inp" style="max-width:260px;margin-bottom:11px" placeholder="搜索昵称 / 会员号 / 手机尾号" v-model="kw" />
-    <div class="card" style="padding:0;overflow-x:auto">
-      <table class="tb2" data-cols="lcccccc">
-        <thead>
-          <tr><th>会员</th><th>手机</th><th>战队</th><th>金币</th><th>积分</th><th>碎片(周/总)</th><th></th></tr>
-        </thead>
-        <tbody>
-        <tr v-for="x in shown" :key="x.id" style="cursor:pointer" @click="router.push('/members?uid='+x.id)">
-          <td><b>{{ x.nick }}</b><div class="tiny">{{ x.no }}</div></td>
-          <td>{{ x.phone }}</td>
-          <td class="tiny">{{ x.teamName || "—" }}</td>
-          <td><b style="color:#BA7517">{{ fmt(x.coin.total) }}</b></td>
-          <td><b style="color:#185FA5">{{ fmt(x.point.av) }}</b></td>
-          <td class="tiny">{{ fmt(x.shard.w) }} / {{ fmt(x.shard.t) }}</td>
-          <td class="tiny" style="color:#185FA5">详情 ›</td>
-        </tr>
-        <tr v-if="!shown.length"><td colspan="7" class="table-empty">{{ kw.trim() ? "没有匹配的会员" : "暂无会员数据" }}</td></tr>
-        </tbody>
-      </table>
-      <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="memberTotal" />
+
+    <div v-if="adjOpen" class="dlg-mask" @click.self="adjOpen = null">
+      <section class="dlg">
+        <div class="st">
+          {{
+            adjOpen === "coin"
+              ? isBoss ? "调整金币" : "申请调整金币"
+              : adjOpen === "point"
+                ? "调整积分"
+                : adjOpen === "shard"
+                  ? "调整碎片"
+                  : "补发卡券"
+          }}
+        </div>
+
+        <template v-if="adjOpen === 'shard'">
+          <div class="tiny shard-hint">
+            当前：本周 <b class="purple">{{ fmt(me?.shard?.w || 0) }}</b> · 历史累计 <b>{{ fmt(me?.shard?.t || 0) }}</b>
+          </div>
+        </template>
+
+        <template v-if="adjOpen === 'card'">
+          <div class="fld">卡券模板</div>
+          <select v-model.number="adjForm.tpl" class="inp">
+            <option v-for="t in detail?.cardTpls || []" :key="t.id" :value="t.id">{{ t.name }}</option>
+          </select>
+          <div class="fld">数量</div>
+          <input v-model.number="adjForm.qty" class="inp" type="number" min="1" />
+        </template>
+
+        <template v-else>
+          <div class="fld">{{ adjOpen === "shard" ? "本周碎片调整值（正数增加 / 负数扣减）" : "调整值（正数增加 / 负数扣减）" }}</div>
+          <input v-model.number="adjForm.delta" class="inp" type="number" :placeholder="adjOpen === 'coin' ? '如 100 或 -50' : ''" />
+          <div v-if="adjOpen === 'coin' && !isBoss" class="tiny coin-hint">
+            提交后<b>不会立即改动余额</b>，生成待审批申请，由老板审批通过后落账。
+          </div>
+          <div v-if="adjOpen === 'shard'" class="tiny shard-warn">
+            碎片直接影响<b>周榜排名与宝箱卡归属</b>。若本周已结算，调整不会改变已发放的奖励。历史累计将同步变动。
+          </div>
+        </template>
+
+        <div class="fld">原因 *</div>
+        <input v-model="adjForm.reason" class="inp" placeholder="必填，至少 2 个字" />
+
+        <div class="dlg-actions">
+          <button class="btn ghost" @click="adjOpen = null">取消</button>
+          <button
+            class="btn"
+            :class="{ dan: adjOpen !== 'card' }"
+            :disabled="acting"
+            @click="submitAdj"
+          >
+            {{
+              adjOpen === "coin"
+                ? isBoss ? "确认调整" : "提交申请"
+                : adjOpen === "card"
+                  ? "确认补发"
+                  : "确认调整"
+            }}
+          </button>
+        </div>
+      </section>
     </div>
-  </div>
+  </AppAsyncPage>
 </template>
+
+<style scoped>
+.notice { color: var(--green); font-size: 12px; margin-bottom: 8px; }
+.back { cursor: pointer; margin-left: auto; }
+.toolbar { gap: 8px; margin-bottom: 11px; }
+.search { max-width: 260px; }
+.table-card { padding: 0; overflow: auto; }
+.table-card .st { padding: 14px 14px 0; }
+.click-row { cursor: pointer; }
+.gold { color: var(--gold); }
+.blue { color: var(--blue); }
+.red { color: var(--red); }
+.purple { color: #534AB7; }
+.mut { color: var(--ink3); }
+.link { color: var(--blue); }
+.g4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.fld { font-size: 12px; color: var(--ink2); margin-bottom: 4px; }
+.ro { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 13px; }
+.ro.muted { color: var(--ink3); }
+.empty { padding: 8px 0; }
+.pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; }
+.pill.green { background: var(--greenbg); color: var(--green); }
+.pill.blue { background: #E6F1FB; color: var(--blue); }
+.pill.red { background: var(--redbg); color: var(--red); }
+.pill.gold { background: var(--goldbg); color: var(--gold); }
+.reject-note { margin: 7px 14px 14px; color: var(--ink3); }
+.adj-btns { gap: 8px; flex-wrap: wrap; }
+.mgr-note { margin-top: 7px; color: var(--ink3); line-height: 1.7; }
+.note.rd { margin-top: 12px; padding: 12px; border-radius: 10px; font-size: 12px; line-height: 1.6; }
+.dlg-mask {
+  position: fixed; z-index: 30; inset: 0; display: grid; place-items: center;
+  padding: 20px; background: rgba(0, 0, 0, 0.38);
+}
+.dlg {
+  width: min(520px, 100%); background: #fff; border-radius: 16px; padding: 24px;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.2);
+}
+.dlg .inp { width: 100%; margin-bottom: 8px; }
+.dlg-actions { display: grid; grid-template-columns: 1fr 1.6fr; gap: 10px; margin-top: 16px; }
+.dlg-actions .btn { width: 100%; }
+.shard-hint { margin-bottom: 8px; color: var(--ink3); }
+.shard-warn, .coin-hint { margin: 4px 0 8px; color: var(--ink3); line-height: 1.7; }
+.shard-warn { color: var(--red); }
+@media (max-width: 900px) {
+  .g4 { grid-template-columns: repeat(2, 1fr); }
+}
+</style>

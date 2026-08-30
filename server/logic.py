@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import random
+import re
 import time
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -1622,6 +1624,22 @@ def deactivation_page(sess: Session, page: int = 1, page_size: int = 15) -> dict
         if d.status == "PENDING":
             refund_tot += live["coinP"]
         out.append({**d.to_dict(), "live": live})
+    summary = {
+        "total": len(rows),
+        "pending": sum(1 for d in rows if d.status == "PENDING"),
+        "rejected": sum(1 for d in rows if d.status == "REJECTED"),
+        "done": sum(1 for d in rows if d.status == "DONE"),
+        "refundTotal": refund_tot,
+    }
+    if page_size <= 0:
+        return {
+            "list": out,
+            "listTotal": len(out),
+            "page": 1,
+            "pageSize": len(out),
+            "members": members,
+            "summary": summary,
+        }
     pg = paginate(out, page, page_size)
     return {
         "list": pg["items"],
@@ -1629,13 +1647,7 @@ def deactivation_page(sess: Session, page: int = 1, page_size: int = 15) -> dict
         "page": pg["page"],
         "pageSize": pg["pageSize"],
         "members": members,
-        "summary": {
-            "total": len(rows),
-            "pending": sum(1 for d in rows if d.status == "PENDING"),
-            "rejected": sum(1 for d in rows if d.status == "REJECTED"),
-            "done": sum(1 for d in rows if d.status == "DONE"),
-            "refundTotal": refund_tot,
-        },
+        "summary": summary,
     }
 
 
@@ -1861,6 +1873,565 @@ def orders_page(
         "pageSize": pg["pageSize"],
         "staff": staff,
     }
+
+
+def _parse_time_minutes(s: str) -> float | None:
+    m = re.match(r"^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})", str(s or ""))
+    if not m:
+        return None
+    dt = datetime(int(m[1]), int(m[2]), int(m[3]), int(m[4]), int(m[5]), tzinfo=ZoneInfo("Asia/Shanghai"))
+    return dt.timestamp() / 60
+
+
+def _dur_txt(mins: float | None) -> str:
+    if mins is None or not math.isfinite(mins):
+        return "—"
+    n = max(0, round(mins))
+    if n < 60:
+        return f"{n} 分"
+    h, m = divmod(n, 60)
+    return f"{h} 小时" + (f" {m} 分" if m else "")
+
+
+def _pctl(arr: list[float], p: float) -> float | None:
+    a = sorted(v for v in arr if v is not None and math.isfinite(v))
+    if not a:
+        return None
+    idx = min(len(a) - 1, max(0, math.ceil(p * len(a)) - 1))
+    return a[idx]
+
+
+def _wdr_wait(row: dict, now_min: float) -> float | None:
+    t0 = _parse_time_minutes(row.get("at") or row.get("created") or "")
+    if t0 is None:
+        return None
+    if row.get("status") == "PENDING_CONFIRM":
+        return max(0, now_min - t0)
+    end = row.get("grantAt") or row.get("closedAt") or ""
+    t1 = _parse_time_minutes(end)
+    if t1 is None:
+        return None
+    return max(0, t1 - t0)
+
+
+ROLE_LABEL = {"STAFF": "店员", "MANAGER": "店长", "BOSS": "老板"}
+
+
+def _enrich_withdrawals(sess: Session, rows: list[dict]) -> list[dict]:
+    uids = {r["uid"] for r in rows}
+    op_uids = set()
+    for r in rows:
+        if r.get("grantBy"):
+            op_uids.add(r["grantBy"])
+        if r.get("rejectBy"):
+            op_uids.add(r["rejectBy"])
+    users = {
+        u.id: u
+        for u in sess.query(User).filter(User.id.in_(list(uids | op_uids))).all()
+    } if (uids | op_uids) else {}
+    out = []
+    for r in rows:
+        row = dict(r)
+        usr = users.get(row["uid"])
+        if usr:
+            row["tail"] = usr.tail or ""
+            row["nick"] = usr.nick
+        op_id = row.get("grantBy") or row.get("rejectBy")
+        op = users.get(op_id or 0)
+        if op:
+            row["opName"] = op.nick
+            row["opRole"] = ROLE_LABEL.get(op.role, op.role)
+        pt = point_of(sess, row["uid"])
+        row["pointFz"] = pt["fz"]
+        out.append(row)
+    return out
+
+
+def withdrawals_page(
+    sess: Session,
+    preset: str = "all",
+    date_from: str = "",
+    date_to: str = "",
+    op_uid: int = 0,
+    status: str = "",
+    page: int = 1,
+    page_size: int = 15,
+) -> dict:
+    expire_timeouts(sess)
+    all_rows = _enrich_withdrawals(
+        sess,
+        [x.to_dict() for x in sess.query(Withdrawal).order_by(Withdrawal.id.desc()).all()],
+    )
+
+    def wdr_time(w: dict) -> str:
+        return w.get("at") or w.get("created") or ""
+
+    rows = [
+        w for w in all_rows
+        if in_range(wdr_time(w), preset, date_from, date_to)
+        and (not status or w.get("status") == status)
+        and (not op_uid or w.get("grantBy") == op_uid or w.get("rejectBy") == op_uid)
+    ]
+    rows.sort(key=wdr_time, reverse=True)
+    pending = [w for w in all_rows if w["status"] == "PENDING_CONFIRM"]
+    pending.sort(key=wdr_time)
+    now_min = datetime.now(ZoneInfo("Asia/Shanghai")).timestamp() / 60
+    closed = [w for w in rows if w["status"] != "PENDING_CONFIRM"]
+    granted = [w for w in rows if w["status"] == "GRANTED"]
+    rejected = sum(1 for w in closed if w["status"] == "REJECTED")
+    timeout = sum(1 for w in closed if w["status"] == "CLOSED_TIMEOUT")
+    granted_pts = sum(int(w.get("pts") or 0) for w in granted)
+    waits = [_wdr_wait(w, now_min) for w in granted]
+    waits = [v for v in waits if v is not None]
+    avg_wait = sum(waits) / len(waits) if waits else None
+    p90_wait = _pctl(waits, 0.9)
+    by_status: dict[str, int] = {}
+    for w in rows:
+        st = w.get("status") or ""
+        by_status[st] = by_status.get(st, 0) + 1
+    pg = paginate(rows, page, page_size)
+    staff = [public_user(sess, s) for s in sess.query(User).filter(User.role != "CUSTOMER").order_by(User.id).all()]
+    return {
+        "totalAll": len(all_rows),
+        "filtered": len(rows),
+        "rangeLabel": range_label(preset, date_from, date_to),
+        "summary": {
+            "grantedPts": granted_pts,
+            "grantedCount": len(granted),
+            "rejected": rejected,
+            "timeout": timeout,
+            "closedCount": len(closed),
+            "rejectionRate": round(rejected / len(closed) * 100, 1) if closed else 0,
+            "timeoutRate": round(timeout / len(closed) * 100, 1) if closed else 0,
+            "avgWaitMins": avg_wait,
+            "avgWait": _dur_txt(avg_wait),
+            "p90WaitMins": p90_wait,
+            "p90Wait": _dur_txt(p90_wait),
+        },
+        "byStatus": by_status,
+        "statusCounts": {
+            s: sum(1 for x in all_rows if x.get("status") == s)
+            for s in ("PENDING_CONFIRM", "GRANTED", "REJECTED", "CANCELLED", "CLOSED_TIMEOUT")
+        },
+        "pending": pending,
+        "rows": pg["items"],
+        "rowTotal": pg["total"],
+        "page": pg["page"],
+        "pageSize": pg["pageSize"],
+        "staff": staff,
+        "nowMs": now_ms(),
+    }
+
+
+def save_category(sess: Session, data: dict, admin: dict) -> dict:
+    name = str(data.get("name") or "").strip()
+    if not name:
+        raise ValueError("请填写分类名称")
+    cid = data.get("id")
+    if cid:
+        cat = sess.get(Category, int(cid))
+        if not cat:
+            raise ValueError("分类不存在")
+        if sess.query(Category).filter(Category.name == name, Category.id != cat.id).first():
+            raise ValueError("已存在同名分类")
+        old = cat.name
+        cat.name = name[:32]
+        if "sort" in data:
+            cat.sort = int(data.get("sort") or 99)
+        if "disabled" in data:
+            want_disabled = bool(data.get("disabled"))
+            if want_disabled and not cat.disabled:
+                alive = sess.query(Product).filter(Product.cid == cat.id, Product.offline.is_(False)).count()
+                if alive > 0:
+                    raise ValueError(f"该分类下还有 {alive} 个在售商品，请先改分类或下架")
+            cat.disabled = want_disabled
+        log(sess, "CONFIG_CHANGE", f"商品分类更新 {old} → {cat.name}", None, admin)
+        sess.flush()
+        return cat.to_dict()
+    if sess.query(Category).filter(Category.name == name).first():
+        raise ValueError("已存在同名分类")
+    cat = Category(
+        id=new_id(sess, Category),
+        name=name[:32],
+        sort=int(data.get("sort") or 99),
+        disabled=False,
+    )
+    sess.add(cat)
+    log(sess, "CONFIG_CHANGE", f"新增商品分类 {name}", None, admin)
+    sess.flush()
+    return cat.to_dict()
+
+
+def delete_category(sess: Session, cid: int, admin: dict) -> dict:
+    cat = sess.get(Category, cid)
+    if not cat:
+        raise ValueError("分类不存在")
+    if sess.query(Category).count() <= 1:
+        raise ValueError("至少保留一个商品分类")
+    alive = sess.query(Product).filter(Product.cid == cid, Product.offline.is_(False)).count()
+    if alive > 0:
+        raise ValueError(f"该分类下还有 {alive} 个在售商品，不可删除")
+    offline = sess.query(Product).filter(Product.cid == cid).count()
+    name = cat.name
+    sess.delete(cat)
+    log(sess, "CONFIG_CHANGE", f"删除商品分类 {name}" + (f" · {offline} 个已下架商品归为未分类" if offline else ""), None, admin)
+    sess.flush()
+    return {"ok": True}
+
+
+def tiers_page(sess: Session) -> dict:
+    cfg = setting(sess, "config") or {}
+    tiers = sorted([t.to_dict() for t in sess.query(Tier).all()], key=lambda x: x["amount"])
+    amounts = {t["amount"] for t in tiers}
+    pending: dict[int, int] = {}
+    if amounts:
+        for amount, count in sess.query(Recharge.amount, func.count()).filter(
+            Recharge.status == "PENDING_PAY",
+            Recharge.amount.in_(amounts),
+        ).group_by(Recharge.amount).all():
+            pending[int(amount)] = int(count)
+    for t in tiers:
+        t["pendingCount"] = pending.get(int(t["amount"]), 0)
+    return {"tiers": tiers, "singleLimit": int(cfg.get("singleLimit") or 0)}
+
+
+def save_tier(sess: Session, data: dict, admin: dict) -> dict:
+    amount = int(data.get("amount") or 0)
+    bonus = int(data.get("bonus") or 0)
+    if amount <= 0:
+        raise ValueError("金额必须大于 0")
+    if bonus < 0:
+        raise ValueError("赠送金币不能为负")
+    tid = data.get("id")
+    if tid:
+        tier = sess.get(Tier, int(tid))
+        if not tier:
+            raise ValueError("充值档位不存在")
+        dup = sess.query(Tier).filter(Tier.amount == amount, Tier.id != tier.id).first()
+        if dup:
+            raise ValueError(f"已存在 ¥{amount} 档位")
+        parts = []
+        if tier.amount != amount:
+            parts.append(f"金额 ¥{tier.amount} → ¥{amount}")
+        if tier.bonus != bonus:
+            parts.append(f"赠送 {tier.bonus} → {bonus}")
+        tier.amount = amount
+        tier.bonus = bonus
+        if parts:
+            log(sess, "CONFIG_CHANGE", "充值档位 " + " · ".join(parts), None, admin)
+        sess.flush()
+        return tier.to_dict()
+    if sess.query(Tier).filter(Tier.amount == amount).first():
+        raise ValueError(f"已存在 ¥{amount} 档位，请直接修改赠送额")
+    tier = Tier(id=new_id(sess, Tier), amount=amount, bonus=bonus, rec=False)
+    sess.add(tier)
+    log(sess, "CONFIG_CHANGE", f"新增充值档位 ¥{amount} 赠 {bonus}", None, admin)
+    sess.flush()
+    return tier.to_dict()
+
+
+def toggle_tier_rec(sess: Session, tid: int, admin: dict) -> dict:
+    tier = sess.get(Tier, tid)
+    if not tier:
+        raise ValueError("充值档位不存在")
+    on = not tier.rec
+    if on:
+        for t in sess.query(Tier).all():
+            t.rec = t.id == tier.id
+        log(sess, "CONFIG_CHANGE", f"充值档位 ¥{tier.amount} 设为最划算", None, admin)
+    else:
+        tier.rec = False
+        log(sess, "CONFIG_CHANGE", "取消最划算标记", None, admin)
+    sess.flush()
+    return tier.to_dict()
+
+
+def delete_tier(sess: Session, tid: int, admin: dict) -> dict:
+    tier = sess.get(Tier, tid)
+    if not tier:
+        raise ValueError("充值档位不存在")
+    if sess.query(Tier).count() <= 1:
+        raise ValueError("至少保留一个充值档位")
+    amount, bonus = tier.amount, tier.bonus
+    sess.delete(tier)
+    log(sess, "CONFIG_CHANGE", f"删除充值档位 ¥{amount} 赠 {bonus}", None, admin)
+    sess.flush()
+    return {"ok": True}
+
+
+ROLE_LABELS = {"STAFF": "店员", "MANAGER": "店长", "BOSS": "老板"}
+
+
+def alloc_staff_no(sess: Session) -> str:
+    rows = [x[0] for x in sess.query(User.no).all()]
+    nums = [int(n) for n in rows if n and str(n).isdigit() and int(n) >= 900000]
+    n = (max(nums) if nums else 900000) + 1
+    return f"{n:06d}"
+
+
+def staff_page(sess: Session) -> dict:
+    staff_all = sess.query(User).filter(User.role != "CUSTOMER").order_by(User.id).all()
+    rows = []
+    for s in staff_all:
+        st = job_stat(sess, s.id, "today")
+        rows.append({
+            "id": s.id,
+            "no": s.no,
+            "nick": s.nick,
+            "phone": s.phone,
+            "role": s.role,
+            "status": s.status or "ACTIVE",
+            "orders": st["orders"],
+            "amount": st["amount"],
+            "verifies": st["verifies"],
+        })
+    return {"rows": rows}
+
+
+def create_staff(sess: Session, data: dict, admin: dict) -> dict:
+    phone_raw = str(data.get("phone") or "").strip()
+    nick = str(data.get("nick") or "").strip() or "员工"
+    role = str(data.get("role") or "STAFF").upper()
+    if role not in ("STAFF", "MANAGER"):
+        raise ValueError("角色无效")
+    digits = "".join(ch for ch in phone_raw if ch.isdigit())
+    if len(digits) < 11:
+        raise ValueError("请填写有效手机号")
+    d11 = digits[-11:]
+    masked, tail = mask_phone(d11)
+    dup = sess.query(User).filter(User.role != "CUSTOMER", User.tail == tail).first()
+    if dup:
+        raise ValueError("该手机号已绑定员工")
+    user = User(
+        id=new_id(sess, User),
+        no=alloc_staff_no(sess),
+        nick=nick,
+        phone=masked,
+        tail=tail,
+        gender=0,
+        role=role,
+        status="ACTIVE",
+        pwd="",
+    )
+    sess.add(user)
+    log(sess, "STAFF_ROLE_CHANGE", f"新增员工 {nick}（{ROLE_LABELS.get(role, role)}）", user.id, admin)
+    sess.flush()
+    return public_user(sess, user)
+
+
+def change_staff_role(sess: Session, uid: int, role: str, reason: str, admin: dict) -> dict:
+    reason = (reason or "").strip()
+    if len(reason) < 2:
+        raise ValueError("请填写变更原因")
+    role = (role or "").upper()
+    if role not in ("STAFF", "MANAGER"):
+        raise ValueError("角色无效")
+    user = sess.get(User, uid)
+    if not user or user.role == "CUSTOMER":
+        raise ValueError("员工不存在")
+    if user.role == "BOSS" or role == "BOSS":
+        raise ValueError("老板角色不可在此变更")
+    if user.role == role:
+        return public_user(sess, user)
+    if (user.status or "ACTIVE") == "DISABLED":
+        raise ValueError("该员工已停用")
+    old = ROLE_LABELS.get(user.role, user.role)
+    new = ROLE_LABELS.get(role, role)
+    user.role = role
+    log(sess, "STAFF_ROLE_CHANGE", f"{user.nick} 角色 {old} → {new} · 原因：{reason}", uid, admin)
+    sess.flush()
+    return public_user(sess, user)
+
+
+def disable_staff(sess: Session, uid: int, admin: dict) -> dict:
+    user = sess.get(User, uid)
+    if not user or user.role == "CUSTOMER":
+        raise ValueError("员工不存在")
+    if user.role == "BOSS":
+        raise ValueError("不可停用老板账号")
+    if admin.get("id") == uid:
+        raise ValueError("不可停用自己")
+    if (user.status or "ACTIVE") == "DISABLED":
+        return {"ok": True}
+    user.status = "DISABLED"
+    log(sess, "STAFF_ROLE_CHANGE", f"停用 {user.nick}", uid, admin)
+    sess.flush()
+    return {"ok": True}
+
+
+def member_detail(sess: Session, uid: int) -> dict:
+    user = sess.get(User, uid)
+    if not user or user.role != "CUSTOMER" or user.status != "ACTIVE":
+        raise ValueError("会员不存在")
+    member = public_user(sess, user)
+    tm = team(sess, user.team_id)
+    team_champions = 0
+    if tm:
+        team_members = sess.query(User).filter(
+            User.role == "CUSTOMER", User.status == "ACTIVE", User.team_id == tm.id,
+        ).all()
+        team_champions = sum(champ_count(sess, m.id) for m in team_members)
+    cards_raw = sess.query(Card).filter(Card.uid == uid).order_by(Card.id.desc()).all()
+    tpl_ids = {c.tpl for c in cards_raw}
+    tpl_map = {
+        t.id: t for t in sess.query(CardTpl).filter(CardTpl.id.in_(list(tpl_ids))).all()
+    } if tpl_ids else {}
+    cards = []
+    for card in cards_raw:
+        row = card.to_dict()
+        tpl_obj = tpl_map.get(card.tpl)
+        row["tplName"] = tpl_obj.name if tpl_obj else "（卡券已删）"
+        cards.append(row)
+    champs = [
+        c.to_dict()
+        for c in sess.query(Champ).filter(Champ.uid == uid).order_by(Champ.id.desc()).all()
+    ]
+    champ_total = len(champs)
+    wdrs = _enrich_withdrawals(
+        sess,
+        [w.to_dict() for w in sess.query(Withdrawal).filter(Withdrawal.uid == uid).order_by(Withdrawal.id.desc()).all()],
+    )
+    staff_ids = {w.get("grantBy") for w in wdrs if w.get("grantBy")} | {w.get("rejectBy") for w in wdrs if w.get("rejectBy")}
+    staff_map = {
+        s.id: s.nick for s in sess.query(User).filter(User.id.in_(list(staff_ids))).all()
+    } if staff_ids else {}
+    for row in wdrs:
+        if row.get("grantBy"):
+            row["grantOpName"] = staff_map.get(row["grantBy"], "—")
+        if row.get("rejectBy"):
+            row["rejectOpName"] = staff_map.get(row["rejectBy"], "—")
+    first_agree = sess.query(AgreeLog).filter(AgreeLog.uid == uid).order_by(AgreeLog.id).first()
+    registered = (first_agree.at or "")[:10] if first_agree and first_agree.at else "—"
+    return {
+        "member": member,
+        "registered": registered,
+        "teamChampions": team_champions,
+        "cards": cards[:8],
+        "cardStats": {
+            "unused": sum(1 for c in cards if c["status"] == "UNUSED"),
+            "used": sum(1 for c in cards if c["status"] == "USED"),
+            "void": sum(1 for c in cards if c["status"] in ("VOID", "EXPIRED")),
+        },
+        "champs": champs[:5],
+        "champTotal": champ_total,
+        "withdrawals": wdrs[:8],
+        "cardTpls": [t.to_dict() for t in sess.query(CardTpl).order_by(CardTpl.id).all()],
+    }
+
+
+def member_adjust_coin(sess: Session, uid: int, delta: int, reason: str, admin: dict) -> dict:
+    reason = (reason or "").strip()
+    if len(reason) < 2:
+        raise ValueError("原因至少 2 个字")
+    delta = int(delta or 0)
+    if not delta:
+        raise ValueError("请输入调整值")
+    user = sess.get(User, uid)
+    if not user or user.role != "CUSTOMER" or user.status != "ACTIVE":
+        raise ValueError("会员不存在")
+    w = wallet_of(sess, uid)
+    before = w.coin_p + w.coin_b
+    if admin["role"] != "BOSS":
+        if delta < 0 and -delta > before:
+            raise ValueError(f"扣减申请超出余额（当前 {before}）")
+        adj = CoinAdjust(
+            id=new_id(sess, CoinAdjust),
+            uid=uid,
+            delta=delta,
+            type="PRINCIPAL",
+            reason=reason,
+            adjust_by=admin["id"],
+            at=f"{today_str()} {clock()}",
+            status="PENDING",
+        )
+        sess.add(adj)
+        log(sess, "COIN_ADJUST_APPLY",
+            f"店长发起金币调整申请 · {user.nick} {'+' if delta > 0 else ''}{delta} 本金 · 原因：{reason} · 待老板审批",
+            uid, admin)
+        sess.flush()
+        return {"ok": True, "pending": True}
+    if delta > 0:
+        w.coin_p += delta
+    else:
+        need = -delta
+        if need > before:
+            raise ValueError(f"扣减失败，超出余额（当前 {before}，本金 {w.coin_p}）")
+        dp = min(w.coin_p, need)
+        w.coin_p -= dp
+        w.coin_b -= need - dp
+    after = w.coin_p + w.coin_b
+    log(sess, "COIN_ADJUST",
+        f"调整 {user.nick} 金币 {'+' if delta > 0 else ''}{delta} · 余额 {before}→{after} · 原因：{reason}",
+        uid, admin)
+    sess.flush()
+    return {"ok": True, "balance": after}
+
+
+def member_adjust_point(sess: Session, uid: int, delta: int, reason: str, admin: dict) -> dict:
+    if admin["role"] != "BOSS":
+        raise ValueError("仅老板可调整积分")
+    reason = (reason or "").strip()
+    if len(reason) < 2:
+        raise ValueError("原因至少 2 个字")
+    delta = int(delta or 0)
+    if not delta:
+        raise ValueError("请输入调整值")
+    user = sess.get(User, uid)
+    if not user or user.role != "CUSTOMER" or user.status != "ACTIVE":
+        raise ValueError("会员不存在")
+    w = wallet_of(sess, uid)
+    w.point_av += delta
+    w.point_pd = 0 if w.point_av >= 0 else -w.point_av
+    log(sess, "POINT_ADJUST", f"调整 {user.nick} 积分 {'+' if delta > 0 else ''}{delta} · 原因：{reason}", uid, admin)
+    sess.flush()
+    return {"ok": True}
+
+
+def member_adjust_shard(sess: Session, uid: int, delta: int, reason: str, admin: dict) -> dict:
+    if admin["role"] != "BOSS":
+        raise ValueError("仅老板可调整碎片")
+    reason = (reason or "").strip()
+    if len(reason) < 2:
+        raise ValueError("原因至少 2 个字")
+    delta = int(delta or 0)
+    if not delta:
+        raise ValueError("请输入调整值")
+    user = sess.get(User, uid)
+    if not user or user.role != "CUSTOMER" or user.status != "ACTIVE":
+        raise ValueError("会员不存在")
+    w = wallet_of(sess, uid)
+    if delta < 0 and -delta > w.shard_w:
+        raise ValueError(f"扣减失败，超出本周碎片（当前 {w.shard_w}）")
+    bw, bt = w.shard_w, w.shard_t
+    w.shard_w += delta
+    w.shard_t = max(w.shard_w, w.shard_t + delta)
+    log(sess, "SHARD_ADJUST",
+        f"调整 {user.nick} 碎片 {'+' if delta > 0 else ''}{delta} · 本周 {bw}→{w.shard_w} · 累计 {bt}→{w.shard_t} · 原因：{reason}",
+        uid, admin)
+    sess.flush()
+    return {"ok": True}
+
+
+def member_grant_cards(sess: Session, uid: int, tpl_id: int, qty: int, reason: str, admin: dict) -> dict:
+    if admin["role"] not in ("BOSS", "MANAGER"):
+        raise ValueError("仅店长以上可补发卡券")
+    reason = (reason or "").strip()
+    if len(reason) < 2:
+        raise ValueError("原因至少 2 个字")
+    qty = int(qty or 0)
+    if qty < 1:
+        raise ValueError("数量至少为 1")
+    user = sess.get(User, uid)
+    if not user or user.role != "CUSTOMER" or user.status != "ACTIVE":
+        raise ValueError("会员不存在")
+    tm = sess.get(CardTpl, tpl_id)
+    if not tm:
+        raise ValueError("卡券模板不存在")
+    for _ in range(qty):
+        issue_card(sess, uid, tm, "MANUAL_GRANT", f"手动补发 · {fmt_hm()[:5]}")
+    log(sess, "CARD_GRANT", f"补发 {user.nick} · {tm.name} ×{qty} · 原因：{reason}", uid, admin)
+    sess.flush()
+    return {"ok": True, "qty": qty}
 
 
 def recharges_page(

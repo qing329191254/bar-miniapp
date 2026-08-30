@@ -79,6 +79,8 @@ def current_user(
     user = L.u(db, uid)
     if not user or user.status == "DEACTIVATED":
         raise HTTPException(401, "账号不可用")
+    if user.status == "DISABLED":
+        raise HTTPException(401, "账号已停用")
     if user.role == "CUSTOMER" and L.agreement_reconsent_required(db, user.id):
         raise HTTPException(401, "协议已重大更新，请重新阅读并同意")
     return L.public_user(db, user)
@@ -244,6 +246,8 @@ def login(body: LoginIn, db: Session = Depends(get_db)):
         raise HTTPException(404, "账号或密码错误")
     if user.status == "DEACTIVATED":
         raise HTTPException(401, "账号不可用")
+    if user.status == "DISABLED":
+        raise HTTPException(401, "账号已停用")
     if user.role == "CUSTOMER":
         raise HTTPException(403, "会员请使用一键登录")
     if not L.check_pwd(user, body.password):
@@ -858,6 +862,21 @@ def admin_orders_page(
     return L.orders_page(db, preset, date_from, date_to, op_uid, status, page, page_size)
 
 
+@app.get("/api/admin/withdrawals-page")
+def admin_withdrawals_page(
+    preset: str = "all",
+    date_from: str = Query("", alias="from"),
+    date_to: str = Query("", alias="to"),
+    op_uid: int = Query(0, alias="opUid"),
+    status: str = "",
+    page: int = Query(1, ge=1),
+    page_size: int = Query(15, ge=1, le=200, alias="pageSize"),
+    admin: dict = Depends(admin_user),
+    db: Session = Depends(get_db),
+):
+    return L.withdrawals_page(db, preset, date_from, date_to, op_uid, status, page, page_size)
+
+
 @app.get("/api/admin/recharges-page")
 def admin_recharges_page(
     preset: str = "all",
@@ -935,7 +954,7 @@ def coin_adjust(aid: int, action: str, body: ReasonIn = ReasonIn(), admin: dict 
 @app.get("/api/admin/deactivation")
 def deactivation_list(
     page: int = Query(1, ge=1),
-    page_size: int = Query(15, ge=1, le=200, alias="pageSize"),
+    page_size: int = Query(15, ge=0, le=200, alias="pageSize"),
     admin: dict = Depends(admin_user),
     db: Session = Depends(get_db),
 ):
@@ -1013,48 +1032,60 @@ def team_management(admin: dict = Depends(admin_user), db: Session = Depends(get
     teams = []
     for team in db.query(Team).order_by(Team.id).all():
         members = []
-        for user in db.query(User).filter(User.role == "CUSTOMER", User.team_id == team.id).order_by(User.id).all():
+        for user in db.query(User).filter(
+            User.role == "CUSTOMER", User.status == "ACTIVE", User.team_id == team.id,
+        ).order_by(User.id).all():
             wallet = L.wallet_of(db, user.id)
             members.append({
                 "id": user.id, "nick": user.nick, "no": user.no,
                 "champions": L.champ_count(db, user.id), "shard": int(wallet.shard_w or 0),
             })
         teams.append({
-            "id": team.id, "name": team.name, "members": members,
+            "id": team.id, "name": team.name, "logo": team.logo or team.name[:1],
+            "status": team.status or "ACTIVE", "members": members,
             "champions": sum(x["champions"] for x in members),
             "shard": sum(x["shard"] for x in members),
         })
-    unassigned = [{"id": u.id, "nick": u.nick, "no": u.no} for u in db.query(User).filter(User.role == "CUSTOMER", User.team_id.is_(None)).order_by(User.id)]
-    return {"teams": teams, "unassigned": unassigned}
+    return {"teams": teams}
 
 
 @app.post("/api/admin/teams")
 def create_team(body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
-    name = str((body.data or {}).get("name") or "").strip()
+    data = body.data or {}
+    name = str(data.get("name") or "").strip()
     if not name:
         raise HTTPException(400, "请填写战队名称")
     if db.query(Team).filter(Team.name == name).first():
         raise HTTPException(400, "该战队名称已存在")
-    team = Team(id=L.new_id(db, Team), name=name[:32])
+    logo_raw = str(data.get("logo") or name[:1] or "队").strip()
+    team = Team(id=L.new_id(db, Team), name=name[:32], logo=logo_raw[:1], status="ACTIVE")
     db.add(team)
-    L.log(db, "TEAM_CREATE", f"新增战队：{team.name}", None, admin)
-    return {"id": team.id, "name": team.name}
+    L.log(db, "TEAM_CHANGE", f"新增战队 {team.name}", None, admin)
+    return {"id": team.id, "name": team.name, "logo": team.logo, "status": team.status}
 
 
 @app.put("/api/admin/teams/{tid}")
-def rename_team(tid: int, body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+def save_team(tid: int, body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
     team = db.get(Team, tid)
-    name = str((body.data or {}).get("name") or "").strip()
+    data = body.data or {}
     if not team:
         raise HTTPException(404, "战队不存在")
+    name = str(data.get("name") or team.name).strip()
     if not name:
         raise HTTPException(400, "请填写战队名称")
     if db.query(Team).filter(Team.name == name, Team.id != tid).first():
         raise HTTPException(400, "该战队名称已存在")
-    old = team.name
+    old_name = team.name
     team.name = name[:32]
-    L.log(db, "TEAM_RENAME", f"战队更名：{old} → {team.name}", None, admin)
-    return {"id": team.id, "name": team.name}
+    if "logo" in data:
+        team.logo = str(data.get("logo") or team.name[:1] or "队")[:1]
+    if "status" in data:
+        status = str(data.get("status") or "ACTIVE").upper()
+        if status not in ("ACTIVE", "DISABLED"):
+            raise HTTPException(400, "状态无效")
+        team.status = status
+    L.log(db, "TEAM_CHANGE", f"编辑战队 {old_name} → {team.name} · 状态 {team.status}", None, admin)
+    return {"id": team.id, "name": team.name, "logo": team.logo, "status": team.status}
 
 
 @app.post("/api/admin/team-members/move")
@@ -1072,6 +1103,8 @@ def move_team_member(body: PatchIn, admin: dict = Depends(admin_user), db: Sessi
     target = db.get(Team, target_id) if target_id else None
     if target_id and not target:
         raise HTTPException(404, "目标战队不存在")
+    if target and (target.status or "ACTIVE") == "DISABLED":
+        raise HTTPException(400, "该战队已停用")
     old = db.get(Team, user.team_id)
     if user.team_id == target_id:
         raise HTTPException(400, "成员已在该战队")
@@ -1145,8 +1178,9 @@ def settlement_current(page: int = Query(1, ge=1), page_size: int = Query(15, ge
     granted = db.query(SettleLog).filter(SettleLog.week == week, SettleLog.status == "GRANTED").count()
     team = db.query(SettleLog).filter(SettleLog.week == week, SettleLog.status == "GRANTED", SettleLog.type == "TEAM_CHAMPION").count()
     personal = db.query(SettleLog).filter(SettleLog.week == week, SettleLog.status == "GRANTED", SettleLog.type.like("PERSONAL%" )).count()
+    blocked = db.query(SettleLog).filter(SettleLog.week == week, SettleLog.status == "BLOCKED").count()
     return {"week": week, "rows": [_settle_dict(x) for x in rows], "total": total, "page": page, "pageSize": page_size,
-            "executed": total > 0, "summary": {"granted": granted, "team": team, "personal": personal},
+            "executed": total > 0, "summary": {"granted": granted, "team": team, "personal": personal, "blocked": blocked},
             "cfg": L.setting(db, "cfg") or {}}
 
 
@@ -1155,8 +1189,14 @@ def settlement_preview(admin: dict = Depends(admin_user), db: Session = Depends(
     rows = _settlement_plan(db)
     eligible = [x for x in rows if x["eligible"]]
     cfg = L.setting(db, "cfg") or {}
+    dim = "MONTH" if cfg.get("rankDim") == "MONTH" else "WEEK"
+    rank_range = max(1, int(cfg.get("rankRange") or 3))
+    mapped = {int(k) for k, v in (cfg.get("prizeMap") or {}).items() if str(k).isdigit() and v}
+    missing = sorted({int(x.get("rank") or 0) for x in L.rank_rows(db, "SHARD", dim, "USER") if int(x.get("rank") or 0) <= rank_range and int(x.get("rank") or 0) not in mapped})
     return {"week": _settlement_week(db), "rows": rows, "count": len(eligible),
-            "cap": int(cfg.get("settleCap") or 20), "blocked": len(eligible) > int(cfg.get("settleCap") or 20)}
+            "cap": int(cfg.get("settleCap") or 20), "blocked": len(eligible) > int(cfg.get("settleCap") or 20),
+            "cfg": {"rankDim": dim, "rankRange": rank_range, "teamReward": bool(cfg.get("teamReward")),
+                    "stack": bool(cfg.get("stack", True)), "reqShard": bool(cfg.get("reqShard"))}, "missingRanks": missing}
 
 
 @app.post("/api/admin/settlement/rerun")
@@ -1172,7 +1212,13 @@ def settlement_rerun(admin: dict = Depends(admin_user), db: Session = Depends(ge
     eligible = [x for x in plan if x["eligible"]]
     cap = int((L.setting(db, "cfg") or {}).get("settleCap") or 20)
     if len(eligible) > cap:
-        raise HTTPException(400, f"预计发放 {len(eligible)} 张，超过单次上限 {cap} 张，请先调整规则")
+        for item in plan:
+            db.add(SettleLog(id=L.next_seq(db, "settle"), uid=item["uid"], week=week, type=item["type"], sub=item["sub"],
+                             target=item["target"], nick=item["nick"], sh=item["sh"],
+                             status="BLOCKED" if item["eligible"] else "SKIPPED", card_id=None,
+                             desc=item["desc"] if item["eligible"] else item["reason"]))
+        L.log(db, "SETTLE_BLOCKED", f"{week} · 计划 {len(eligible)} 张超过单次上限 {cap} 张 · 整批拦截", None, admin)
+        return {"ok": True, "blocked": True, "message": f"计划发放 {len(eligible)} 张超过单次上限 {cap} 张，已整批拦截，一张未发"}
     for item in plan:
         card_id = None
         status = "SKIPPED"
@@ -1182,11 +1228,36 @@ def settlement_rerun(admin: dict = Depends(admin_user), db: Session = Depends(ge
             if tm:
                 card = L.issue_card(db, item["uid"], tm, "SETTLE_REWARD", f"{week} · {item['target']}")
                 card_id, status, desc = card.id, "GRANTED", tm.name
-        db.add(SettleLog(id=L.next_seq(db, "settle"), week=week, type=item["type"], sub=item["sub"],
+        db.add(SettleLog(id=L.next_seq(db, "settle"), uid=item["uid"], week=week, type=item["type"], sub=item["sub"],
                          target=item["target"], nick=item["nick"], sh=item["sh"], status=status,
                          card_id=card_id, desc=desc))
     L.log(db, "SETTLE_RUN", f"执行 {week} · 发放 {len(eligible)} 张", None, admin)
     return {"ok": True, "skipped": False, "message": f"结算完成，共发放 {len(eligible)} 张奖励"}
+
+
+@app.post("/api/admin/settlement/force")
+def settlement_force(body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    if admin["role"] != "BOSS":
+        raise HTTPException(403, "仅老板可强制发放")
+    reason = str((body.data or {}).get("reason") or "").strip()
+    if len(reason) < 2:
+        raise HTTPException(400, "强制发放原因至少 2 个字")
+    week = _settlement_week(db)
+    blocked = db.query(SettleLog).filter(SettleLog.week == week, SettleLog.status == "BLOCKED").order_by(SettleLog.id).all()
+    if not blocked:
+        raise HTTPException(400, "本周期没有待处理的被拦截奖励")
+    templates = {x.sub: x for x in db.query(CardTpl).filter(CardTpl.cat == "OTHER").all() if x.sub}
+    granted = 0
+    for row in blocked:
+        tm = templates.get(row.sub)
+        user = db.get(User, row.uid) if row.uid else None
+        if not tm or not user or user.role != "CUSTOMER" or user.status != "ACTIVE":
+            continue
+        card = L.issue_card(db, user.id, tm, "SETTLE_REWARD", f"{week} · 强制发放：{reason}")
+        row.card_id, row.status, row.force_reason = card.id, "GRANTED", reason[:128]
+        granted += 1
+    L.log(db, "SETTLE_FORCE", f"{week} · 强制发放 {granted} 张 · 原因：{reason}", None, admin)
+    return {"ok": True, "message": f"已强制发放 {granted} 张奖励卡券"}
 
 
 @app.post("/api/admin/settlement/manual")
@@ -1207,7 +1278,7 @@ def settlement_manual(body: PatchIn, admin: dict = Depends(admin_user), db: Sess
         raise HTTPException(400, "补发奖励不可用")
     week = _settlement_week(db)
     card = L.issue_card(db, uid, tm, "SETTLE_MANUAL", f"{week} · 手动补发：{reason}")
-    row = SettleLog(id=L.next_seq(db, "settle"), week=week, type="MANUAL", sub=tm.sub or "",
+    row = SettleLog(id=L.next_seq(db, "settle"), uid=uid, week=week, type="MANUAL", sub=tm.sub or "",
                     target="手动补发", nick=user.nick, sh=L.shard_of(db, uid)["w"], status="GRANTED",
                     card_id=card.id, desc=f"{tm.name} · {reason}")
     db.add(row)
@@ -1241,7 +1312,7 @@ def revoke_settlement(sid: int, body: PatchIn, admin: dict = Depends(admin_user)
     if len(reason) < 2:
         raise HTTPException(400, "撤销原因至少 2 个字")
     row = db.get(SettleLog, sid)
-    if not row or row.status != "GRANTED":
+    if not row or row.status not in ("GRANTED", "BLOCKED"):
         raise HTTPException(400, "该奖励不能撤销")
     if row.card_id:
         card = db.get(Card, row.card_id)
@@ -1271,10 +1342,52 @@ def save_settlement_config(body: PatchIn, admin: dict = Depends(admin_user), db:
     cfg["teamCard"] = str(data.get("teamCard") or "")
     cfg["stack"] = bool(data.get("stack"))
     cfg["reqShard"] = bool(data.get("reqShard"))
-    cfg["settleCap"] = max(1, min(100, int(data.get("settleCap") or 20)))
+    cfg["settleCap"] = max(1, min(999, int(data.get("settleCap") or 20)))
     L.save_setting(db, "cfg", cfg)
     L.log(db, "SETTLE_CONFIG_UPDATE", "更新榜单与奖励规则", None, admin)
     return cfg
+
+
+def _project_values(data: dict) -> tuple[str, int, int, int]:
+    name = str(data.get("name") or "").strip()
+    if not name:
+        raise HTTPException(400, "请填写项目名称")
+    min_people = max(0, min(100, int(data.get("min") or 0)))
+    max_people = max(0, min(100, int(data.get("max") or 0)))
+    if max_people and max_people < min_people:
+        raise HTTPException(400, "人数上限不能小于下限")
+    shard = max(0, min(100000, int(data.get("shard") or 0)))
+    return name[:64], min_people, max_people, shard
+
+
+@app.post("/api/admin/projects")
+def create_project(body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    data = body.data or {}
+    name, min_people, max_people, shard = _project_values(data)
+    if db.query(Project).filter(Project.name == name).first():
+        raise HTTPException(400, "该项目名称已存在")
+    project = Project(id=L.new_id(db, Project), name=name, min=min_people, max=max_people, shard=shard,
+                      recent=0, sort=int(data.get("sort") or 99), disabled=False)
+    db.add(project)
+    L.log(db, "CONFIG_CHANGE", f"新增对局项目 {name}", None, admin)
+    db.flush()
+    return project.to_dict()
+
+
+@app.put("/api/admin/projects/{pid}")
+def update_project(pid: int, body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    project = db.get(Project, pid)
+    if not project:
+        raise HTTPException(404, "对局项目不存在")
+    data = body.data or {}
+    name, min_people, max_people, shard = _project_values(data)
+    same_name = db.query(Project).filter(Project.name == name, Project.id != pid).first()
+    if same_name:
+        raise HTTPException(400, "该项目名称已存在")
+    project.name, project.min, project.max, project.shard = name, min_people, max_people, shard
+    L.log(db, "CONFIG_CHANGE", f"更新对局项目 {name}", None, admin)
+    db.flush()
+    return project.to_dict()
 
 
 @app.get("/api/admin/{coll}")
@@ -1290,19 +1403,25 @@ def admin_list(
     if coll in ("agreements", "content", "config", "cfg", "push"):
         return L.setting(db, coll)
     if coll == "members":
-        q = db.query(User).filter(User.role == "CUSTOMER")
+        q = db.query(User).filter(User.role == "CUSTOMER", User.status == "ACTIVE")
+        total_all = q.count()
         if kw:
             like = f"%{kw}%"
             q = q.filter((User.nick.like(like)) | (User.no.like(like)) | (User.tail.like(like)))
         items = [L.public_user(db, x) for x in q.order_by(User.id.desc()).all()]
         if page_size <= 0:
             return items
-        return L.paginate(items, page, page_size)
+        pg = L.paginate(items, page, page_size)
+        pg["totalAll"] = total_all
+        return pg
     if coll == "staff":
         items = [L.public_user(db, x) for x in db.query(User).filter(User.role != "CUSTOMER").order_by(User.id.desc()).all()]
         if page_size <= 0:
             return items
         return L.paginate(items, page, page_size)
+    if coll == "logs":
+        if admin["role"] != "BOSS":
+            raise HTTPException(403, "仅老板可访问")
     if coll not in COLL_MAP:
         raise HTTPException(404, "unknown collection")
     model, meth = COLL_MAP[coll]
@@ -1497,8 +1616,168 @@ def admin_put(coll: str, body: PatchIn, admin: dict = Depends(admin_user), db: S
         cur = dict(L.setting(db, coll) or {})
         cur.update(body.data)
         L.save_setting(db, coll, cur)
+        if coll == "push":
+            L.log(db, "CONFIG_CHANGE", "更新消息推送配置", None, admin)
+        elif coll == "content" and "shopInfo" in (body.data or {}):
+            si = body.data.get("shopInfo") or {}
+            L.log(db, "CONFIG_CHANGE", f"更新门店信息 · {si.get('name') or '未命名'}", None, admin)
+        elif coll == "config":
+            L.log(db, "CONFIG_CHANGE", "更新风控参数", None, admin)
         return {"ok": True}
     raise HTTPException(400, "不支持整表覆盖，请用 item 接口")
+
+
+@app.post("/api/admin/cats")
+def create_category(body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    try:
+        return L.save_category(db, body.data or {}, admin)
+    except ValueError as e:
+        fail(e)
+
+
+@app.put("/api/admin/cats/{cid}")
+def update_category(cid: int, body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    try:
+        return L.save_category(db, {**(body.data or {}), "id": cid}, admin)
+    except ValueError as e:
+        fail(e)
+
+
+@app.delete("/api/admin/cats/{cid}")
+def remove_category(cid: int, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    try:
+        return L.delete_category(db, cid, admin)
+    except ValueError as e:
+        fail(e)
+
+
+@app.get("/api/admin/tiers-page")
+def tiers_page(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    if admin["role"] != "BOSS":
+        raise HTTPException(403, "仅老板可改")
+    return L.tiers_page(db)
+
+
+@app.post("/api/admin/tiers")
+def create_tier(body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    if admin["role"] != "BOSS":
+        raise HTTPException(403, "仅老板可改")
+    try:
+        return L.save_tier(db, body.data or {}, admin)
+    except ValueError as e:
+        fail(e)
+
+
+@app.put("/api/admin/tiers/{tid}")
+def update_tier(tid: int, body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    if admin["role"] != "BOSS":
+        raise HTTPException(403, "仅老板可改")
+    try:
+        return L.save_tier(db, {**(body.data or {}), "id": tid}, admin)
+    except ValueError as e:
+        fail(e)
+
+
+@app.post("/api/admin/tiers/{tid}/recommend")
+def recommend_tier(tid: int, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    if admin["role"] != "BOSS":
+        raise HTTPException(403, "仅老板可改")
+    try:
+        return L.toggle_tier_rec(db, tid, admin)
+    except ValueError as e:
+        fail(e)
+
+
+@app.delete("/api/admin/tiers/{tid}")
+def remove_tier(tid: int, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    if admin["role"] != "BOSS":
+        raise HTTPException(403, "仅老板可改")
+    try:
+        return L.delete_tier(db, tid, admin)
+    except ValueError as e:
+        fail(e)
+
+
+@app.get("/api/admin/staff-page")
+def staff_page(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    if admin["role"] != "BOSS":
+        raise HTTPException(403, "仅老板可访问")
+    return L.staff_page(db)
+
+
+@app.post("/api/admin/staff")
+def create_staff(body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    if admin["role"] != "BOSS":
+        raise HTTPException(403, "仅老板可改")
+    try:
+        return L.create_staff(db, body.data or {}, admin)
+    except ValueError as e:
+        fail(e)
+
+
+@app.put("/api/admin/staff/{uid}/role")
+def change_staff_role(uid: int, body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    if admin["role"] != "BOSS":
+        raise HTTPException(403, "仅老板可改")
+    data = body.data or {}
+    try:
+        return L.change_staff_role(db, uid, str(data.get("role") or ""), str(data.get("reason") or ""), admin)
+    except ValueError as e:
+        fail(e)
+
+
+@app.post("/api/admin/staff/{uid}/disable")
+def disable_staff(uid: int, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    if admin["role"] != "BOSS":
+        raise HTTPException(403, "仅老板可改")
+    try:
+        return L.disable_staff(db, uid, admin)
+    except ValueError as e:
+        fail(e)
+
+
+@app.get("/api/admin/members/{uid}")
+def member_detail(uid: int, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    try:
+        return L.member_detail(db, uid)
+    except ValueError as e:
+        fail(e)
+
+
+@app.post("/api/admin/members/{uid}/adjust-coin")
+def member_adjust_coin(uid: int, body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    data = body.data or {}
+    try:
+        return L.member_adjust_coin(db, uid, int(data.get("delta") or 0), str(data.get("reason") or ""), admin)
+    except ValueError as e:
+        fail(e)
+
+
+@app.post("/api/admin/members/{uid}/adjust-point")
+def member_adjust_point(uid: int, body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    data = body.data or {}
+    try:
+        return L.member_adjust_point(db, uid, int(data.get("delta") or 0), str(data.get("reason") or ""), admin)
+    except ValueError as e:
+        fail(e)
+
+
+@app.post("/api/admin/members/{uid}/adjust-shard")
+def member_adjust_shard(uid: int, body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    data = body.data or {}
+    try:
+        return L.member_adjust_shard(db, uid, int(data.get("delta") or 0), str(data.get("reason") or ""), admin)
+    except ValueError as e:
+        fail(e)
+
+
+@app.post("/api/admin/members/{uid}/grant-cards")
+def member_grant_cards(uid: int, body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    data = body.data or {}
+    try:
+        return L.member_grant_cards(db, uid, int(data.get("tpl") or 0), int(data.get("qty") or 1), str(data.get("reason") or ""), admin)
+    except ValueError as e:
+        fail(e)
 
 
 @app.post("/api/admin/products")
