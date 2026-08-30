@@ -164,7 +164,7 @@ onMounted(load);
 </script>
 
 <template>
-  <AppAsyncPage :loading="loading" :error="err" @retry="load">
+  <AppAsyncPage :loading="loading" :err="err" :skeleton="{ variant: 'detail', showFilter: false, metrics: 0, tableCols: 5, showNote: true }" @retry="load">
     <div>
       <div class="hdr teams-hdr">
         <span class="hdr-title">战队管理</span>

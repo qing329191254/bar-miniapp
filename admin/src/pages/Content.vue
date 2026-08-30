@@ -3,23 +3,37 @@ import { computed, onMounted, ref } from "vue";
 import { api, uploadFile } from "../api";
 import ImgField from "../components/ImgField.vue";
 import IcoBtn from "../components/IcoBtn.vue";
+import AppAsyncPage from "../components/AppAsyncPage.vue";
 import { showToast } from "../composables/useToast";
 
 const addInp = ref<HTMLInputElement | null>(null);
 const tab = ref<"gallery" | "play">("gallery");
 const deleteDlg = ref<{ kind: "photo" | "play"; index: number } | null>(null);
+const loading = ref(true);
+const loaded = ref(false);
+const err = ref("");
 const content = ref<any>({
   gallery: { title: "店铺相册", items: [] },
   howToPlay: { title: "店铺玩法", sub: "", items: [], pic: "" },
 });
 
-onMounted(async () => {
-  const r = await api<any>("/admin/content");
-  content.value = {
-    gallery: r.gallery || { title: "店铺相册", items: [] },
-    howToPlay: r.howToPlay || { title: "店铺玩法", sub: "", items: [], pic: "" },
-  };
-});
+async function load() {
+  loading.value = true;
+  err.value = "";
+  try {
+    const r = await api<any>("/admin/content");
+    content.value = {
+      gallery: r.gallery || { title: "店铺相册", items: [] },
+      howToPlay: r.howToPlay || { title: "店铺玩法", sub: "", items: [], pic: "" },
+    };
+    loaded.value = true;
+  } catch (e: any) {
+    err.value = e?.message || "店铺内容加载失败";
+  } finally {
+    loading.value = false;
+  }
+}
+onMounted(load);
 
 const g = computed(() => content.value.gallery);
 const h = computed(() => content.value.howToPlay);
@@ -86,6 +100,7 @@ function confirmDelete() {
 </script>
 
 <template>
+  <AppAsyncPage :loading="loading" :data="loaded" :err="err" :skeleton="{ variant: 'form', showFilter: false, metrics: 0, showNote: false }" @retry="load">
   <div v-if="content">
     <div class="hdr content-hdr">
       <span class="hdr-title">店铺相册与玩法</span>
@@ -211,6 +226,7 @@ function confirmDelete() {
       </section>
     </div>
   </div>
+  </AppAsyncPage>
 </template>
 
 <style scoped>

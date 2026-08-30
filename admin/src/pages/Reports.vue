@@ -5,6 +5,8 @@ import { api, DEFAULT_PAGE_SIZE, pageQs, savedUser } from "../api";
 import AppDateInput from "../components/AppDateInput.vue";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
 import AppPagination from "../components/AppPagination.vue";
+import { csvFilename, downloadXlsx } from "../exportCsv";
+import { showToast } from "../composables/useToast";
 
 const router = useRouter();
 
@@ -83,8 +85,27 @@ function setTab(k: string) {
   tab.value = k;
   tablePage.value = 1;
 }
-function exportDemo() {
-  window.alert("已导出当前报表（演示）");
+function exportCurrent() {
+  const table = document.querySelector<HTMLTableElement>(".main .table-card table");
+  if (!table) {
+    showToast("当前报表暂无可导出的数据", true);
+    return;
+  }
+  const headers = Array.from(table.querySelectorAll("thead th")).map((cell) => cell.textContent?.trim() || "");
+  const rows = Array.from(table.querySelectorAll("tbody tr"))
+    .map((row) => Array.from(row.querySelectorAll("td")).map((cell) => cell.textContent?.replace(/\s+/g, " ").trim() || ""))
+    .filter((row) => row.length === headers.length && !row.some((cell) => cell.includes("暂无")));
+  if (!rows.length) {
+    showToast("当前报表暂无可导出的数据", true);
+    return;
+  }
+  const tabName = tabs.value.find(([key]) => key === tab.value)?.[1] || "报表";
+  downloadXlsx(csvFilename(`${tabName}报表`, data.value?.rangeLabel || "当前范围", "xlsx"), headers, rows, {
+    colWidths: headers.map((header) => Math.max(12, Math.min(28, header.length * 2 + 6))),
+    textCols: headers.map((_, index) => index),
+    sheetName: `${tabName}报表`,
+  });
+  showToast(`已导出${tabName}报表`);
 }
 function openJob(uid: number) {
   router.push({ path: `/jobs/${uid}`, query: { preset: preset.value } });
@@ -139,14 +160,14 @@ watch([tablePage, tablePageSize], load);
     <div class="hdr">
       <span class="hdr-title">报表与对账</span>
       <em v-if="data" class="hdr-note">{{ hdrSub }}</em>
-      <button class="btn sm ghost hdr-back" @click="exportDemo">导出当前表</button>
+      <button class="btn sm ghost hdr-back" @click="exportCurrent">导出当前表</button>
     </div>
 
     <AppAsyncPage
       :loading="loading"
       :data="data"
       :err="err"
-      :skeleton="{ showTabs: true, tableCols: 8, tableRows: 7 }"
+      :skeleton="{ showHeader: false, showTabs: true, tableCols: 8, tableRows: 7 }"
       @retry="load"
     >
       <div class="card flt-card">
@@ -163,7 +184,7 @@ watch([tablePage, tablePageSize], load);
       </div>
 
       <div class="card">
-        <div class="st">报表 <em>共 {{ tabs.length }} 张 · 全部沿用上方时间范围</em></div>
+        <div class="st">报表 <em>共 {{ tabs.length }} 张 · 使用当前筛选时间</em></div>
         <div class="flt-chips">
           <span v-for="[k, label] in tabs" :key="k" class="chip" :class="{ on: tab === k }" @click="setTab(k)">{{ label }}</span>
         </div>
@@ -197,7 +218,7 @@ watch([tablePage, tablePageSize], load);
           </table>
           <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
         </div>
-        <div class="note"><b>口径：</b>全店营业额 = 金币消费 + 现场收款，<b>不含充值</b>。到店人次仅统计当营业日有消费的注册会员去重数，<b>未注册顾客与纯现金客不计入</b>；本页不提供「客单价」，人均类指标一律用「单均」。</div>
+        <div class="note"><b>统计说明：</b>全店营业额由金币消费与现场收款组成，<b>不包含充值</b>。到店人次按当天有消费的注册会员去重统计，未注册顾客和纯现金顾客暂不计入；平均消费统一按订单数计算为「单均」。</div>
       </template>
 
       <!-- 充值 -->

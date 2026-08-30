@@ -241,7 +241,7 @@ watch(kw, () => {
 </script>
 
 <template>
-  <AppAsyncPage :loading="uid ? detailLoading : loading" :error="err" @retry="uid ? loadDetail() : loadMembers()">
+  <AppAsyncPage :loading="uid ? detailLoading : loading" :err="err" :skeleton="{ variant: uid ? 'detail' : 'table', showFilter: !uid, metrics: uid ? 4 : 0, tableCols: uid ? 5 : 9, showNote: false }" @retry="uid ? loadDetail() : loadMembers()">
     <div v-if="me">
       <div class="hdr">
         会员详情 · {{ me.nick }}
@@ -360,13 +360,13 @@ watch(kw, () => {
             <button v-if="canGrantCard" class="btn sm" @click="openAdj('card')">补发卡券</button>
           </div>
           <div class="tiny mgr-note">
-            店长发起的金币调整<b>只创建待审批申请，不会立即改动余额</b>——须老板在「数据看板 → 异常告警 → 金币手动调整」审批通过后才落账（发起≠生效）。调整积分与碎片仅老板。
+            店长提交金币调整后，<b>会员余额不会立即变化</b>；老板需在「数据看板 → 经营提醒 → 金币手动调整」中审批，审批通过后才会生效。积分与碎片仅老板可调整。
           </div>
         </div>
       </div>
 
       <div class="note rd">
-        <b>手动调整规则：</b>调整金币仅老板直接执行（店长需老板审批）；调整积分与碎片仅老板；补发卡券店长以上。原因必填，记录只可作废不可删除。<b>碎片直接影响周榜排名与宝箱卡归属</b>，若本周已结算则调整不再改变已发奖励。
+        <b>手动调整规则：</b>老板可直接调整金币，店长提交后需老板审批；积分与碎片仅老板可调整；店长与老板均可补发卡券。每次操作必须填写原因并保留记录。碎片会影响周榜排名与宝箱卡归属，已完成结算的奖励不会随之后续调整而改变。
       </div>
     </div>
 
@@ -443,7 +443,7 @@ watch(kw, () => {
           <div class="fld">{{ adjOpen === "shard" ? "本周碎片调整值（正数增加 / 负数扣减）" : "调整值（正数增加 / 负数扣减）" }}</div>
           <input v-model.number="adjForm.delta" class="inp" type="number" :placeholder="adjOpen === 'coin' ? '如 100 或 -50' : ''" />
           <div v-if="adjOpen === 'coin' && !isBoss" class="tiny coin-hint">
-            提交后<b>不会立即改动余额</b>，生成待审批申请，由老板审批通过后落账。
+            提交后<b>不会立即改动余额</b>，老板审批通过后才会正式入账。
           </div>
           <div v-if="adjOpen === 'shard'" class="tiny shard-warn">
             碎片直接影响<b>周榜排名与宝箱卡归属</b>。若本周已结算，调整不会改变已发放的奖励。历史累计将同步变动。

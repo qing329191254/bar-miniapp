@@ -67,9 +67,12 @@ onMounted(load);
 </script>
 
 <template>
-  <AppAsyncPage :loading="loading" :error="err" @retry="load">
+  <AppAsyncPage :loading="loading" :err="err" :skeleton="{ variant: 'form', formSections: 3, formColumns: 1, showFilter: false, metrics: 0, showNote: true }" @retry="load">
     <div>
-      <div class="hdr">消息推送配置 <em>微信订阅消息 · 替代原语音播报/打印机</em></div>
+      <div class="hdr push-hdr">
+        <span class="hdr-title">消息推送配置</span>
+        <em class="hdr-note">统一管理订单、充值与卡券等业务提醒</em>
+      </div>
       <div class="card">
         <div class="st">总开关</div>
         <div class="li">
@@ -110,6 +113,7 @@ onMounted(load);
 </template>
 
 <style scoped>
+.push-hdr .hdr-note{position:static;transform:none;margin-left:auto;text-align:right;pointer-events:auto;white-space:normal}
 .mut { display: block; font-size: 11px; color: var(--ink3); margin-top: 1px; }
 .tpl-inp { max-width: 280px; margin: 0; }
 .save-btn { margin-top: 4px; }

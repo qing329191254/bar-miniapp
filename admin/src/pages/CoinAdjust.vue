@@ -115,7 +115,7 @@ onMounted(load);
   <div>
     <div class="hdr">
       <span class="hdr-title">金币手动调整审批</span>
-      <em v-if="data" class="hdr-note">{{ data.pending || 0 }} 笔待审批 · {{ isBoss ? "老板可审批" : "店长只读" }}</em>
+      <em v-if="data" class="hdr-note">{{ data.pending || 0 }} 笔待审批 · {{ isBoss ? "可进行审批" : "当前账号仅可查看" }}</em>
       <button class="btn sm ghost hdr-back" @click="back">‹ 返回看板</button>
     </div>
 
@@ -127,7 +127,7 @@ onMounted(load);
       :loading="loading"
       :data="data"
       :err="err"
-      :skeleton="{ showFilter: false, showExtraCard: true, tableCols: 7 }"
+      :skeleton="{ showHeader: false, showFilter: false, showExtraCard: true, tableCols: 7 }"
       @retry="load"
     >
       <div v-if="pending.length" class="card pending-card">
@@ -144,7 +144,7 @@ onMounted(load);
               <button class="btn sm pri" @click="openApprove(a)">通过</button>
             </div>
           </template>
-          <span v-else class="tiny" style="color:var(--ink3)">仅老板可审批</span>
+          <span v-else class="tiny" style="color:var(--ink3)">请联系老板审批</span>
         </div>
       </div>
       <div v-else class="card"><p class="mut empty-pending">暂无待审批的金币调整申请</p></div>
@@ -178,7 +178,7 @@ onMounted(load);
       </div>
 
       <div class="note">
-        <b>为何要审批：</b>金币是真实负债且无第三方支付流水兜底，手动加币等于凭空创造负债。审批制把「谁申请」与「谁批准」分离，两人留痕后才生效。<b>店员一律无权发起</b>，店长可发起、老板批准。全部操作进入仅老板可见的操作日志。
+        <b>审批说明：</b>金币调整会直接影响门店资产，因此店长提交后需由老板复核，审批通过才会计入余额。申请人与审批人分别留痕，便于后续核对；店员无权发起此操作。
       </div>
     </AppAsyncPage>
 

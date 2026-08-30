@@ -164,7 +164,7 @@ watch([tablePage, tablePageSize], () => load());
       :loading="loading"
       :data="data"
       :err="err"
-      :skeleton="{ showFilter: false, showChart: true, tableCols: 8, tableRows: 8 }"
+      :skeleton="{ showHeader: false, showFilter: false, showChart: true, tableCols: 8, tableRows: 8 }"
       @retry="load()"
     >
       <p v-if="err" class="load-err">{{ err }} <button class="btn sm ghost" @click="load()">重试</button></p>

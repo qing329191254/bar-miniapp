@@ -165,7 +165,7 @@ watch(id, load);
       :loading="loading"
       :data="data"
       :err="err"
-      :skeleton="{ variant: 'detail', showFilter: false, tableRows: 6 }"
+      :skeleton="{ variant: 'detail', showHeader: false, showFilter: false, tableRows: 6 }"
       retry-label="重试"
       @retry="load"
     >
@@ -184,7 +184,7 @@ watch(id, load);
           <span class="tiny warn-items">{{ changed.map((r) => r[0]).join("、") }}</span>
         </div>
         <div class="tiny warn-note">
-          说明顾客提交申请后又有交易（充值 / 打局 / 兑券 / 消费）。<b>请一律以「当前实时」列为准结算</b>，照旧快照退款会退错钱。
+          顾客提交申请后仍发生了充值、对局、兑券或消费。<b>请以「当前实时」数据为准进行结算</b>，避免退款金额出现偏差。
         </div>
       </div>
 
@@ -218,7 +218,7 @@ watch(id, load);
           <span>
             <b class="refund-label">我已确认：本金 ¥{{ fmt(data.live?.coinP || 0) }} 已线下退还给顾客</b>
             <span class="tiny refund-note">
-              金币本金是顾客的真实资金，本店不接入线上支付、<b>没有第三方支付流水可以兜底</b>。注销后账户清零，届时顾客说没收到、店里说已经给了，双方都拿不出凭证。所以这一步必须由人显式确认，系统不会替你假定它已经发生。
+              金币本金属于顾客的实际资产。注销后账户余额将清零，请务必在线下退款完成并保留凭证后再勾选确认，避免后续产生退款争议。
             </span>
           </span>
         </label>
@@ -229,10 +229,10 @@ watch(id, load);
           </button>
         </div>
         <div class="tiny exec-foot">
-          执行后：会员状态置「已注销」→ 金币本金与赠送清零 → 积分与碎片清零 → 未核销卡券全部作废 → 全过程记入操作日志。<b>账号壳保留</b>，历史订单与协议同意记录可追溯（协议凭证只增不删，是法律要求）。
+          执行后：会员状态将变为「已注销」，金币、积分与碎片清零，未核销卡券全部作废，并记录完整操作日志。历史订单与协议同意记录仍会保留，便于后续查询。
         </div>
       </div>
-      <div v-else class="note">本申请已处于终态（{{ ST[data.status]?.[0] }}），不可再执行操作。如需重新注销，请让顾客在 C 端重新提交申请。</div>
+      <div v-else class="note">该申请已处理完成（{{ ST[data.status]?.[0] }}），无法再次操作。如仍需注销，请让顾客从小程序重新提交申请。</div>
     </AppAsyncPage>
 
     <div v-if="dlg" class="deact-mask" @click.self="closeDlg">
@@ -245,7 +245,7 @@ watch(id, load);
             · 积分清零 <b>{{ fmt(data.live?.point || 0) }}</b> 分 · 碎片清零 <b>{{ fmt(data.live?.shardW || 0) }}</b><br />
             · 作废未核销卡券 <b>{{ data.live?.cards || 0 }}</b> 张<br />
             · 账号状态置「已注销」，退出所有战队与榜单<br />
-            <span class="tiny deact-warn">账号壳与历史订单、协议同意记录保留可追溯（法律凭证只增不删）。</span>
+            <span class="tiny deact-warn">基础账号信息、历史订单与协议同意记录仍会保留，便于后续追溯。</span>
           </p>
         </template>
         <template v-else-if="data">

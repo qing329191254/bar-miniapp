@@ -3,6 +3,7 @@ import { computed, reactive, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { clearSession, savedUser } from "./api";
 import AppToast from "./components/AppToast.vue";
+import UiIcon from "./components/UiIcon.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -27,38 +28,38 @@ function persistOff() {
 }
 
 const groups = computed(() => {
-  const all: { g: string; items: { k: string; n: string }[] }[] = [
+  const all: { g: string; items: { k: string; n: string; i: string }[] }[] = [
     { g: "经营", items: [
-      { k: "dash", n: "数据看板" },
-      { k: "dailyBiz", n: "营业一览" },
-      { k: "orders", n: "订单记录与管理" },
-      { k: "recharges", n: "充值记录与管理" },
-      { k: "jobs", n: "员工作业记录" },
-      { k: "reports", n: "报表与对账" },
+      { k: "dash", n: "数据看板", i: "dashboard" },
+      { k: "dailyBiz", n: "营业一览", i: "trend" },
+      { k: "orders", n: "订单管理", i: "orders" },
+      { k: "recharges", n: "充值管理", i: "recharge" },
+      { k: "jobs", n: "员工作业", i: "jobs" },
+      { k: "reports", n: "报表与对账", i: "reports" },
     ] },
     { g: "对局", items: [
-      { k: "gameinput", n: "对局结果录入" },
-      { k: "gameRecords", n: "对局记录查询" },
-      { k: "settle", n: "榜单与结算" },
-      { k: "rankHistory", n: "榜单历史记录" },
-      { k: "settlecfg", n: "榜单与奖励规则" },
-      { k: "projects", n: "对局项目配置" },
+      { k: "gameinput", n: "对局结果录入", i: "game" },
+      { k: "gameRecords", n: "对局记录", i: "records" },
+      { k: "settle", n: "榜单与结算", i: "trophy" },
+      { k: "rankHistory", n: "结算历史", i: "history" },
+      { k: "settlecfg", n: "榜单与奖励规则", i: "rules" },
+      { k: "projects", n: "对局项目", i: "project" },
     ] },
-    { g: "积分", items: [{ k: "withdrawals", n: "提分单管理" }] },
-    { g: "商品", items: [{ k: "products", n: "商品管理" }] },
+    { g: "积分", items: [{ k: "withdrawals", n: "提分单管理", i: "withdrawal" }] },
+    { g: "商品", items: [{ k: "products", n: "商品管理", i: "products" }] },
     { g: "营销", items: [
-      { k: "cardTpls", n: "卡券配置" },
-      { k: "tiers", n: "充值档位配置" },
-      { k: "signRules", n: "签到奖励配置" },
+      { k: "cardTpls", n: "卡券配置", i: "ticket" },
+      { k: "tiers", n: "充值档位", i: "tiers" },
+      { k: "signRules", n: "签到奖励", i: "calendar" },
     ] },
-    { g: "会员", items: [{ k: "members", n: "会员列表" }, { k: "deactivations", n: "注销申请处理" }, { k: "teams", n: "战队管理" }] },
-    { g: "内容", items: [{ k: "content", n: "店铺相册与玩法" }, { k: "agreement", n: "协议与政策" }] },
+    { g: "会员", items: [{ k: "members", n: "会员列表", i: "members" }, { k: "deactivations", n: "注销申请", i: "userMinus" }, { k: "teams", n: "战队管理", i: "teams" }] },
+    { g: "内容", items: [{ k: "content", n: "店铺内容", i: "content" }, { k: "agreement", n: "协议与政策", i: "agreement" }] },
     { g: "设置", items: [
-      { k: "push", n: "消息推送" },
-      { k: "shopinfo", n: "门店信息" },
-      { k: "config", n: "风控参数" },
-      { k: "staff", n: "员工与权限" },
-      { k: "logs", n: "操作日志" },
+      { k: "push", n: "消息推送", i: "bell" },
+      { k: "shopinfo", n: "门店信息", i: "shop" },
+      { k: "config", n: "风控参数", i: "rules" },
+      { k: "staff", n: "员工与权限", i: "staff" },
+      { k: "logs", n: "操作日志", i: "logs" },
     ] },
   ];
   return all
@@ -154,10 +155,14 @@ watch(
   </div>
   <div v-else class="layout">
     <div class="wtop">
-      <img class="brand-logo" src="/logo.png" alt="" />
-      <b style="margin-left:8px;font-size:14px">玩咖桌游酒吧 · 管理后台</b>
-      <span class="tiny" style="margin-left:auto">{{ roleName() }} · {{ user?.nick }}{{ isBoss ? "" : " · 不含负债与毛利" }}</span>
-      <div style="width:24px;height:24px;border-radius:50%;background:#EDEBE4;display:flex;align-items:center;justify-content:center;font-size:11px">{{ (user?.nick || "管").slice(-1) }}</div>
+      <div class="brand-mark"><img class="brand-logo" src="/logo.png" alt="玩咖桌游酒吧" /></div>
+      <div class="brand-copy"><b>玩咖桌游酒吧</b><span>运营管理后台</span></div>
+      <div class="user-summary">
+        <span class="role-badge">{{ roleName() }}</span>
+        <span class="user-name">{{ user?.nick }}</span>
+        <span v-if="!isBoss" class="permission-tip">当前权限不展示资产负债与毛利</span>
+        <div class="user-avatar">{{ (user?.nick || "管").slice(-1) }}</div>
+      </div>
     </div>
     <div class="wbody">
       <aside class="side">
@@ -179,6 +184,7 @@ watch(
                     :class="{ on: on(it.k) }"
                     :to="'/' + it.k"
                   >
+                    <UiIcon :name="it.i" />
                     <span>{{ it.n }}</span>
                   </router-link>
                 </div>
@@ -187,7 +193,7 @@ watch(
           </div>
         </nav>
         <div class="side-foot">
-          <button class="btn ghost" style="width:100%" @click="logout">退出 / 切换账号</button>
+          <button class="btn ghost logout-btn" @click="logout"><UiIcon name="logout" />退出登录</button>
         </div>
       </aside>
       <main class="main"><router-view /></main>

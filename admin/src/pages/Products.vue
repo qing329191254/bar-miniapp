@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from "vue";
 import { api } from "../api";
 import AppSelect from "../components/AppSelect.vue";
 import ImgField from "../components/ImgField.vue";
+import AppAsyncPage from "../components/AppAsyncPage.vue";
 import { showToast } from "../composables/useToast";
 
 const products = ref<any[]>([]);
@@ -12,16 +13,29 @@ const edit = ref<any>(null);
 const catDlg = ref<null | "add" | { id: number; name: string }>(null);
 const catForm = ref({ name: "", sort: 9 });
 const catBusy = ref(false);
+const loading = ref(true);
+const loaded = ref(false);
+const err = ref("");
 
 async function load() {
-  const [p, c, t] = await Promise.all([
-    api<any>("/admin/products?pageSize=0"),
-    api<any>("/admin/cats?pageSize=0"),
-    api<any>("/admin/cardTpls?pageSize=0"),
-  ]);
-  products.value = Array.isArray(p) ? p : p.items || [];
-  cats.value = Array.isArray(c) ? c : c.items || [];
-  tpls.value = Array.isArray(t) ? t : t.items || [];
+  loading.value = true;
+  err.value = "";
+  try {
+    const [p, c, t] = await Promise.all([
+      api<any>("/admin/products?pageSize=0"),
+      api<any>("/admin/cats?pageSize=0"),
+      api<any>("/admin/cardTpls?pageSize=0"),
+    ]);
+    products.value = Array.isArray(p) ? p : p.items || [];
+    cats.value = Array.isArray(c) ? c : c.items || [];
+    tpls.value = Array.isArray(t) ? t : t.items || [];
+    loaded.value = true;
+  } catch (e: any) {
+    err.value = e?.message || "商品数据加载失败";
+    if (loaded.value) showToast(err.value, true);
+  } finally {
+    loading.value = false;
+  }
 }
 onMounted(load);
 
@@ -114,7 +128,7 @@ async function saveCat() {
         method: "POST",
         body: { data: { name, sort: Number(catForm.value.sort) || 9 } },
       });
-      showToast("已新增，C 端点单页同步");
+      showToast("商品已新增，并同步至顾客点单页");
     } else if (catDlg.value && typeof catDlg.value === "object") {
       await api(`/admin/cats/${catDlg.value.id}`, {
         method: "PUT",
@@ -203,8 +217,9 @@ async function save() {
 </script>
 
 <template>
+  <AppAsyncPage :loading="loading" :data="loaded" :err="err" :skeleton="{ variant: 'form', showFilter: false, metrics: 0, showNote: false }" @retry="load">
   <div class="prod-page">
-    <div class="hdr products-hdr"><span class="hdr-title">商品管理</span><em class="hdr-note">两类 SKU：单品走核销 · 套餐下单自动发卡</em></div>
+    <div class="hdr products-hdr"><span class="hdr-title">商品管理</span><em class="hdr-note">单品到店核销 · 套餐下单后自动发放卡券</em></div>
     <div class="prod-grid">
       <div class="card prod-list">
         <div class="row" style="margin-bottom:11px;flex:none">
@@ -262,7 +277,7 @@ async function save() {
         <div class="card cat-section">
           <div class="row" style="margin-bottom:11px">
             <b style="font-size:14px">商品分类</b>
-            <span class="tiny" style="margin-left:8px">决定 C 端点单页的顶部分类顺序</span>
+            <span class="tiny" style="margin-left:8px">拖动排序会同步调整顾客点单页的分类顺序</span>
             <button class="btn sm pri" style="margin-left:auto" @click="openCatAdd">＋ 新增分类</button>
           </div>
           <table class="tb2 cat-table" data-cols="lcccc">
@@ -297,7 +312,7 @@ async function save() {
             <tr v-if="!catRows.length"><td colspan="5" class="table-empty">暂无商品分类</td></tr>
             </tbody>
           </table>
-          <div class="tiny cat-foot">分类下仍有在售商品时不可删除，需先把商品改到其他分类或下架；停用的分类不在 C 端出现，也不能被新商品选中。</div>
+          <div class="tiny cat-foot">分类下仍有在售商品时不可删除，请先移动商品或将其下架；停用后，该分类不会在顾客点单页展示，也无法用于新商品。</div>
         </div>
       </div>
 
@@ -311,7 +326,7 @@ async function save() {
             <div class="img-copy">
               <div class="fld">商品图片 <b>（顾客点单页展示）</b></div>
               <p class="img-note">建议 1:1 方图，单张 ≤ 2MB，图片越清晰越好。</p>
-              <p class="img-note">不上传时，顾客端显示商品名首字占位，不影响下单。</p>
+              <p class="img-note">未上传图片时将显示商品名称首字，仍可正常下单。</p>
             </div>
           </div>
           <div class="edit-grid">
@@ -355,7 +370,7 @@ async function save() {
         </div>
       </div>
     </div>
-    <div class="note prod-note">两类 SKU：① 单品走正常下单 → 接单 → 出单；② 套餐在店员接单时按配置自动发卡。下架为软删除，历史订单不受影响。</div>
+    <div class="note prod-note"><b>商品说明：</b>单品按正常流程下单、接单与出单；套餐在店员接单后，会按设置自动发放卡券。商品下架后不再对外展示，历史订单仍会保留。</div>
 
     <div v-if="catDlg" class="cat-mask" @click.self="closeCatDlg">
       <div class="cat-dialog">
@@ -371,6 +386,7 @@ async function save() {
       </div>
     </div>
   </div>
+  </AppAsyncPage>
 </template>
 
 <style scoped>

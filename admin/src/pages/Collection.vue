@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { api, DEFAULT_PAGE_SIZE, pageQs, savedUser } from "../api";
 import AppPagination from "../components/AppPagination.vue";
+import AppAsyncPage from "../components/AppAsyncPage.vue";
 import { showToast } from "../composables/useToast";
 
 type Col = { k: string; h: string; kind?: string };
@@ -165,6 +166,8 @@ const tablePage = ref(1);
 const tablePageSize = ref(DEFAULT_PAGE_SIZE);
 const members = ref<any[]>([]);
 const tpls = ref<any[]>([]);
+const loading = ref(true);
+const err = ref("");
 const coll = () => String(route.params.coll || route.path.replace("/", ""));
 const sourceColl = () => ({
   reports: "dailyBiz",
@@ -193,25 +196,35 @@ const isObj = computed(() => rows.value && !Array.isArray(rows.value));
 const tableRows = computed(() => (Array.isArray(rows.value) ? rows.value : []));
 
 async function load() {
-  const c = coll();
-  const params = new URLSearchParams(pageQs(tablePage.value, tablePageSize.value));
-  const res = await api<any>(`/admin/${sourceColl()}?${params}`);
-  if (Array.isArray(res)) {
-    rows.value = res;
-    rowTotal.value = res.length;
-  } else {
-    rows.value = res.items || [];
-    rowTotal.value = res.total ?? rows.value.length;
-  }
-  if (!members.value.length) {
-    try {
-      members.value = await api("/admin/members?pageSize=0");
-    } catch (e) {}
-  }
-  if (c === "cards" && !tpls.value.length) {
-    try {
-      tpls.value = await api("/admin/cardTpls?pageSize=0");
-    } catch (e) {}
+  loading.value = true;
+  err.value = "";
+  try {
+    const c = coll();
+    const params = new URLSearchParams(pageQs(tablePage.value, tablePageSize.value));
+    const res = await api<any>(`/admin/${sourceColl()}?${params}`);
+    if (Array.isArray(res)) {
+      rows.value = res;
+      rowTotal.value = res.length;
+    } else {
+      rows.value = res.items || [];
+      rowTotal.value = res.total ?? rows.value.length;
+    }
+    if (!members.value.length) {
+      try {
+        members.value = await api("/admin/members?pageSize=0");
+      } catch (e) {}
+    }
+    if (c === "cards" && !tpls.value.length) {
+      try {
+        tpls.value = await api("/admin/cardTpls?pageSize=0");
+      } catch (e) {}
+    }
+  } catch (e: any) {
+    err.value = e?.message || "数据加载失败";
+    if (rows.value) showToast(err.value, true);
+    else rows.value = null;
+  } finally {
+    loading.value = false;
   }
 }
 onMounted(load);
@@ -306,6 +319,7 @@ function hasOp(r: any) {
 </script>
 
 <template>
+  <AppAsyncPage :loading="loading" :data="rows" :err="err" :skeleton="{ showFilter: false, metrics: 0, tableCols: Math.max(cols.length, 5), showNote: false }" @retry="load">
   <div>
     <div class="hdr">{{ title }}</div>
 
@@ -351,4 +365,5 @@ function hasOp(r: any) {
     </div>
     <p class="tiny" v-else>暂无数据</p>
   </div>
+  </AppAsyncPage>
 </template>

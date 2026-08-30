@@ -7,6 +7,7 @@ import { showToast } from "../composables/useToast";
 type TierRow = { id: number; amount: number; bonus: number; rec: boolean; pendingCount?: number };
 
 const loading = ref(true);
+const loaded = ref(false);
 const err = ref("");
 const singleLimit = ref(0);
 const rows = ref<TierRow[]>([]);
@@ -51,6 +52,7 @@ async function load() {
     rows.value = res.tiers || [];
     singleLimit.value = Number(res.singleLimit || 0);
     syncDrafts(rows.value);
+    loaded.value = true;
   } catch (e: any) {
     err.value = e?.message || "加载失败";
     rows.value = [];
@@ -95,7 +97,7 @@ async function saveRow(row: TierRow) {
     const idx = rows.value.findIndex((x) => x.id === row.id);
     if (idx >= 0) rows.value[idx] = { ...rows.value[idx], ...saved };
     syncDrafts(rows.value);
-    showToast("已保存，C 端同步");
+    showToast("充值档位已保存，并同步至顾客端");
   } catch (e: any) {
     showToast(e?.message || "保存失败", true);
     syncDrafts(rows.value);
@@ -140,8 +142,8 @@ async function createTier() {
     await load();
     showToast(
       singleLimit.value && amount > singleLimit.value
-        ? `已新增，但超过单笔上限 ¥${fmt(singleLimit.value)}，C 端不展示`
-        : "已新增，C 端充值页同步",
+        ? `档位已新增，但超过单笔上限 ¥${fmt(singleLimit.value)}，顾客端暂不展示`
+        : "充值档位已新增，并同步至顾客端",
     );
     if (!rows.value.some((x) => x.id === saved.id)) {
       rows.value.push({ ...saved, pendingCount: 0 });
@@ -169,7 +171,7 @@ async function confirmDelete() {
     await api(`/admin/tiers/${deleteTarget.value.id}`, { method: "DELETE" });
     deleteTarget.value = null;
     await load();
-    showToast("已删除，C 端同步");
+    showToast("充值档位已删除，顾客端已同步更新");
   } catch (e: any) {
     showToast(e?.message || "删除失败", true);
   } finally {
@@ -181,15 +183,15 @@ onMounted(load);
 </script>
 
 <template>
-  <AppAsyncPage :loading="loading" :data="rows" :err="err" @retry="load">
+  <AppAsyncPage :loading="loading" :data="loaded" :err="err" :skeleton="{ showFilter: false, metrics: 0, tableCols: 6, showNote: true }" @retry="load">
     <div>
       <div class="hdr tiers-hdr">
         <span class="hdr-title">充值档位配置</span>
-        <em class="hdr-note">仅老板可改 · 资金规则</em>
+        <em class="hdr-note">重要资金规则 · 仅老板可编辑</em>
       </div>
       <div class="toolbar row">
         <button class="btn sm pri" @click="openAdd">＋ 新增档位</button>
-        <span class="tiny">新增后 C 端充值页立即出现该档位，按金额升序排列</span>
+        <span class="tiny">新增后将同步展示在顾客充值页，并按金额从低到高排列</span>
       </div>
 
       <div class="card table-card">
@@ -246,8 +248,8 @@ onMounted(load);
       </div>
 
       <div class="note rd">
-        <b>资金规则只归老板：</b>店长不可改充值档位与赠送比例。单笔充值上限 ¥{{ fmt(singleLimit) }}（风控参数中配置），
-        <b>超过上限的档位不会在 C 端展示</b>。「最划算」为单选，设了新的会自动取消旧的。
+        <b>权限说明：</b>充值档位与赠送比例仅老板可编辑。当前单笔充值上限为 ¥{{ fmt(singleLimit) }}（可在风控参数中调整），
+        <b>超过单笔上限的档位不会在顾客端展示</b>。「最划算」只能设置一个，选择新档位后会自动取消原有标记。
       </div>
     </div>
 
@@ -265,7 +267,7 @@ onMounted(load);
           </label>
         </div>
         <div class="tiny dlg-hint">
-          当前单笔充值上限 ¥{{ fmt(singleLimit) }}，超出上限的档位在 C 端不展示。
+          当前单笔充值上限为 ¥{{ fmt(singleLimit) }}，超出上限的档位不会在顾客端展示。
         </div>
         <div class="dlg-actions">
           <button class="btn ghost" @click="showAdd = false">取消</button>
@@ -281,7 +283,7 @@ onMounted(load);
           确认删除 <b>¥{{ fmt(deleteTarget.amount) }}</b> 档位（赠 {{ fmt(deleteTarget.bonus) }}）？
         </p>
         <p class="tiny delete-note">
-          C 端充值页不再展示该档位。
+          删除后，顾客充值页将不再展示该档位。
           <template v-if="deleteTarget.pendingCount">
             <b class="warn">当前有 {{ deleteTarget.pendingCount }} 张该金额的待付款充值单，删除档位不影响这些单据继续收款。</b>
           </template>

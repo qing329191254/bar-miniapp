@@ -52,9 +52,12 @@ onMounted(load);
 </script>
 
 <template>
-  <AppAsyncPage :loading="loading" :error="err" @retry="load">
+  <AppAsyncPage :loading="loading" :err="err" :skeleton="{ variant: 'form', formSections: 1, formColumns: 1, showFilter: false, metrics: 0, showNote: true }" @retry="load">
     <div>
-      <div class="hdr">风控参数 <em>{{ isBoss ? "仅老板可改" : "店长只读" }}</em></div>
+      <div class="hdr config-hdr">
+        <span class="hdr-title">风控参数</span>
+        <em class="hdr-note">{{ isBoss ? "老板可编辑" : "当前账号仅可查看" }}</em>
+      </div>
       <div class="card">
         <div class="li">
           <div class="gr">
@@ -118,13 +121,14 @@ onMounted(load);
       <button v-if="isBoss" class="btn pri save-btn" :disabled="saving" @click="save">保存配置</button>
 
       <div class="note">
-        <b>上限默认关闭的理由：</b>阈值必须来自真实业务分布，拍数字会导致店员抗拒录入——风控没做到，效率先垮。策略：先保证录入顺畅，留痕 + 告警兜底。
+        <b>设置建议：</b>请先根据门店真实业务数据观察一段时间，再设置合理阈值。上限过低可能影响员工正常录入；建议结合操作记录与异常提醒持续调整。
       </div>
     </div>
   </AppAsyncPage>
 </template>
 
 <style scoped>
+.config-hdr .hdr-note{position:static;transform:none;margin-left:auto;text-align:right;pointer-events:auto;white-space:normal}
 .mut {
   display: block;
   font-size: 11px;

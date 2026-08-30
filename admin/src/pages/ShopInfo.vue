@@ -88,7 +88,7 @@ async function save() {
     };
     await api("/admin/content", { method: "PUT", body: { data: { shopInfo } } });
     form.value = { ...shopInfo };
-    showToast("已保存，C 端同步");
+    showToast("门店信息已保存，并同步至顾客端");
   } catch (e: any) {
     showToast(e?.message || "保存失败", true);
   } finally {
@@ -100,37 +100,37 @@ onMounted(load);
 </script>
 
 <template>
-  <AppAsyncPage :loading="loading" :error="err" @retry="load">
+  <AppAsyncPage :loading="loading" :err="err" :skeleton="{ variant: 'form', showFilter: false, metrics: 0, showNote: false }" @retry="load">
     <div>
-      <div class="hdr">
-        门店信息
-        <em>C 端「联系店员」与小程序资料页读此处</em>
+      <div class="hdr shop-hdr">
+        <span class="hdr-title">门店信息</span>
+        <em class="hdr-note">保存后将同步展示在小程序门店资料中</em>
         <span class="pill" :class="complete ? 'ok' : 'bad'">
-          {{ complete ? "配置完整 · 可上线" : "未配置完整 · 无法上线" }}
+          {{ complete ? "资料完整" : "待完善" }}
         </span>
       </div>
       <div v-if="missing.length" class="note rd">
-        <b>门店信息未配置完整，小程序无法上线。</b>缺少：<b>{{ missing.join(" / ") }}</b>。微信小程序审核要求主体经营信息可查，缺失会直接驳回；顾客也需要靠这些信息找到店、打通电话。
+        <b>门店资料尚未完善。</b>请补充：<b>{{ missing.join(" / ") }}</b>。完整、准确的经营信息便于顾客联系门店，也有助于顺利通过小程序审核。
       </div>
 
       <div class="layout">
         <div class="card form-card">
           <div class="field">
-            <div class="fld">门店名称 <b class="req">*上线必填</b></div>
+            <div class="fld">门店名称 <b class="req">*必填</b></div>
             <input v-model="form.name" class="inp" :class="{ invalid: fieldInvalid('name') }" placeholder="如 玩咖桌游酒吧（万象城店）" />
             <div class="hint">与营业执照一致，会显示在小程序标题与订单凭据上</div>
           </div>
 
           <div class="field">
-            <div class="fld">门店地址 <b class="req">*上线必填</b></div>
+            <div class="fld">门店地址 <b class="req">*必填</b></div>
             <input v-model="form.addr" class="inp" :class="{ invalid: fieldInvalid('addr') }" placeholder="如 广州市天河区天河路 208 号万象城 B2-17" />
             <div class="hint">精确到楼层与铺号，顾客靠这行字找店</div>
           </div>
 
           <div class="field">
-            <div class="fld">联系电话 <b class="req">*上线必填</b></div>
+            <div class="fld">联系电话 <b class="req">*必填</b></div>
             <input v-model="form.tel" class="inp" :class="{ invalid: fieldInvalid('tel') }" placeholder="如 020-8866 2043" />
-            <div class="hint">C 端「联系店员」直接拨打，须为常有人接的号码</div>
+            <div class="hint">顾客可从小程序直接拨打，建议填写营业时段内有人接听的号码</div>
           </div>
 
           <div class="field">
@@ -160,7 +160,7 @@ onMounted(load);
           <div class="field">
             <div class="fld">门店公告 <span class="opt">选填</span></div>
             <textarea v-model="form.notice" class="inp notice-inp" placeholder="如 本店为酒类经营场所，未成年人不得饮酒。" />
-            <div class="hint">展示在 C 端「联系店员」弹层底部，用于写合规提示与预约须知</div>
+            <div class="hint">展示在小程序「联系店员」页面底部，可填写预约方式或到店须知</div>
           </div>
 
           <button class="btn pri" :disabled="saving" @click="save">保存门店信息</button>
@@ -168,7 +168,7 @@ onMounted(load);
 
         <aside>
           <div class="card">
-            <div class="st">C 端预览 <em>我的 → 联系店员</em></div>
+            <div class="st">顾客端预览 <em>我的 → 联系店员</em></div>
             <div class="preview-card">
               <b>{{ form.name.trim() || "（未配置门店名称）" }}</b>
               <div class="preview-body">
@@ -181,7 +181,7 @@ onMounted(load);
             </div>
           </div>
           <div class="note side-note">
-            <b>入口位置：</b>C 端「我的 → 帮助与联系 → 联系店员」。<b>三项必填的理由</b>：小程序审核要求主体经营信息可查，缺失直接驳回上线；且顾客找不到店、打不通电话时，第一反应是这家店已经关门了。
+            <b>展示位置：</b>小程序「我的 → 帮助与联系 → 联系店员」。请确保门店名称、地址和电话真实有效，方便顾客顺利到店或及时联系工作人员。
           </div>
         </aside>
       </div>
@@ -190,10 +190,8 @@ onMounted(load);
 </template>
 
 <style scoped>
-.hdr .pill {
-  margin-left: 6px;
-  flex: none;
-}
+.shop-hdr .hdr-note{position:static;transform:none;margin-left:auto;text-align:right;pointer-events:auto;white-space:normal}
+.shop-hdr .pill{margin-left:8px;flex:none}
 .pill {
   display: inline-block;
   padding: 2px 8px;

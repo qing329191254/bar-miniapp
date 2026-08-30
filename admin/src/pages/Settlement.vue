@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { api, DEFAULT_PAGE_SIZE, pageQs, savedUser } from "../api";
 import AppPagination from "../components/AppPagination.vue";
+import AppAsyncPage from "../components/AppAsyncPage.vue";
 import { settleRewardText, settleSkipOpText, settleStatusText } from "../settlementDisplay";
 import { showToast } from "../composables/useToast";
 
@@ -15,6 +16,7 @@ const revokeRow = ref<any>(null), revokeReason = ref("");
 const manualOpen = ref(false), manual = ref({ uid: "", tplId: "", reason: "" });
 const rerunOpen = ref(false);
 const forceOpen = ref(false), forceReason = ref("");
+const loading = ref(true), loaded = ref(false), err = ref("");
 const router = useRouter();
 const boss = savedUser()?.role === "BOSS";
 const labels: Record<string, string> = { TEAM_CHAMPION: "战队夺冠", PERSONAL_RANK1: "个人第 1", PERSONAL_RANK2: "个人第 2", PERSONAL_RANK3: "个人第 3", MANUAL: "手动补发" };
@@ -47,6 +49,19 @@ async function loadOptions() {
   templates.value = config.templates || [];
 }
 async function refreshAll() { try { await Promise.all([load(), loadPreview()]); } catch (e: any) { showToast(e.message, true); } }
+async function loadPage() {
+  loading.value = true;
+  err.value = "";
+  try {
+    await Promise.all([load(), loadPreview(), loadOptions()]);
+    loaded.value = true;
+  } catch (e: any) {
+    err.value = e?.message || "榜单与结算加载失败";
+    if (loaded.value) showToast(err.value, true);
+  } finally {
+    loading.value = false;
+  }
+}
 function openRerun() { rerunOpen.value = true; }
 async function rerun() {
   busy.value = true;
@@ -77,11 +92,12 @@ async function grantManual() {
 }
 function statusText(s: string) { return settleStatusText(s); }
 function typeClass(r: any) { return r.type === "TEAM_CHAMPION" ? "type-team" : r.type === "PERSONAL_RANK1" ? "type-rank1" : r.type === "PERSONAL_RANK2" ? "type-rank2" : "type-rank3"; }
-watch([page, pageSize], load);
-onMounted(async () => { await Promise.all([refreshAll(), loadOptions()]); });
+watch([page, pageSize], loadPage);
+onMounted(loadPage);
 </script>
 
 <template>
+  <AppAsyncPage :loading="loading" :data="loaded" :err="err" :skeleton="{ showFilter: false, metrics: 0, tableCols: 6, showExtraCard: true, showNote: true }" @retry="loadPage">
   <div class="settlement-page">
     <div class="hdr settlement-hdr"><span>榜单与周结算</span><em>{{ displayWeek }} · {{ ruleText }}</em></div>
     <section class="card settlement-card">
@@ -102,7 +118,7 @@ onMounted(async () => { await Promise.all([refreshAll(), loadOptions()]); });
 
     <section class="card preview-card">
       <div class="st preview-st">
-        <span>结算前预览 <em class="preview-st-note">只读演算 · 不会发卡</em></span>
+        <span>结算前预览 <em class="preview-st-note">仅供核对 · 不会实际发卡</em></span>
         <button class="preview-rule-link" @click="router.push('/settlecfg')">修改规则 ›</button>
       </div>
       <div class="preview-meta">
@@ -122,22 +138,23 @@ onMounted(async () => { await Promise.all([refreshAll(), loadOptions()]); });
           <button class="btn ghost" @click="router.push('/settlecfg')">去调整规则</button>
         </template>
         <template v-else>
-          <p class="preview-action-tip">下方为<b>实时榜单演算</b>，仅供核对人数与奖励。确认无误后，点击右侧按钮正式结算并冻结快照。</p>
+          <p class="preview-action-tip">下方奖励根据实时榜单自动计算，仅供核对人数与奖励。确认无误后，点击右侧按钮正式结算并保存本周期结果。</p>
           <button class="btn pri preview-go" :disabled="!canExecute" @click="openRerun">执行结算（预计 {{ preview.count || 0 }} 张）</button>
         </template>
       </div>
       <div v-else class="preview-action done">
-        <p class="preview-action-tip">本周期已于上方表格冻结快照。此处仍按<b>当前实时榜单</b>演算，仅供对照参考，再次点「重新跑」不会重复发卡。</p>
+        <p class="preview-action-tip">本周期结果已保存在上方表格。此处仍会根据当前榜单重新计算，仅供对照；再次点击「重新跑」不会重复发放卡券。</p>
         <button class="btn ghost preview-go" :disabled="busy" @click="openSnapshot">查看已冻结快照</button>
       </div>
     </section>
 
-    <Teleport to="body"><div v-if="rerunOpen" class="settle-modal-mask" @click.self="!busy&&(rerunOpen=false)"><section class="settle-modal settle-rerun-modal"><div class="settle-modal-title">{{ data.executed?'确认重新跑结算':'确认执行结算' }}<button class="settle-modal-close" :disabled="busy" @click="rerunOpen=false">×</button></div><div class="rerun-summary"><div class="rerun-icon">!</div><div><b>{{ displayWeek }}</b><span v-if="data.executed">该周期已有结算记录，系统将执行幂等校验并跳过重复发放，不会新增卡券。</span><span v-else>将按当前规则发放 {{ preview.count||0 }} 张奖励卡券，确认后不可直接修改结算快照。</span></div></div><div class="rerun-metrics"><span>预计奖励 <b>{{ preview.count||0 }} 张</b></span><span>单次上限 <b>{{ preview.cap||data.cfg?.settleCap||20 }} 张</b></span></div><div v-if="preview.blocked" class="settle-danger-tip">预计发放数量已超过单次上限，请先调整榜单与奖励规则后再执行。</div><div v-else class="settle-info-tip">{{ data.executed?'重新跑不会撤销、补发或重复生成已有奖励。':'系统将依据当前榜单数据生成并冻结本周期结算快照。' }}</div><div class="settle-modal-actions"><button class="btn ghost" :disabled="busy" @click="rerunOpen=false">取消</button><button class="btn pri" :disabled="busy||preview.blocked" @click="rerun">{{ busy?'处理中…':data.executed?'确认重新跑':'确认执行结算' }}</button></div></section></div></Teleport>
+    <Teleport to="body"><div v-if="rerunOpen" class="settle-modal-mask" @click.self="!busy&&(rerunOpen=false)"><section class="settle-modal settle-rerun-modal"><div class="settle-modal-title">{{ data.executed?'确认重新跑结算':'确认执行结算' }}<button class="settle-modal-close" :disabled="busy" @click="rerunOpen=false">×</button></div><div class="rerun-summary"><div class="rerun-icon">!</div><div><b>{{ displayWeek }}</b><span v-if="data.executed">该周期已有结算记录，系统会自动跳过已发放的奖励，不会新增重复卡券。</span><span v-else>将按当前规则发放 {{ preview.count||0 }} 张奖励卡券，确认后将保存本周期结算结果。</span></div></div><div class="rerun-metrics"><span>预计奖励 <b>{{ preview.count||0 }} 张</b></span><span>单次上限 <b>{{ preview.cap||data.cfg?.settleCap||20 }} 张</b></span></div><div v-if="preview.blocked" class="settle-danger-tip">预计发放数量已超过单次上限，请先调整榜单与奖励规则后再执行。</div><div v-else class="settle-info-tip">{{ data.executed?'重新跑不会撤销、补发或重复生成已有奖励。':'系统将依据当前榜单数据生成并保存本周期结算结果。' }}</div><div class="settle-modal-actions"><button class="btn ghost" :disabled="busy" @click="rerunOpen=false">取消</button><button class="btn pri" :disabled="busy||preview.blocked" @click="rerun">{{ busy?'处理中…':data.executed?'确认重新跑':'确认执行结算' }}</button></div></section></div></Teleport>
     <Teleport to="body"><div v-if="forceOpen" class="settle-modal-mask" @click.self="!busy&&(forceOpen=false)"><section class="settle-modal settle-force-modal"><div class="settle-modal-title">强制发放超限奖励<button class="settle-modal-close" :disabled="busy" @click="forceOpen=false">×</button></div><div class="settle-danger-tip">本周期 {{ blockedCount }} 张奖励因超过上限被整批拦截。强制发放会一次性全部发出，请确认当前规则配置符合业务预期。</div><label class="settle-field-label force-label">强制发放原因 <i>*必填</i></label><textarea v-model="forceReason" class="inp settle-reason-input" maxlength="100" placeholder="例如：大型赛事周，确认全员并列奖励"></textarea><div class="settle-modal-actions"><button class="btn ghost" :disabled="busy" @click="forceOpen=false">取消</button><button class="btn dan" :disabled="busy||forceReason.trim().length<2" @click="forceGrant">{{ busy?'处理中…':`确认强制发放 ${blockedCount} 张` }}</button></div></section></div></Teleport>
     <Teleport to="body"><div v-if="revokeRow" class="settle-modal-mask" @click.self="revokeRow=null"><section class="settle-modal settle-revoke-modal"><div class="settle-modal-title">撤销奖励<button class="settle-modal-close" @click="revokeRow=null">×</button></div><div class="settle-target-summary"><b>{{ revokeRow.nick }}</b><span>{{ revokeRow.target }} · {{ settleRewardText(revokeRow) }}</span></div><label class="settle-field-label">撤销原因 <i>*必填</i></label><textarea v-model="revokeReason" class="inp settle-reason-input" maxlength="100" placeholder="请输入撤销原因，例如：奖励对象录入错误"></textarea><div class="settle-danger-tip">确认后将同步作废对应的未核销卡券；已经核销的卡券不会追回。</div><div class="settle-modal-actions"><button class="btn ghost" :disabled="busy" @click="revokeRow=null">取消</button><button class="btn dan" :disabled="busy || revokeReason.trim().length<2" @click="revoke">{{ busy ? "处理中…" : "确认撤销" }}</button></div></section></div></Teleport>
     <Teleport to="body"><div v-if="manualOpen" class="settle-modal-mask" @click.self="manualOpen=false"><section class="settle-modal settle-manual-modal"><div class="settle-modal-title">手动补发<button class="settle-modal-close" @click="manualOpen=false">×</button></div><div class="settle-manual-grid"><label><span class="settle-field-label">会员 <i>*必填</i></span><select v-model="manual.uid" class="inp"><option value="">请选择会员</option><option v-for="m in members" :key="m.id" :value="m.id">{{m.nick}} · {{m.no}}</option></select></label><label><span class="settle-field-label">奖励 <i>*必填</i></span><select v-model="manual.tplId" class="inp"><option value="">请选择奖励</option><option v-for="t in templates" :key="t.id" :value="t.id">{{t.name}}</option></select></label></div><label class="settle-field-label">补发原因 <i>*必填</i></label><textarea v-model="manual.reason" class="inp settle-reason-input" maxlength="100" placeholder="例如：结算漏发补偿"></textarea><div class="settle-info-tip">手动补发不受单次自动结算上限约束，操作人和原因会写入日志。</div><div class="settle-modal-actions"><button class="btn ghost" :disabled="busy" @click="manualOpen=false">取消</button><button class="btn pri" :disabled="busy" @click="grantManual">{{busy?'处理中…':'确认补发'}}</button></div></section></div></Teleport>
     <Teleport to="body"><div v-if="snapshot" class="settle-modal-mask" @click.self="snapshot=null"><section class="settle-modal settle-snapshot-modal"><div class="settle-modal-title">结算快照<button class="settle-modal-close" @click="snapshot=null">×</button></div><div class="tiny settle-snapshot-sub">{{ snapshot.week?.replace('~',' ~ ') }} · 共 {{snapshot.total}} 条记录<span v-if="snapshot.executedAt"> · 执行于 {{ snapshot.executedAt }}<template v-if="snapshot.trigger==='auto'">（自动）</template><template v-else-if="snapshot.trigger==='manual'">（手动）</template></span> · 规则修改不会回溯本快照</div><div class="settle-snapshot-list"><div v-for="r in snapshot.rows" :key="r.id" class="settle-snapshot-row"><span><b>{{r.nick}}</b><small>{{r.target}}</small></span><span>{{ settleRewardText(r) }}</span><span class="shard-tag">{{ Number(r.sh||0).toLocaleString('en-US') }} 碎片</span><span class="pill status-pill" :class="`status-${String(r.status).toLowerCase()}`">{{statusText(r.status)}}</span></div></div><div class="settle-modal-actions"><button class="btn ghost" @click="snapshot=null">关闭</button></div></section></div></Teleport>
   </div>
+  </AppAsyncPage>
 </template>
 
 <style scoped>

@@ -92,7 +92,7 @@ watch(opUid, () => load());
       <em v-if="data" class="hdr-note">{{ data.staffCount }} 名操作人 · 含核销 / 接单 / 收款 / 对局录入全量流水</em>
     </div>
 
-    <AppAsyncPage :loading="loading" :data="data" :err="err" @retry="load">
+    <AppAsyncPage :loading="loading" :data="data" :err="err" :skeleton="{ showHeader: false, tableCols: 7 }" @retry="load">
       <div class="card flt-card">
         <div class="st">筛选 <em>当前范围：{{ data.rangeLabel }}</em></div>
         <div class="flt-chips">
@@ -190,7 +190,7 @@ watch(opUid, () => load());
       </div>
 
       <div class="note">
-        <b>口径：</b>作业总量 = 接单 + 确认充值 + 核销 + 对局录入的条目数之和，用于衡量作业量而非业绩。<b>经手金额</b>只计已归属经手人的单（待接单状态尚无经手人，不计入任何人）。<b>发分</b>为经手确认发放的提分单笔数。核销与对局录入流水一律不可修改，如需撤销走「对局记录查询」或联系老板。
+        <b>统计说明：</b>作业总量包含接单、确认充值、核销与对局录入，用于了解员工工作量，不代表个人业绩。经手金额仅统计已分配操作人的订单；「发分」统计确认发放的提分单数量。对局记录如需撤销，请前往「对局记录」处理；其他记录请联系老板。
       </div>
     </AppAsyncPage>
   </div>

@@ -65,7 +65,7 @@ onMounted(load);
       <em v-if="data" class="hdr-note">共 {{ summary.total }} 条 · 待处理 {{ summary.pending }} 条</em>
     </div>
 
-    <AppAsyncPage :loading="loading" :data="data" :err="err" :skeleton="{ showFilter: false, tableCols: 7 }" @retry="load">
+    <AppAsyncPage :loading="loading" :data="data" :err="err" :skeleton="{ showHeader: false, showFilter: false, tableCols: 7 }" @retry="load">
       <div class="g4 kpi-row">
         <div class="mtr">
           <div class="k">待处理</div>
@@ -85,7 +85,7 @@ onMounted(load);
         <div class="mtr">
           <div class="k">已注销</div>
           <div class="v mut">{{ summary.done }}</div>
-          <div class="tiny">账号壳保留可追溯</div>
+          <div class="tiny">基础账号信息将保留备查</div>
         </div>
       </div>
 
@@ -132,7 +132,7 @@ onMounted(load);
       </div>
 
       <div class="note rd">
-        <b>注销为不可逆操作，故设计为两段式：</b>C 端提交只置标记（DEACTIVATE_PENDING），账号仍可正常消费、资产仍计入店里的真实负债；真正执行由店长在本页核对资产结清后完成。<b>申请一提交就把人从负债里剔除是错的</b>——钱还没退，负债不会因为顾客提了个申请就消失。
+        <b>注销操作不可撤销，请分两步处理：</b>顾客从小程序提交申请后，账号与资产仍保持原状；店长需先核对并结清金币、积分和卡券，再在本页确认注销。申请处理完成前，相关资产仍会计入门店负债。
       </div>
     </AppAsyncPage>
   </div>

@@ -11,7 +11,10 @@ const props = withDefaults(
     showTabs?: boolean;
     showExtraCard?: boolean;
     showChart?: boolean;
-    variant?: "table" | "feed" | "detail" | "chart";
+    showHeader?: boolean;
+    formSections?: number;
+    formColumns?: 1 | 2;
+    variant?: "table" | "feed" | "detail" | "form" | "chart" | "dashboard";
   }>(),
   {
     metrics: 4,
@@ -22,17 +25,17 @@ const props = withDefaults(
     showTabs: false,
     showExtraCard: false,
     showChart: false,
+    showHeader: true,
+    formSections: 2,
+    formColumns: 2,
     variant: "table",
   },
 );
 
 const gridCols = computed(() => {
-  const n = props.tableCols;
-  if (n <= 5) return "1.4fr 1fr 1fr 1fr 1fr";
-  if (n === 7) return "1.4fr 0.9fr 1fr 1.2fr 0.9fr 0.8fr 0.9fr";
-  if (n === 8) return "1.3fr 1fr 0.8fr 0.9fr 1fr 0.9fr 0.9fr 0.8fr";
-  if (n >= 10) return "1.2fr repeat(9, minmax(0, 1fr))";
-  return "1.6fr 0.9fr 0.6fr 1fr 0.6fr 0.7fr 0.6fr 0.8fr 0.9fr";
+  const n = Math.max(1, props.tableCols);
+  const weights = [1.45, 0.95, 0.8, 1.1, 0.82, 0.9, 0.78, 0.86, 0.82, 0.76];
+  return Array.from({ length: n }, (_, i) => `${weights[i] || 0.8}fr`).join(" ");
 });
 
 const feedCols = "0.9fr 1.8fr 2fr 1fr 0.9fr";
@@ -41,6 +44,14 @@ const detailCols = "1.2fr 1fr 1fr 0.8fr 1.6fr";
 
 <template>
   <div class="page-skeleton" aria-busy="true" aria-label="页面加载中">
+    <div v-if="showHeader" class="sk-page-head">
+      <span class="sk-line sk-page-title" />
+      <div class="sk-head-actions">
+        <span class="sk-line sk-head-meta" />
+        <span class="sk-action" />
+      </div>
+    </div>
+
     <div v-if="showFilter" class="card sk-block">
       <div class="sk-line sk-st" />
       <div class="sk-chips">
@@ -76,8 +87,30 @@ const detailCols = "1.2fr 1fr 1fr 0.8fr 1.6fr";
       <div class="sk-chart-area" />
     </div>
 
-    <!-- 流水 / 详情 -->
-    <template v-if="variant === 'feed'">
+    <!-- 表单 / 流水 / 详情 -->
+    <template v-if="variant === 'form'">
+      <div class="sk-form-layout" :class="{ single: formColumns === 1 }">
+        <section v-for="section in formSections" :key="'form' + section" class="card sk-form-section">
+          <div class="sk-form-title">
+            <span class="sk-line sk-st short" />
+            <span class="sk-line sk-form-hint" />
+          </div>
+          <div class="sk-form-grid">
+            <div v-for="field in 4" :key="'field' + section + field" class="sk-form-field" :class="{ wide: field === 4 }">
+              <span class="sk-line sk-label" />
+              <span class="sk-input" />
+              <span v-if="field === 1 || field === 4" class="sk-line sk-help" />
+            </div>
+          </div>
+          <div class="sk-form-actions">
+            <span class="sk-action ghost" />
+            <span class="sk-action primary" />
+          </div>
+        </section>
+      </div>
+    </template>
+
+    <template v-else-if="variant === 'feed'">
       <div class="card sk-block">
         <div class="sk-line sk-st short" />
         <div class="sk-chips">
@@ -114,7 +147,7 @@ const detailCols = "1.2fr 1fr 1fr 0.8fr 1.6fr";
     </template>
 
     <!-- 默认表格 -->
-    <div v-else class="card sk-table">
+    <div v-else-if="variant !== 'dashboard'" class="card sk-table">
       <div class="sk-table-head" :style="{ gridTemplateColumns: gridCols }">
         <span v-for="i in tableCols" :key="'h' + i" class="sk-th" />
       </div>
@@ -145,28 +178,42 @@ const detailCols = "1.2fr 1fr 1fr 0.8fr 1.6fr";
 
 <style scoped>
 .page-skeleton {
-  min-height: min(72vh, 640px);
+  width: 100%;
 }
 
-.sk-block,
-.sk-table,
-.sk-metric,
-.sk-feed-day,
-.sk-chart {
-  position: relative;
-  overflow: hidden;
+.sk-page-head {
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  margin-bottom: 12px;
+  padding: 2px 0;
 }
 
-.sk-block::after,
-.sk-table::after,
-.sk-metric::after,
-.sk-feed-day::after,
-.sk-chart::after,
+.sk-page-title {
+  width: 176px;
+  height: 22px;
+  border-radius: 7px;
+}
+
+.sk-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.sk-head-meta {
+  width: 128px;
+  height: 11px;
+  border-radius: 5px;
+}
+
 .sk-chip::after,
 .sk-th::after,
 .sk-cell::after,
 .sk-pill::after,
-.sk-btn::after,
+.sk-action::after,
+.sk-input::after,
 .sk-av::after,
 .sk-line::after,
 .sk-chart-area::after {
@@ -174,8 +221,8 @@ const detailCols = "1.2fr 1fr 1fr 0.8fr 1.6fr";
   position: absolute;
   inset: 0;
   transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
-  animation: sk-shimmer 1.35s ease-in-out infinite;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.48), transparent);
+  animation: sk-shimmer 1.65s ease-in-out infinite;
 }
 
 .sk-st {
@@ -206,7 +253,7 @@ const detailCols = "1.2fr 1fr 1fr 0.8fr 1.6fr";
   width: 52px;
   height: 28px;
   border-radius: 999px;
-  background: #eceae4;
+  background: #ece8e1;
   overflow: hidden;
 }
 
@@ -253,7 +300,7 @@ const detailCols = "1.2fr 1fr 1fr 0.8fr 1.6fr";
   position: relative;
   height: 130px;
   border-radius: 10px;
-  background: #eceae4;
+  background: #ece8e1;
   overflow: hidden;
 }
 
@@ -269,7 +316,7 @@ const detailCols = "1.2fr 1fr 1fr 0.8fr 1.6fr";
   display: grid;
   gap: 8px;
   align-items: center;
-  padding: 11px 14px;
+  padding: 14px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -287,7 +334,7 @@ const detailCols = "1.2fr 1fr 1fr 0.8fr 1.6fr";
   position: relative;
   height: 10px;
   border-radius: 4px;
-  background: #e8e6e0;
+  background: #e7e3dc;
   overflow: hidden;
 }
 
@@ -302,7 +349,7 @@ const detailCols = "1.2fr 1fr 1fr 0.8fr 1.6fr";
   width: 26px;
   height: 26px;
   border-radius: 50%;
-  background: #e8e6e0;
+  background: #e7e3dc;
   flex-shrink: 0;
   overflow: hidden;
 }
@@ -330,7 +377,7 @@ const detailCols = "1.2fr 1fr 1fr 0.8fr 1.6fr";
   width: 38px;
   height: 22px;
   border-radius: 999px;
-  background: #eceae4;
+  background: #ece8e1;
   overflow: hidden;
 }
 
@@ -338,7 +385,7 @@ const detailCols = "1.2fr 1fr 1fr 0.8fr 1.6fr";
   position: relative;
   height: 11px;
   border-radius: 4px;
-  background: #eceae4;
+  background: #ece8e1;
   overflow: hidden;
 }
 
@@ -373,6 +420,109 @@ const detailCols = "1.2fr 1fr 1fr 0.8fr 1.6fr";
   padding: 14px;
 }
 
+.sk-form-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.sk-form-layout.single {
+  grid-template-columns: 1fr;
+}
+
+.sk-form-section {
+  padding: 18px;
+}
+
+.sk-form-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 22px;
+  margin-bottom: 18px;
+}
+
+.sk-form-title .sk-st {
+  margin: 0;
+}
+
+.sk-form-hint {
+  width: 42%;
+  height: 10px;
+  border-radius: 4px;
+}
+
+.sk-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 14px;
+}
+
+.sk-form-field {
+  min-width: 0;
+}
+
+.sk-form-field.wide {
+  grid-column: 1 / -1;
+}
+
+.sk-label {
+  width: 74px;
+  height: 10px;
+  margin-bottom: 8px;
+  border-radius: 4px;
+}
+
+.sk-input {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 38px;
+  border: 1px solid rgba(82, 59, 32, 0.06);
+  border-radius: 9px;
+  background: #ece8e1;
+  overflow: hidden;
+}
+
+.sk-form-field.wide .sk-input {
+  height: 62px;
+}
+
+.sk-help {
+  width: 58%;
+  height: 8px;
+  margin-top: 7px;
+  border-radius: 4px;
+}
+
+.sk-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.sk-action {
+  position: relative;
+  display: block;
+  width: 76px;
+  height: 34px;
+  border-radius: 9px;
+  background: #e7e3dc;
+  overflow: hidden;
+}
+
+.sk-action.ghost {
+  width: 68px;
+}
+
+.sk-action.primary {
+  background: #e2d6c5;
+}
+
 .sk-note {
   margin-top: 0;
   display: flex;
@@ -393,13 +543,38 @@ const detailCols = "1.2fr 1fr 1fr 0.8fr 1.6fr";
 .sk-line {
   position: relative;
   display: block;
-  background: #eceae4;
+  background: #ece8e1;
   overflow: hidden;
 }
 
 @keyframes sk-shimmer {
   100% {
     transform: translateX(100%);
+  }
+}
+
+@media (max-width: 900px) {
+  .sk-form-layout,
+  .sk-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sk-form-field.wide {
+    grid-column: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sk-chip::after,
+  .sk-th::after,
+  .sk-cell::after,
+  .sk-pill::after,
+  .sk-action::after,
+  .sk-input::after,
+  .sk-av::after,
+  .sk-line::after,
+  .sk-chart-area::after {
+    animation: none;
   }
 }
 </style>

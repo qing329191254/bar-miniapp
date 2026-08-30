@@ -170,6 +170,7 @@ watch([tablePage, tablePageSize], () => load());
       :data="data"
       :err="err"
       :skeleton="{
+        showHeader: false,
         showFilter: false,
         tableCols: kind === 'card' ? 6 : 7,
         showChart: kind === 'alert',
@@ -240,7 +241,7 @@ watch([tablePage, tablePageSize], () => load());
           </table>
           <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
         </div>
-        <div class="note"><b>清零规则：</b>每月最后一日 24:00 清零可用积分（<b>不清冻结额</b>——冻结的是用户已发起提取待兑付的部分，属用户资产，系统单方面清掉等于没收）。负余额一并归零。<b>月末会出现兑券挤兑</b>，卡券库存与每人上限须提前配置到位。</div>
+        <div class="note"><b>清零规则：</b>每月最后一日 24:00 清零可用积分，待兑付的冻结积分不受影响，负余额会一并归零。月末兑换需求通常较高，请提前检查卡券库存和每人兑换上限。</div>
       </template>
 
       <template v-else-if="kind === 'card'">
@@ -279,7 +280,7 @@ watch([tablePage, tablePageSize], () => load());
           </table>
           <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
         </div>
-        <div class="note"><b>宝箱卡内容 C 端不展示</b>，仅店员核销页可见——否则同一张钻石宝箱不同店员给的东西会不一样。7 天有效期叠加订阅消息一次性授权，部分顾客会错过，对策为卡包角标 + 首页副标题 + 临期红标，并持续监控核销率。</div>
+        <div class="note"><b>宝箱卡的具体内容仅在店员核销时展示</b>，顾客端不会提前显示。建议关注临期卡券与核销情况，及时提醒顾客到店使用。</div>
       </template>
 
       <template v-else>
@@ -329,7 +330,7 @@ watch([tablePage, tablePageSize], () => load());
           </table>
           <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
         </div>
-        <div class="note"><b>倍数为实算值</b>（今日发放量 ÷ 历史有记录日的日均），不是写死的演示数字。倍数偏高不等于作弊——周末大场次、赛事日天然会高，故此页提供按录入人归集与逐条明细，供人工判断而非自动处置。<b>作废会产生负余额</b>（分已被消费时），处理前请阅读作废影响预览。</div>
+        <div class="note"><b>异常倍数按实时数据计算</b>（今日发放量 ÷ 历史有效日均值）。周末、赛事日等高峰可能自然偏高，请结合录入人汇总和对局明细人工核实。作废前请先查看影响预览；若积分已被使用，会员余额可能变为负数。</div>
       </template>
     </AppAsyncPage>
 

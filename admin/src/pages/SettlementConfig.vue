@@ -12,7 +12,7 @@ type CardTpl = { id:number; name:string; sub:string };
 
 const defaults:Config={rankDim:"WEEK",rankRange:3,prizeMap:{1:"TREASURE_DIAMOND",2:"TREASURE_GOLD",3:"TREASURE_SILVER"},teamReward:true,teamCard:"TREASURE_TEAM",stack:true,reqShard:true,settleCap:20};
 const cfg=ref<Config>({...defaults,prizeMap:{...defaults.prizeMap}}), templates=ref<CardTpl[]>([]);
-const loading=ref(true), err=ref(""), saving=ref(false);
+const loading=ref(true), loaded=ref(false), err=ref(""), saving=ref(false);
 const fallback=["TREASURE_DIAMOND","TREASURE_GOLD","TREASURE_SILVER"];
 const personalSubs=["TREASURE_DIAMOND","TREASURE_GOLD","TREASURE_SILVER","TREASURE_TEAM"];
 const teamSubs=["TREASURE_TEAM","TREASURE_SILVER","TREASURE_DIAMOND"];
@@ -27,19 +27,19 @@ function setRange(value:number|string){
 }
 function setCap(value:number|string){cfg.value.settleCap=Math.max(1,Math.min(999,Math.floor(Number(value)||20)))}
 function optionName(sub:string){return templateMap.value[sub]?.name||({TREASURE_DIAMOND:"钻石宝箱卡",TREASURE_GOLD:"黄金宝箱卡",TREASURE_SILVER:"白银宝箱卡",TREASURE_TEAM:"战队宝箱卡"} as Record<string,string>)[sub]||sub}
-async function load(){loading.value=true;err.value="";try{const d=await api<any>("/admin/settlement-config");cfg.value={...defaults,...(d.cfg||{}),prizeMap:{...defaults.prizeMap,...(d.cfg?.prizeMap||{})}};templates.value=d.templates||[];setRange(cfg.value.rankRange);setCap(cfg.value.settleCap)}catch(e:any){err.value=e?.message||"加载失败"}finally{loading.value=false}}
-async function save(){saving.value=true;try{setRange(cfg.value.rankRange);setCap(cfg.value.settleCap);await api("/admin/settlement-config",{method:"PUT",body:{data:cfg.value}});showToast("规则已保存，C 端榜单同步生效")}catch(e:any){showToast(e?.message||"保存失败",true)}finally{saving.value=false}}
+async function load(){loading.value=true;err.value="";try{const d=await api<any>("/admin/settlement-config");cfg.value={...defaults,...(d.cfg||{}),prizeMap:{...defaults.prizeMap,...(d.cfg?.prizeMap||{})}};templates.value=d.templates||[];setRange(cfg.value.rankRange);setCap(cfg.value.settleCap);loaded.value=true}catch(e:any){err.value=e?.message||"加载失败"}finally{loading.value=false}}
+async function save(){saving.value=true;try{setRange(cfg.value.rankRange);setCap(cfg.value.settleCap);await api("/admin/settlement-config",{method:"PUT",body:{data:cfg.value}});showToast("规则已保存，顾客端榜单已同步更新")}catch(e:any){showToast(e?.message||"保存失败",true)}finally{saving.value=false}}
 onMounted(load);
 </script>
 
 <template>
   <div class="settle-config-page">
-    <div class="hdr settle-config-hdr"><span class="hdr-title">榜单与奖励规则</span><em class="hdr-note">影响 C 端榜单口径与周/月结算发放 · 仅老板可改</em></div>
-    <AppAsyncPage :loading="loading" :data="cfg" :err="err" @retry="load">
+    <div class="hdr settle-config-hdr"><span class="hdr-title">榜单与奖励规则</span><em class="hdr-note">影响顾客端榜单与周期奖励 · 仅老板可编辑</em></div>
+    <AppAsyncPage :loading="loading" :data="loaded" :err="err" :skeleton="{ variant: 'form', formSections: 3, formColumns: 1, showHeader: false, showFilter: false, metrics: 0, showNote: true }" @retry="load">
       <section class="card">
         <div class="st">榜单统计口径</div>
         <div class="dimension-row"><div class="chip-row"><button class="chip" :class="{on:cfg.rankDim==='WEEK'}" @click="cfg.rankDim='WEEK'">周维度</button><button class="chip" :class="{on:cfg.rankDim==='MONTH'}" @click="cfg.rankDim='MONTH'">月维度</button></div><span class="tiny">{{ dimHint }}</span></div>
-        <div class="note section-note">切换后 C 端榜单的「当周新增/当月新增」维度随之变化；碎片按当月对局聚合、积分取当月累计、冠军取当月夺冠数。</div>
+        <div class="note section-note">切换后，顾客端榜单会同步更换统计维度；碎片按当月对局汇总，积分按当月累计，冠军按当月夺冠次数统计。</div>
       </section>
 
       <section class="card">
@@ -66,9 +66,9 @@ onMounted(load);
       <section class="card"><div class="st">奖励叠加</div><label class="setting-row no-border"><span><b>同一用户战队奖 + 个人奖可同发</b></span><input v-model="cfg.stack" type="checkbox" class="toggle"/></label></section>
 
       <section class="card cap-card">
-        <div class="st">结算发放上限 <em>D3 · 资金规则 · 仅老板可改</em></div>
+        <div class="st">结算发放上限 <em>重要资金规则 · 仅老板可编辑</em></div>
         <label class="setting-row no-border"><span><b>单次自动结算发放卡券总张数上限</b><small>超过则整批置「被拦截」、一张不发，仅老板可强制发放。手动补发不受此上限约束</small></span><input :value="cfg.settleCap" class="inp cap-input" type="number" min="1" max="999" @change="setCap(($event.target as HTMLInputElement).value)"/></label>
-        <div class="config-footnote cap-help">注意与上方「发放名次范围」是两个维度的约束：名次占位制下并列人数无上限，叠加战队奖全员发放，名次范围设 3 也可能发出 30 张——卡住张数才是真的卡住成本。<b>改动只影响后续结算</b>，不回溯已发放或已拦截的历史批次；当前若有被拦截批次，改高上限后仍需老板在「榜单与结算」页手动强制发放或撤销重跑。</div>
+        <div class="config-footnote cap-help">发放名次与卡券总量是两项独立限制。出现多人并列或叠加战队奖时，即使只奖励前 3 名，也可能发出更多卡券；总量上限可帮助门店控制奖励成本。<b>修改后仅影响后续结算</b>，已发放或已拦截的批次不会自动变化，仍需老板在「榜单与结算」中处理。</div>
       </section>
 
       <button class="btn pri save-btn" :disabled="saving" @click="save">{{ saving?'保存中…':'保存规则' }}</button>

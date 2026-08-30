@@ -22,6 +22,7 @@ const err = ref("");
 const acting = ref(false);
 
 const addForm = ref({ phone: "", nick: "", role: "STAFF" });
+const showAdd = ref(false);
 
 const roleDlg = ref<{ row: StaffRow; role: string; reason: string } | null>(null);
 const disableDlg = ref<StaffRow | null>(null);
@@ -59,6 +60,7 @@ async function addStaff() {
       body: { data: { phone, nick: addForm.value.nick.trim(), role: addForm.value.role } },
     });
     addForm.value = { phone: "", nick: "", role: "STAFF" };
+    showAdd.value = false;
     await load();
     showToast("已添加，该手机号登录后自动识别为员工");
   } catch (e: any) {
@@ -66,6 +68,11 @@ async function addStaff() {
   } finally {
     acting.value = false;
   }
+}
+
+function openAdd() {
+  addForm.value = { phone: "", nick: "", role: "STAFF" };
+  showAdd.value = true;
 }
 
 function onRoleChange(row: StaffRow, event: Event) {
@@ -135,11 +142,18 @@ onMounted(load);
 </script>
 
 <template>
-  <AppAsyncPage :loading="loading" :error="err" @retry="load">
+  <AppAsyncPage :loading="loading" :err="err" :skeleton="{ variant: 'table', showFilter: false, metrics: 0, tableCols: 7, showNote: false }" @retry="load">
     <div>
-      <div class="hdr">员工与权限 <em>仅老板 · 员工不可自助注册</em></div>
+      <div class="hdr staff-hdr">
+        <span class="hdr-title">员工与权限</span>
+        <em class="hdr-note">员工账号由老板统一添加与管理</em>
+      </div>
+      <div class="toolbar row">
+        <button class="btn sm pri" @click="openAdd">＋ 新增员工</button>
+        <span class="tiny">该手机号登录后自动识别为员工</span>
+      </div>
       <div class="card tb-wrap">
-        <table class="tb2">
+        <table class="tb2 staff-table">
           <thead>
             <tr>
               <th style="width: 16%">姓名</th>
@@ -187,24 +201,30 @@ onMounted(load);
               </td>
             </tr>
             <tr v-if="!rows.length">
-              <td colspan="7" class="empty-row">暂无员工</td>
+              <td colspan="7" class="empty-row">暂无员工，可点击上方按钮添加</td>
             </tr>
           </tbody>
         </table>
       </div>
+    </div>
 
-      <div class="card add-card">
+    <div v-if="showAdd" class="dlg-mask" @click.self="showAdd = false">
+      <section class="dlg">
         <div class="st">新增员工</div>
-        <div class="g3 add-form">
-          <input v-model="addForm.phone" class="inp" placeholder="手机号" />
-          <input v-model="addForm.nick" class="inp" placeholder="姓名" />
-          <select v-model="addForm.role" class="inp">
-            <option value="STAFF">店员</option>
-            <option value="MANAGER">店长</option>
-          </select>
+        <div class="fld">手机号 *</div>
+        <input v-model="addForm.phone" class="inp" placeholder="11 位手机号" />
+        <div class="fld">姓名</div>
+        <input v-model="addForm.nick" class="inp" placeholder="如 小玲" />
+        <div class="fld">角色</div>
+        <select v-model="addForm.role" class="inp">
+          <option value="STAFF">店员</option>
+          <option value="MANAGER">店长</option>
+        </select>
+        <div class="dlg-actions">
+          <button class="btn ghost" @click="showAdd = false">取消</button>
+          <button class="btn pri" :disabled="acting" @click="addStaff">添加员工</button>
         </div>
-        <button class="btn pri add-btn" :disabled="acting" @click="addStaff">添加员工</button>
-      </div>
+      </section>
     </div>
 
     <div v-if="roleDlg" class="dlg-mask" @click.self="roleDlg = null">
@@ -234,6 +254,9 @@ onMounted(load);
 </template>
 
 <style scoped>
+.staff-hdr .hdr-note{position:static;transform:none;margin-left:auto;text-align:right;pointer-events:auto;white-space:normal}
+.toolbar { gap: 8px; margin-bottom: 11px; align-items: center; }
+.staff-table :is(th,td):nth-child(n+4){text-align:center}
 .tb-wrap { padding: 0; overflow: auto; }
 .name { font-weight: 500; }
 .disabled-tag { margin-left: 6px; color: var(--red); font-size: 11px; font-weight: 400; }
@@ -241,9 +264,6 @@ onMounted(load);
 .role-select { padding: 4px 7px; font-size: 12px; width: 100%; max-width: 120px; }
 .empty-row { text-align: center; color: var(--ink3); padding: 24px; font-size: 12px; }
 .mut { color: var(--ink3); font-size: 12px; }
-.add-card { max-width: 560px; margin-top: 12px; }
-.add-form { gap: 8px; }
-.add-btn { margin-top: 9px; }
 .dlg-mask {
   position: fixed; z-index: 30; inset: 0; display: grid; place-items: center;
   padding: 20px; background: rgba(0, 0, 0, 0.38);

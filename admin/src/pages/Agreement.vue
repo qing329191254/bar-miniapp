@@ -2,7 +2,9 @@
 import { computed, onMounted, ref } from "vue";
 import { api, DEFAULT_PAGE_SIZE } from "../api";
 import AppPagination from "../components/AppPagination.vue";
+import AppAsyncPage from "../components/AppAsyncPage.vue";
 import { usePagination } from "../composables/usePagination";
+import { csvFilename, downloadXlsx } from "../exportCsv";
 import { showToast } from "../composables/useToast";
 
 type DocKey = "terms" | "privacy";
@@ -17,6 +19,10 @@ const openVer = ref<number | null>(null);
 const keyword = ref("");
 const busy = ref(false);
 const showPublishDlg = ref(false);
+const exporting = ref(false);
+const loading = ref(true);
+const loaded = ref(false);
+const err = ref("");
 
 const current = computed(() => docs.value?.[tab.value]);
 const docName = computed(() => tab.value === "terms" ? "用户协议" : "隐私政策");
@@ -70,6 +76,40 @@ function closeUserList() {
   openVer.value = null;
   keyword.value = "";
 }
+function exportUserList() {
+  if (exporting.value || openVer.value == null) return;
+  const list = selectedLogs.value;
+  if (!list.length) {
+    showToast("当前筛选条件下无数据可导出", true);
+    return;
+  }
+  exporting.value = true;
+  try {
+    const headers = ["昵称", "会员号", "用户ID", "同意时间", "状态"];
+    const body = list.map((x) => [
+      x.user?.nick || "未知用户",
+      x.user?.no || "",
+      String(x.uid),
+      x.at || "",
+      x.user?.status === "ACTIVE" ? "正常" : "已注销",
+    ]);
+    downloadXlsx(
+      csvFilename("协议同意名单", `v${openVer.value}_${docName.value}`, "xlsx"),
+      headers,
+      body,
+      {
+        colWidths: [14, 12, 10, 16, 10],
+        textCols: [1, 2, 3],
+        sheetName: "同意名单",
+      },
+    );
+    showToast(`已导出 ${list.length} 条同意记录`);
+  } catch (e: any) {
+    showToast(e?.message || "导出失败", true);
+  } finally {
+    exporting.value = false;
+  }
+}
 function switchTab(next: DocKey) {
   tab.value = next;
   major.value = false;
@@ -117,28 +157,38 @@ async function confirmPublish() {
   major.value = false;
 }
 
-onMounted(async () => {
+async function load() {
+  loading.value = true;
+  err.value = "";
   try {
-    docs.value = await api("/admin/agreements");
-  } catch (e: any) {
-    showToast(e.message || "加载协议失败", true);
-    return;
+    try {
+      docs.value = await api("/admin/agreements");
+    } catch (e: any) {
+      docs.value = null;
+      err.value = e?.message || "协议与政策加载失败";
+      return;
+    }
+    try {
+      logs.value = asList(await api("/admin/agreeLogs?pageSize=0"));
+    } catch (e: any) {
+      logs.value = [];
+      showToast(e?.message || "同意记录加载失败", true);
+    }
+    try {
+      members.value = asList(await api("/admin/members?pageSize=0"));
+    } catch {
+      members.value = [];
+    }
+    loaded.value = true;
+  } finally {
+    loading.value = false;
   }
-  try {
-    logs.value = asList(await api("/admin/agreeLogs?pageSize=0"));
-  } catch (e: any) {
-    logs.value = [];
-    showToast(e.message || "同意记录加载失败", true);
-  }
-  try {
-    members.value = asList(await api("/admin/members?pageSize=0"));
-  } catch {
-    members.value = [];
-  }
-});
+}
+onMounted(load);
 </script>
 
 <template>
+  <AppAsyncPage :loading="loading" :data="loaded" :err="err" :skeleton="{ variant: 'form', showFilter: false, metrics: 0, showNote: true }" @retry="load">
   <div>
     <div class="hdr agreement-hdr">
       <span class="hdr-title">协议与政策</span>
@@ -180,7 +230,7 @@ onMounted(async () => {
               </tbody>
             </table>
           </div>
-          <div class="tiny agreement-foot">同意人数来自 C 端注册及重大变更后的重新确认记录。</div>
+          <div class="tiny agreement-foot">同意人数统计自顾客注册，以及协议重大变更后的再次确认记录。</div>
         </div>
         <div class="note rd"><b>合规底线：</b>须覆盖个人信息收集与用途、账号注销与资产处理、金币性质与退款规则、积分清零、卡券有效期与争议解决方式。</div>
       </div>
@@ -195,7 +245,7 @@ onMounted(async () => {
           </div>
           <input v-model="keyword" class="inp" placeholder="搜索昵称 / 会员号 / ID" />
           <div class="tb-wrap agreement-users">
-            <table class="tb2">
+            <table class="tb2 agreement-users-table">
               <thead><tr><th>昵称</th><th>会员号</th><th>同意时间</th><th>状态</th></tr></thead>
               <tbody>
                 <tr v-for="x in pagedLogs" :key="`${x.uid}-${x.at}`">
@@ -209,6 +259,9 @@ onMounted(async () => {
             </table>
           </div>
           <AppPagination v-model:page="logsPage" v-model:page-size="logsPageSize" :total="logsTotal" />
+          <button type="button" class="btn sm agreement-export" :disabled="exporting || !selectedLogs.length" @click="exportUserList">
+            {{ exporting ? "导出中…" : "导出" }}
+          </button>
         </section>
       </div>
     </Teleport>
@@ -230,6 +283,7 @@ onMounted(async () => {
     </div>
     </Teleport>
   </div>
+  </AppAsyncPage>
 </template>
 
 <style scoped>
@@ -241,5 +295,5 @@ onMounted(async () => {
 .dlg-hint{display:block;margin-top:8px;color:var(--ink3);font-size:12px}
 .dlg-actions{display:grid;grid-template-columns:1fr 1.6fr;gap:10px;margin-top:20px}
 .dlg-actions .btn{width:100%}
-.agreement-grid{display:grid;grid-template-columns:minmax(0,1fr) 390px;gap:12px}.agreement-tabs{margin-bottom:11px;flex-wrap:wrap}.agreement-meta{margin-left:auto}.agreement-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px}.agreement-ver-hint{color:var(--ink3);background:#fff;cursor:default;user-select:none}.agreement-editor{height:300px;resize:vertical;line-height:1.75}.agreement-actions{margin-top:3px}.agreement-major{margin-right:auto}.agreement-major b{color:var(--red)}.agreement-live{background:var(--greenbg);color:var(--green);margin-left:4px}.agreement-off{background:#EEECE6;color:var(--ink3)}.agreement-small{padding:4px 7px;font-size:11px}.agreement-history-table :is(th,td):nth-child(4){text-align:center}.agreement-selected td{background:#E6F1FB}.agreement-foot{margin-top:8px}.agreement-user-mask{z-index:1000}.agreement-user-dlg{width:min(640px,100%);max-height:min(88vh,720px);overflow:auto}.agreement-user-hdr{margin-bottom:10px}.agreement-user-hdr em{font-style:normal;font-size:11px;color:var(--ink3);font-weight:400;margin-left:6px}.agreement-close{margin-left:auto;border:none;background:transparent;padding:0;font-size:11px;color:var(--blue);cursor:pointer}.agreement-close:hover{text-decoration:underline}.agreement-users{max-height:min(52vh,420px);overflow:auto;margin-top:8px}.agreement-empty{text-align:center;padding:16px 0}@media(max-width:1050px){.agreement-grid{grid-template-columns:1fr}.agreement-meta{width:100%;margin-left:0}.agreement-fields{grid-template-columns:1fr}}
+.agreement-grid{display:grid;grid-template-columns:minmax(0,1fr) 390px;gap:12px}.agreement-tabs{margin-bottom:11px;flex-wrap:wrap}.agreement-meta{margin-left:auto}.agreement-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px}.agreement-ver-hint{color:var(--ink3);background:#fff;cursor:default;user-select:none}.agreement-editor{height:300px;resize:vertical;line-height:1.75}.agreement-actions{margin-top:3px}.agreement-major{margin-right:auto}.agreement-major b{color:var(--red)}.agreement-live{background:var(--greenbg);color:var(--green);margin-left:4px}.agreement-off{background:#EEECE6;color:var(--ink3)}.agreement-small{padding:4px 7px;font-size:11px}.agreement-history-table :is(th,td):nth-child(4){text-align:center}.agreement-selected td{background:#E6F1FB}.agreement-foot{margin-top:8px}.agreement-user-mask{z-index:1000}.agreement-user-dlg{width:min(640px,100%);max-height:min(88vh,720px);overflow:auto}.agreement-user-hdr{margin-bottom:10px}.agreement-user-hdr em{font-style:normal;font-size:11px;color:var(--ink3);font-weight:400;margin-left:6px}.agreement-close{margin-left:auto;border:none;background:transparent;padding:0;font-size:11px;color:var(--blue);cursor:pointer}.agreement-close:hover{text-decoration:underline}.agreement-users{max-height:min(52vh,420px);overflow:auto;margin-top:8px}.agreement-users-table :is(th,td):nth-child(4){text-align:center}.agreement-export{margin-top:10px}.agreement-export:disabled{opacity:.55;cursor:not-allowed}.agreement-empty{text-align:center;padding:16px 0}@media(max-width:1050px){.agreement-grid{grid-template-columns:1fr}.agreement-meta{width:100%;margin-left:0}.agreement-fields{grid-template-columns:1fr}}
 </style>

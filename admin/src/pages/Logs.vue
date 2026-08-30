@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from "vue";
 import { api } from "../api";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
 import { showToast } from "../composables/useToast";
+import { csvFilename, downloadXlsx } from "../exportCsv";
 
 type LogRow = {
   t: string;
@@ -33,19 +34,32 @@ async function load() {
   }
 }
 
-function exportDemo() {
-  showToast("已导出 Excel（演示）");
+function exportLogs() {
+  if (!rows.value.length) {
+    showToast("暂无可导出的日志", true);
+    return;
+  }
+  downloadXlsx(
+    csvFilename("操作日志", "全部记录", "xlsx"),
+    ["时间", "操作人", "角色", "类型", "内容"],
+    rows.value.map((row) => [row.t, row.op, row.role, row.action, row.detail]),
+    { colWidths: [20, 14, 12, 18, 48], textCols: [0, 1, 2, 3, 4], sheetName: "操作日志" },
+  );
+  showToast(`已导出 ${rows.value.length} 条操作日志`);
 }
 
 onMounted(load);
 </script>
 
 <template>
-  <AppAsyncPage :loading="loading" :error="err" @retry="load">
+  <AppAsyncPage :loading="loading" :err="err" :skeleton="{ variant: 'table', showFilter: true, metrics: 0, tableCols: 6, showNote: false }" @retry="load">
     <div>
-      <div class="hdr">操作日志 <em>仅老板可见 · 永久保留不可删除</em></div>
+      <div class="hdr logs-hdr">
+        <span class="hdr-title">操作日志</span>
+        <em class="hdr-note">仅老板可查看 · 记录长期保留</em>
+      </div>
       <div class="toolbar row">
-        <button class="btn sm" @click="exportDemo">导出</button>
+        <button class="btn sm" @click="exportLogs">导出日志</button>
         <span class="total">共 {{ total }} 条</span>
       </div>
 
@@ -82,6 +96,7 @@ onMounted(load);
 </template>
 
 <style scoped>
+.logs-hdr .hdr-note{position:static;transform:none;margin-left:auto;text-align:right;pointer-events:auto;white-space:normal}
 .toolbar { gap: 8px; margin-bottom: 11px; align-items: center; }
 .total { margin-left: auto; font-size: 11px; color: var(--ink3); }
 .tb-wrap { padding: 0; overflow: auto; }

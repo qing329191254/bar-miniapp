@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { api, DEFAULT_PAGE_SIZE, pageQs } from "../api";
 import AppPagination from "../components/AppPagination.vue";
+import AppAsyncPage from "../components/AppAsyncPage.vue";
 import { showToast } from "../composables/useToast";
 
 const WD: Record<string, [string, string]> = {
@@ -26,9 +27,12 @@ const voidPreview = ref<any>(null);
 const voidCards = ref(true);
 const voidReason = ref("");
 const voiding = ref(false);
+const loading = ref(true);
+const loaded = ref(false);
+const err = ref("");
 
 const titles: Record<string, [string, string]> = {
-  withdrawals: ["提分单管理", "本页只读 · 发放在商家移动端当面完成"],
+  withdrawals: ["提分单管理", "本页仅供查询 · 请在商家移动端当面发放"],
   gameRecords: ["对局记录查询", "作废需店长以上"],
 };
 
@@ -38,14 +42,24 @@ watch([tablePage, tablePageSize], () => load());
 watch(status, () => { tablePage.value = 1; load(); });
 
 async function load() {
-  const c = coll.value;
-  const params = new URLSearchParams(pageQs(tablePage.value, tablePageSize.value));
-  if (status.value) params.set("status", status.value);
-  const res = await api<any>(`/admin/${c}?${params}`);
-  rows.value = res.items || [];
-  rowTotal.value = res.total ?? rows.value.length;
-  pendingItems.value = res.pendingItems || [];
-  if (!members.value.length) members.value = await api("/admin/members?pageSize=0");
+  loading.value = true;
+  err.value = "";
+  try {
+    const c = coll.value;
+    const params = new URLSearchParams(pageQs(tablePage.value, tablePageSize.value));
+    if (status.value) params.set("status", status.value);
+    const res = await api<any>(`/admin/${c}?${params}`);
+    rows.value = res.items || [];
+    rowTotal.value = res.total ?? rows.value.length;
+    pendingItems.value = res.pendingItems || [];
+    if (!members.value.length) members.value = await api("/admin/members?pageSize=0");
+    loaded.value = true;
+  } catch (e: any) {
+    err.value = e?.message || "记录加载失败";
+    if (loaded.value) showToast(err.value, true);
+  } finally {
+    loading.value = false;
+  }
 }
 function nick(uid: number) {
   return members.value.find((x) => x.id === uid)?.nick || uid;
@@ -97,9 +111,10 @@ const pendingWdr = computed(() =>
 </script>
 
 <template>
+  <AppAsyncPage :loading="loading" :data="loaded" :err="err" :skeleton="{ showFilter: false, tableCols: coll === 'gameRecords' ? 9 : 6 }" @retry="load">
   <div>
     <div class="hdr records-hdr">{{ titles[coll]?.[0] || coll }} <em>{{ titles[coll]?.[1] }}{{ coll === 'gameRecords' ? ' · 先预览影响' : '' }}</em></div>
-    <div class="note rd" v-if="coll==='withdrawals'">本页只读，不提供发放入口。提分兑付必须由店员在商家移动端「待办」当面完成。</div>
+    <div class="note rd" v-if="coll==='withdrawals'">本页仅供查询，不支持确认发放。请由店员在商家移动端「待办」中核对顾客信息，并当面完成兑付。</div>
     <div class="card" v-if="pendingWdr.length" style="background:#FAEEDA;border-color:#BA7517">
       <div class="st" style="color:#BA7517">待确认提分单 {{ pendingWdr.length }} 张 · 发放在商家移动端完成</div>
       <div class="li" v-for="w in pendingWdr" :key="w.id">
@@ -145,7 +160,7 @@ const pendingWdr = computed(() =>
       </table>
       <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
     </div>
-    <div v-if="coll === 'gameRecords'" class="note rd records-note"><b>作废规则：</b>余额充足直接扣减；不足允许负余额并标记（C 端显示「待抵扣」）；已兑换未核销优先作废卡券；跨月作废不扣分（月底已清零）。作废原因必填，记入日志。</div>
+    <div v-if="coll === 'gameRecords'" class="note rd records-note"><b>作废规则：</b>余额充足时将直接扣减；余额不足会记为负数，并在顾客端显示「待抵扣」；已兑换但未核销的卡券将优先作废。跨月记录因积分已清零，不再重复扣减。作废原因必填并记入操作日志。</div>
 
     <div v-if="voidPreview" class="void-mask" @click.self="closeVoid">
       <div class="void-dialog">
@@ -170,6 +185,7 @@ const pendingWdr = computed(() =>
       </div>
     </div>
   </div>
+  </AppAsyncPage>
 </template>
 
 <style scoped>

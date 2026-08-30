@@ -148,7 +148,7 @@ watch([feedPage, feedPageSize], () => load());
       :loading="loading"
       :data="data"
       :err="err"
-      :skeleton="{ variant: 'feed', showFilter: true, showNote: true, metrics: 4 }"
+      :skeleton="{ variant: 'feed', showHeader: false, showFilter: true, showNote: true, metrics: 4 }"
       @retry="load()"
     >
       <div class="card">
@@ -226,7 +226,7 @@ watch([feedPage, feedPageSize], () => load());
       <div v-else class="card"><p class="tiny" style="padding:30px;text-align:center">所选时间范围与分类下无作业流水</p></div>
 
       <div class="note">
-        流水按作业发生时间倒序，同一天的条目归为一组。<b>此页只读</b>：核销与对局录入不可在此撤销，需分别走「对局记录查询」作废或由老板处理；订单退款在「订单记录与管理」页操作。
+        作业记录按时间倒序排列，同一天的内容会自动归为一组。<b>本页仅供查询</b>：对局需前往「对局记录」处理，订单退款请前往「订单管理」，其他需要撤销的操作请联系老板。
       </div>
     </AppAsyncPage>
   </div>

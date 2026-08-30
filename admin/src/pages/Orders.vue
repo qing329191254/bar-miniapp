@@ -184,7 +184,7 @@ watch(status, () => load(true));
       :loading="loading"
       :data="data"
       :err="err"
-      :skeleton="{ showExtraCard: true, tableCols: 10, tableRows: 8 }"
+      :skeleton="{ showHeader: false, showExtraCard: true, tableCols: 10, tableRows: 8 }"
       @retry="load()"
     >
       <div class="card flt-card">

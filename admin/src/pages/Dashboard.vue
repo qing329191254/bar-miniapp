@@ -2,13 +2,26 @@
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { api } from "../api";
+import AppAsyncPage from "../components/AppAsyncPage.vue";
 import WeekChart from "./WeekChart.vue";
 
 const d = ref<any>(null);
+const loading = ref(true);
+const err = ref("");
 const router = useRouter();
-onMounted(async () => {
-  d.value = await api("/admin/dashboard");
-});
+async function load() {
+  loading.value = true;
+  err.value = "";
+  try {
+    d.value = await api("/admin/dashboard");
+  } catch (e: any) {
+    err.value = e?.message || "数据看板加载失败";
+    d.value = null;
+  } finally {
+    loading.value = false;
+  }
+}
+onMounted(load);
 
 function fmt(n: number) {
   return Number(n || 0).toLocaleString("en-US");
@@ -52,11 +65,18 @@ const clearDay = computed(() => {
 </script>
 
 <template>
+  <AppAsyncPage
+    :loading="loading"
+    :data="d"
+    :err="err"
+    :skeleton="{ variant: 'dashboard', metrics: 4, showFilter: false, showNote: false, showExtraCard: true, showChart: true }"
+    @retry="load"
+  >
   <div v-if="d" class="dash-page">
-    <div class="hdr">数据看板 <em>{{ d.liability ? "老板视角 · 含资产负债总览" : "店长视角" }}</em></div>
+    <div class="hdr">数据看板 <em>{{ d.liability ? "老板工作台 · 含资产负债总览" : "店长工作台" }}</em></div>
     <div class="card" v-if="d.block" style="background:#FCEBEB;border-color:#E24B4A;padding:10px 12px">
-      <b style="font-size:13px;color:#A32D2D">⚠ 门店信息未配置，小程序无法上线</b>
-      <button class="btn ghost" style="margin-left:12px" @click="go('content')">去配置</button>
+      <b style="font-size:13px;color:#A32D2D">门店资料尚未完善，暂不满足小程序发布要求</b>
+      <button class="btn ghost" style="margin-left:12px" @click="go('shopinfo')">立即完善</button>
     </div>
     <div class="cards">
       <div class="mtr" style="cursor:pointer" @click="go('dailyBiz')">
@@ -77,14 +97,14 @@ const clearDay = computed(() => {
       <div class="mtr" style="cursor:pointer" @click="go('members')">
         <div class="k">会员数 ›</div>
         <div class="v">{{ d.members }}</div>
-        <div class="tiny" style="margin-top:2px">点击进入会员列表</div>
+        <div class="tiny" style="margin-top:2px">查看会员明细</div>
       </div>
     </div>
 
     <div class="dash-grid">
       <div class="dash-main-col">
         <div class="card">
-          <div class="st">待处理 <em>点击跳转对应模块</em></div>
+          <div class="st">待处理事项 <em>建议优先完成以下任务</em></div>
           <div class="todo4">
             <div class="todo-cell" style="background:#FCEBEB;cursor:pointer" @click="go('orders', { status: 'PENDING_ACCEPT' })">
               <b style="font-size:19px;color:#A32D2D">{{ d.todo.accept }}</b>
@@ -106,7 +126,7 @@ const clearDay = computed(() => {
           <div class="tiny" style="margin-top:8px">营业额 = 金币消费 + 现场收款，已剔除充值。充值只是资金进入，消费时才转为收入。</div>
         </div>
         <div class="card chart-card">
-          <div class="st">近 7 日营业额 <em>周五六为峰值</em></div>
+          <div class="st">近 7 日营业额 <em>查看每日收入趋势</em></div>
           <WeekChart :rows="week" />
         </div>
       </div>
@@ -127,7 +147,7 @@ const clearDay = computed(() => {
           </div>
         </div>
         <div class="card">
-          <div class="st">异常告警 <em>自动推送</em></div>
+          <div class="st">经营提醒 <em>由系统自动监测</em></div>
           <div class="li li-link" @click="go('alertPoint')">
             <div class="gr">
               <b :style="pointOver ? 'color:#A32D2D' : ''">店员录入积分异常 ›</b>
@@ -149,4 +169,5 @@ const clearDay = computed(() => {
       </div>
     </div>
   </div>
+  </AppAsyncPage>
 </template>

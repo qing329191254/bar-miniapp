@@ -20,8 +20,8 @@ onMounted(load);
 
 <template>
   <div class="project-page">
-    <div class="hdr project-config-hdr"><span class="hdr-title">对局项目配置</span><em class="hdr-note">默认碎片值联动移动端快捷值</em></div>
-    <AppAsyncPage :loading="loading" :data="projects" :err="err" @retry="load">
+    <div class="hdr project-config-hdr"><span class="hdr-title">对局项目配置</span><em class="hdr-note">默认碎片值将同步到移动端快捷录入</em></div>
+    <AppAsyncPage :loading="loading" :data="projects" :err="err" :skeleton="{ variant: 'form', showHeader: false, showFilter: false, metrics: 0, showNote: false }" @retry="load">
       <div class="project-layout">
         <section class="card project-list-card">
           <div class="list-head"><b>项目列表</b><button class="btn sm pri" @click="create">＋ 新增项目</button></div>
@@ -39,7 +39,7 @@ onMounted(load);
           <button class="btn pri editor-save" :disabled="saving" @click="save">{{ saving?'保存中…':isNew?'创建项目':'保存' }}</button>
         </section>
       </div>
-      <div class="note"><b>快捷值不写死：</b>狼人杀一局 2 小时给 120、台球 20 分钟给 50，差异只有商家知道。改这里，移动端「一键铺满」的快捷值立即变化。<b>停用而非删除</b>，历史记录仍能查。</div>
+      <div class="note"><b>按门店实际玩法设置默认碎片：</b>保存后，移动端「一键铺满」会自动使用这里的数值。项目停用后不会再出现在新对局中，但历史记录仍可查询。</div>
     </AppAsyncPage>
   </div>
 </template>

@@ -2,6 +2,7 @@
 import { ref } from "vue";
 import { useRouter } from "vue-router";
 import { api, setSession } from "../api";
+import UiIcon from "../components/UiIcon.vue";
 
 const router = useRouter();
 const account = ref("");
@@ -53,10 +54,13 @@ function onKey(e: KeyboardEvent) {
 
 <template>
   <div class="login-page">
+    <div class="login-glow glow-one"></div>
+    <div class="login-glow glow-two"></div>
     <div class="login-card">
-      <img class="login-logo" src="/logo.png" alt="ACE HARBOR" />
+      <div class="login-logo-wrap"><img class="login-logo" src="/logo.png" alt="玩咖桌游酒吧" /></div>
+      <div class="login-kicker"><UiIcon name="sparkle" /> 门店运营中心</div>
       <h1 class="login-title">玩咖桌游酒吧 · 管理后台</h1>
-      <p class="login-sub">店长 / 老板登录。资产负债与调账审批仅老板可见。</p>
+      <p class="login-sub">欢迎回来，请使用店长或老板账号登录。</p>
 
       <label class="fld">账号</label>
       <input
@@ -96,11 +100,12 @@ function onKey(e: KeyboardEvent) {
       <p class="login-err" v-if="err">{{ err }}</p>
 
       <button class="btn login-btn" :disabled="loading" @click="submit">
-        {{ loading ? "登录中…" : "登录" }}
+        <span>{{ loading ? "正在登录…" : "进入管理后台" }}</span>
+        <UiIcon v-if="!loading" name="arrowRight" />
       </button>
 
       <p class="login-hint tiny">
-        演示账号：900002 店长 · 900003 老板，密码 123456
+        不同角色将按权限展示可管理的业务内容
       </p>
     </div>
   </div>
@@ -113,33 +118,53 @@ function onKey(e: KeyboardEvent) {
   align-items: center;
   justify-content: center;
   padding: 40px 20px;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background:
+    linear-gradient(rgba(255,255,255,.5) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,.5) 1px,transparent 1px),
+    radial-gradient(circle at 22% 18%,#FFF8EB 0%,transparent 33%),
+    linear-gradient(145deg,#F5F1E9 0%,#EEE7DB 100%);
+  background-size: 32px 32px,32px 32px,auto,auto;
 }
+.login-glow{position:absolute;border-radius:50%;filter:blur(1px);pointer-events:none;z-index:-1}
+.glow-one{width:360px;height:360px;right:-90px;top:-110px;background:radial-gradient(circle,rgba(201,139,50,.23),rgba(201,139,50,0) 68%)}
+.glow-two{width:320px;height:320px;left:-110px;bottom:-130px;background:radial-gradient(circle,rgba(99,72,41,.12),rgba(99,72,41,0) 68%)}
 .login-card {
   width: 100%;
   max-width: 400px;
-  background: #fff;
-  border: 1px solid rgba(28, 27, 25, 0.12);
-  border-radius: 16px;
-  padding: 28px 24px 24px;
-  box-shadow: 0 8px 28px rgba(28, 27, 25, 0.06);
+  position:relative;
+  background: linear-gradient(155deg,rgba(255,255,255,.97),rgba(255,252,246,.95));
+  border: 1px solid rgba(110,79,43,.14);
+  border-radius: 22px;
+  padding: 31px 30px 26px;
+  box-shadow: 0 24px 65px rgba(68,48,26,.13),inset 0 1px 0 #fff;
+  backdrop-filter:blur(16px);
 }
+.login-card::before{content:"";position:absolute;left:28px;right:28px;top:0;height:2px;background:linear-gradient(90deg,transparent,#D39A48,transparent)}
+.login-logo-wrap{width:82px;height:82px;display:grid;place-items:center;margin:0 auto 14px;border:1px solid rgba(185,120,34,.16);border-radius:23px;background:linear-gradient(145deg,#fff,#FFF2DE);box-shadow:0 12px 26px rgba(111,72,24,.11),inset 0 1px 0 #fff}
 .login-logo {
-  width: 88px;
-  height: 88px;
+  width: 68px;
+  height: 68px;
   display: block;
-  margin: 0 auto 16px;
 }
+.login-kicker{display:flex;align-items:center;justify-content:center;gap:5px;margin-bottom:8px;color:#A56A1D;font-size:10px;font-weight:700;letter-spacing:1.5px}
+.login-kicker .ui-icon{width:13px;height:13px}
 .login-title {
-  font-size: 18px;
-  font-weight: 600;
+  font-size: 20px;
+  font-weight: 700;
   line-height: 1.4;
-  margin-bottom: 8px;
+  margin-bottom: 7px;
+  text-align:center;
+  letter-spacing:-.25px;
 }
 .login-sub {
   font-size: 12px;
-  color: #9c9a93;
+  color: #958B7F;
   line-height: 1.6;
-  margin-bottom: 20px;
+  margin-bottom: 24px;
+  text-align:center;
 }
 .fld {
   display: block;
@@ -191,9 +216,16 @@ function onKey(e: KeyboardEvent) {
 }
 .login-btn {
   width: 100%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:9px;
   padding: 11px 14px;
   font-weight: 600;
+  margin-top:4px;
 }
+.login-btn .ui-icon{width:16px;height:16px;transition:transform .18s ease}
+.login-btn:hover .ui-icon{transform:translateX(3px)}
 .login-btn:disabled {
   opacity: 0.65;
   cursor: not-allowed;

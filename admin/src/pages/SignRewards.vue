@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { api, pageQs } from "../api";
 import AppPagination from "../components/AppPagination.vue";
+import AppAsyncPage from "../components/AppAsyncPage.vue";
 import { showToast } from "../composables/useToast";
 
 const dailyPoints = ref(0), rules = ref<any[]>([]), members = ref<any[]>([]), memberTotal = ref(0);
@@ -9,6 +10,7 @@ const membersPage = ref(1);
 const membersPageSize = ref(10);
 const tpls = ref<any[]>([]);
 const selectedId = ref<number | null>(null), showCreate = ref(false), saving = ref(false);
+const loading = ref(true), loaded = ref(false), err = ref("");
 const createForm = ref({ days: null as number | null, pts: 0 });
 const blank = () => ({ days: 7, pts: 0, cards: [] as any[], enabled: true });
 const form = ref<any>(blank());
@@ -24,13 +26,23 @@ function closeEdit() { selectedId.value = null; form.value = blank(); }
 function addCard() { if (!tpls.value.length) { showToast("请先创建卡券模板", true); return; } form.value.cards.push({ tpl: tpls.value[0].id, qty: 1 }); }
 function removeCard(i: number) { form.value.cards.splice(i, 1); }
 async function load() {
-  const params = pageQs(membersPage.value, membersPageSize.value);
-  const [o, t] = await Promise.all([api<any>(`/admin/signin-overview?${params}`), api<any[]>("/admin/cardTpls?pageSize=0")]);
-  dailyPoints.value = o.signPoints;
-  rules.value = o.rules || [];
-  members.value = o.members || [];
-  memberTotal.value = o.memberTotal ?? members.value.length;
-  tpls.value = t || [];
+  loading.value = true;
+  err.value = "";
+  try {
+    const params = pageQs(membersPage.value, membersPageSize.value);
+    const [o, t] = await Promise.all([api<any>(`/admin/signin-overview?${params}`), api<any[]>("/admin/cardTpls?pageSize=0")]);
+    dailyPoints.value = o.signPoints;
+    rules.value = o.rules || [];
+    members.value = o.members || [];
+    memberTotal.value = o.memberTotal ?? members.value.length;
+    tpls.value = t || [];
+    loaded.value = true;
+  } catch (e: any) {
+    err.value = e?.message || "签到奖励加载失败";
+    if (loaded.value) showToast(err.value, true);
+  } finally {
+    loading.value = false;
+  }
 }
 
 watch([membersPage, membersPageSize], () => load());
@@ -43,6 +55,7 @@ onMounted(load);
 </script>
 
 <template>
+  <AppAsyncPage :loading="loading" :data="loaded" :err="err" :skeleton="{ variant: 'form', showFilter: false, metrics: 0, showNote: true }" @retry="load">
   <div>
     <div class="hdr">签到奖励配置 <em>每日基础奖励 + 连续签到奖励</em></div>
     <div class="sign-layout"><div>
@@ -77,6 +90,7 @@ onMounted(load);
     </aside></div>
     <div v-if="showCreate" class="create-mask" @click.self="showCreate = false"><section class="create-dialog"><div class="st">新增连续签到档位</div><div class="create-grid"><label>连续天数 *<input v-model.number="createForm.days" type="number" min="1" placeholder="如 14" class="inp" /></label><label>额外奖励积分<input v-model.number="createForm.pts" type="number" min="0" class="inp" /></label></div><div class="tiny">创建后可在右侧继续配置卡券奖励。</div><div class="create-actions"><button class="btn ghost" @click="showCreate = false">取消</button><button class="btn" :disabled="saving" @click="createRule">创建档位</button></div></section></div>
   </div>
+  </AppAsyncPage>
 </template>
 
 <style scoped>

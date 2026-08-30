@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { api } from "../api";
 import AppSelect from "../components/AppSelect.vue";
+import AppAsyncPage from "../components/AppAsyncPage.vue";
 import DateTimePicker from "../components/DateTimePicker.vue";
 import { showToast } from "../composables/useToast";
 
@@ -9,6 +10,9 @@ const meta = ref({ projects: [] as any[], tables: [] as any[] });
 const members = ref<any[]>([]);
 const search = ref("");
 const searchArea = ref<HTMLElement | null>(null);
+const loading = ref(true);
+const loaded = ref(false);
+const err = ref("");
 
 function localDateTimeValue(date = new Date()) {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -26,13 +30,26 @@ const form = reactive({
   winners: {} as Record<number, boolean>,
 });
 
-onMounted(async () => {
+async function load() {
+  loading.value = true;
+  err.value = "";
+  try {
+    const r = await api<any>("/staff/projects");
+    meta.value = r;
+    if (r.projects[0]) form.pid = r.projects[0].id;
+    members.value = await api("/admin/members?pageSize=0");
+    if (!form.eventTouched) form.event = defaultEvent();
+    loaded.value = true;
+  } catch (e: any) {
+    err.value = e?.message || "对局录入信息加载失败";
+  } finally {
+    loading.value = false;
+  }
+}
+
+onMounted(() => {
   document.addEventListener("pointerdown", closeSearchFromOutside);
-  const r = await api<any>("/staff/projects");
-  meta.value = r;
-  if (r.projects[0]) form.pid = r.projects[0].id;
-  members.value = await api("/admin/members?pageSize=0");
-  if (!form.eventTouched) form.event = defaultEvent();
+  load();
 });
 
 onBeforeUnmount(() => document.removeEventListener("pointerdown", closeSearchFromOutside));
@@ -136,8 +153,9 @@ async function submit() {
 </script>
 
 <template>
+  <AppAsyncPage :loading="loading" :data="loaded" :err="err" :skeleton="{ variant: 'form', showFilter: false, metrics: 4, showNote: true }" @retry="load">
   <div>
-    <div class="hdr game-hdr">对局结果录入 <em>已并入个人冠军录入 · 所有玩家可填积分</em></div>
+    <div class="hdr game-hdr">对局结果录入 <em>记录参与玩家、成绩与本局积分</em></div>
     <div class="prod-grid">
       <div>
         <div class="card">
@@ -231,6 +249,7 @@ async function submit() {
       </div>
     </div>
   </div>
+  </AppAsyncPage>
 </template>
 
 <style scoped>

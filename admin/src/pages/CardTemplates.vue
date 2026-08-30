@@ -6,6 +6,7 @@ import { showToast } from "../composables/useToast";
 
 const rows = ref<any[]>([]);
 const loading = ref(true);
+const loaded = ref(false);
 const err = ref("");
 const saving = ref(false);
 const isNew = ref(false);
@@ -51,6 +52,7 @@ async function load() {
   try {
     const res = await api<any>("/admin/cardTpls?pageSize=0");
     rows.value = Array.isArray(res) ? res : res.items || [];
+    loaded.value = true;
   } catch (e: any) {
     err.value = e?.message || "加载失败";
     rows.value = [];
@@ -146,9 +148,9 @@ onMounted(load);
 
     <AppAsyncPage
       :loading="loading"
-      :data="rows"
+      :data="loaded"
       :err="err"
-      :skeleton="{ tableCols: 7, tableRows: 8 }"
+      :skeleton="{ showHeader: false, tableCols: 7, tableRows: 8 }"
       @retry="load"
     >
       <div class="card-tpl-layout">
@@ -206,7 +208,7 @@ onMounted(load);
           <section class="card tips-card">
             <div class="st tips-title">兑换配置要点</div>
             <div class="tiny tips-body">
-              · 积分价 &gt; 0 且勾选「兑换页」即出现在 C 端兑换<br />
+              · 设置积分价并开启「兑换页展示」后，顾客即可在小程序兑换<br />
               · 月末清零前可集中兑换，需配置库存与每人上限防挤兑<br />
               · 宝箱卡积分价 0、不出现兑换页，仅奖励发放
             </div>

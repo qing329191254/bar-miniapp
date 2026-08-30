@@ -199,7 +199,7 @@ watch([opUid, memberUid], () => load(true));
       :loading="loading"
       :data="data"
       :err="err"
-      :skeleton="{ showExtraCard: true, tableCols: 9, tableRows: 8 }"
+      :skeleton="{ showHeader: false, showExtraCard: true, tableCols: 9, tableRows: 8 }"
       @retry="load()"
     >
       <div class="card flt-card">
@@ -276,7 +276,7 @@ watch([opUid, memberUid], () => load(true));
           <button class="btn sm ghost" :disabled="actingId === r.id" @click="openReject(r)">拒绝</button>
           <button class="btn sm rc-confirm" :disabled="actingId === r.id" @click="confirmOne(r)">{{ actingId === r.id ? "处理中…" : "确认收款" }}</button>
         </div>
-        <div class="tiny pending-foot">顾客到吧台口报单号末 4 位（红色部分）核对后确认。金额不可编辑，确认接口幂等防连点重复入账。</div>
+        <div class="tiny pending-foot">请顾客在吧台提供单号后 4 位（红色部分），核对无误后再确认到账。金额不可修改，系统会自动避免重复入账。</div>
       </div>
 
       <div class="card table-card">
@@ -321,7 +321,7 @@ watch([opUid, memberUid], () => load(true));
 
       <div class="note">
         <b>口径：</b>「实收」为顾客实际支付现金，计入营业收入统计；「赠送」为平台负债，用户消费时才核销，不计收入。待付款单超时自动取消，不占用额度。<br />
-        <b>资金操作约束：</b>金额不可编辑，接口不接收 amount 参数；同一用户同时仅 1 张待付单；拒绝必填原因；每笔确认留痕（操作人 / 时间 / 单号 / 前后余额）。
+        <b>到账确认规则：</b>充值金额不可修改，同一会员同时只能有一张待付款订单；拒绝时需填写原因。每次确认都会记录操作人、时间、单号及余额变化，便于后续核对。
       </div>
     </AppAsyncPage>
 

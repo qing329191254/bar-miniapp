@@ -52,7 +52,7 @@ onMounted(load);
 <template>
   <div class="rank-history-page">
     <div class="hdr rank-history-hdr"><span class="hdr-title">榜单历史记录</span><em class="hdr-note">全周期结算快照 · 共 {{ allWeeks.length }} 个已结算周次</em><button class="btn sm ghost hdr-back" @click="router.push('/settle')">当前周结算 ›</button></div>
-    <AppAsyncPage :loading="loading" :data="data" :err="err" @retry="load">
+    <AppAsyncPage :loading="loading" :data="data" :err="err" :skeleton="{ showHeader: false, metrics: 0, tableCols: 6 }" @retry="load">
       <div class="card flt-card">
         <div class="st">筛选 <em>当前范围：{{ rangeLabel }}</em></div>
         <div class="flt-chips"><span v-for="[key,label] in PRESETS" :key="key" class="chip" :class="{on:preset===key}" @click="setPreset(key)">{{ label }}</span></div>
