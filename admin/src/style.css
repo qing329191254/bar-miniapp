@@ -282,3 +282,23 @@ select.inp{
   from { transform: translateX(-120%); }
   to { transform: translateX(320%); }
 }
+.app-toast{
+  position:fixed;
+  top:72px;
+  left:50%;
+  transform:translateX(-50%);
+  z-index:1000;
+  max-width:min(92vw,520px);
+  padding:10px 18px;
+  border-radius:999px;
+  background:rgba(28,27,25,.88);
+  color:#fff;
+  font-size:13px;
+  line-height:1.45;
+  text-align:center;
+  box-shadow:0 8px 24px rgba(28,27,25,.18);
+  pointer-events:none;
+}
+.app-toast.error{background:rgba(163,45,45,.92)}
+.app-toast-enter-active,.app-toast-leave-active{transition:opacity .2s ease,transform .2s ease}
+.app-toast-enter-from,.app-toast-leave-to{opacity:0;transform:translateX(-50%) translateY(-8px)}

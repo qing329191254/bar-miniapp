@@ -879,7 +879,7 @@ def admin_withdrawals_page(
     op_uid: int = Query(0, alias="opUid"),
     status: str = "",
     page: int = Query(1, ge=1),
-    page_size: int = Query(15, ge=1, le=200, alias="pageSize"),
+    page_size: int = Query(15, ge=0, le=200, alias="pageSize"),
     admin: dict = Depends(admin_user),
     db: Session = Depends(get_db),
 ):
@@ -1745,7 +1745,7 @@ def save_product(body: PatchIn, admin: dict = Depends(admin_user), db: Session =
         for k, attr in (("name", "name"), ("cid", "cid"), ("desc", "desc"), ("price", "price"),
                         ("hasSpec", "has_spec"), ("specMulti", "spec_multi"), ("specs", "specs"),
                         ("soldOut", "sold_out"), ("img", "img"), ("type", "type"), ("combo", "combo"),
-                        ("offline", "offline")):
+                        ("dailyLimit", "daily_limit"), ("offline", "offline")):
             if k in item:
                 setattr(p, attr, item[k])
         return p.to_dict()
@@ -1754,7 +1754,8 @@ def save_product(body: PatchIn, admin: dict = Depends(admin_user), db: Session =
         desc=item.get("desc") or "", price=item.get("price") or 0,
         has_spec=bool(item.get("hasSpec")), spec_multi=bool(item.get("specMulti")),
         specs=item.get("specs"), sold_out=bool(item.get("soldOut")), img=item.get("img"),
-        type=item.get("type"), combo=item.get("combo"), offline=bool(item.get("offline")),
+        type=item.get("type"), combo=item.get("combo"), daily_limit=int(item.get("dailyLimit") if item.get("dailyLimit") is not None else -1),
+        offline=bool(item.get("offline")),
     )
     db.add(p)
     db.flush()

@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { api } from "../api";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
+import { showToast } from "../composables/useToast";
 
 type ShopInfo = {
   name: string;
@@ -22,7 +23,6 @@ const form = ref<ShopInfo>({
 });
 const loading = ref(true);
 const err = ref("");
-const msg = ref("");
 const saving = ref(false);
 
 const missing = computed(() => {
@@ -76,7 +76,6 @@ async function load() {
 
 async function save() {
   saving.value = true;
-  msg.value = "";
   try {
     const shopInfo = {
       ...form.value,
@@ -89,9 +88,9 @@ async function save() {
     };
     await api("/admin/content", { method: "PUT", body: { data: { shopInfo } } });
     form.value = { ...shopInfo };
-    msg.value = "已保存，C 端同步";
+    showToast("已保存，C 端同步");
   } catch (e: any) {
-    msg.value = e?.message || "保存失败";
+    showToast(e?.message || "保存失败", true);
   } finally {
     saving.value = false;
   }
@@ -110,8 +109,6 @@ onMounted(load);
           {{ complete ? "配置完整 · 可上线" : "未配置完整 · 无法上线" }}
         </span>
       </div>
-      <p v-if="msg" class="notice">{{ msg }}</p>
-
       <div v-if="missing.length" class="note rd">
         <b>门店信息未配置完整，小程序无法上线。</b>缺少：<b>{{ missing.join(" / ") }}</b>。微信小程序审核要求主体经营信息可查，缺失会直接驳回；顾客也需要靠这些信息找到店、打通电话。
       </div>
@@ -210,11 +207,6 @@ onMounted(load);
 .pill.bad {
   background: var(--redbg);
   color: var(--red);
-}
-.notice {
-  color: var(--green);
-  font-size: 12px;
-  margin-bottom: 8px;
 }
 .note.rd {
   margin-bottom: 12px;

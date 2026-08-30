@@ -55,6 +55,9 @@ def seed_all(reset: bool = False):
     ):
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE products MODIFY COLUMN img VARCHAR(512) NULL"))
+    if "daily_limit" not in product_cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE products ADD COLUMN daily_limit INTEGER NOT NULL DEFAULT -1"))
     card_tpl_cols = {c["name"] for c in insp.get_columns("card_tpls")}
     if "rules" not in card_tpl_cols:
         with engine.begin() as conn:

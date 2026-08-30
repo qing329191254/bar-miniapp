@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from "vue";
 import { api, DEFAULT_PAGE_SIZE } from "../api";
 import AppPagination from "../components/AppPagination.vue";
 import { usePagination } from "../composables/usePagination";
+import { showToast } from "../composables/useToast";
 
 type DocKey = "terms" | "privacy";
 type AgreementDoc = { ver: number; title: string; text?: string; major?: boolean; pub?: string; hist?: any[] };
@@ -14,7 +15,6 @@ const tab = ref<DocKey>("terms");
 const major = ref(false);
 const openVer = ref<number | null>(null);
 const keyword = ref("");
-const msg = ref("");
 const busy = ref(false);
 
 const current = computed(() => docs.value?.[tab.value]);
@@ -39,7 +39,6 @@ function switchTab(next: DocKey) {
   major.value = false;
   openVer.value = null;
   keyword.value = "";
-  msg.value = "";
 }
 function nowLabel() {
   const d = new Date();
@@ -48,12 +47,11 @@ function nowLabel() {
 async function persist(message: string) {
   if (!docs.value) return;
   busy.value = true;
-  msg.value = "";
   try {
     await api("/admin/agreements", { method: "PUT", body: { data: docs.value } });
-    msg.value = message;
+    showToast(message);
   } catch (e: any) {
-    msg.value = e.message;
+    showToast(e.message, true);
   } finally {
     busy.value = false;
   }
@@ -64,7 +62,7 @@ async function saveDraft() {
 async function publish() {
   const d = current.value;
   if (!d || !d.title?.trim() || !d.text?.trim()) {
-    msg.value = "请填写文档标题和正文";
+    showToast("请填写文档标题和正文", true);
     return;
   }
   if (!window.confirm(`确认发布${docName.value} v${Number(d.ver || 0) + 1}？`)) return;
@@ -87,7 +85,7 @@ onMounted(async () => {
     logs.value = agreeLogs;
     members.value = users;
   } catch (e: any) {
-    msg.value = e.message;
+    showToast(e.message, true);
   }
 });
 </script>
@@ -95,7 +93,6 @@ onMounted(async () => {
 <template>
   <div>
     <div class="hdr">协议与政策 <em>版本管理不可省 · 法律凭证</em></div>
-    <p v-if="msg" class="tiny agreement-msg">{{ msg }}</p>
     <div v-if="docs && current" class="agreement-grid">
       <div class="card">
         <div class="row agreement-tabs">
@@ -151,5 +148,5 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.agreement-grid{display:grid;grid-template-columns:minmax(0,1fr) 390px;gap:12px}.agreement-tabs{margin-bottom:11px;flex-wrap:wrap}.agreement-meta{margin-left:auto}.agreement-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px}.agreement-editor{height:300px;resize:vertical;line-height:1.75}.agreement-actions{margin-top:3px}.agreement-major{margin-right:auto}.agreement-major b{color:var(--red)}.agreement-msg{color:var(--green);margin-bottom:8px}.agreement-live{background:var(--greenbg);color:var(--green);margin-left:4px}.agreement-off{background:#EEECE6;color:var(--ink3)}.agreement-small{padding:4px 7px;font-size:11px}.agreement-selected td{background:#E6F1FB}.agreement-foot{margin-top:8px}.agreement-users{max-height:280px}.agreement-empty{text-align:center}.btn:disabled{opacity:.45;cursor:not-allowed}@media(max-width:1050px){.agreement-grid{grid-template-columns:1fr}.agreement-meta{width:100%;margin-left:0}.agreement-fields{grid-template-columns:1fr}}
+.agreement-grid{display:grid;grid-template-columns:minmax(0,1fr) 390px;gap:12px}.agreement-tabs{margin-bottom:11px;flex-wrap:wrap}.agreement-meta{margin-left:auto}.agreement-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px}.agreement-editor{height:300px;resize:vertical;line-height:1.75}.agreement-actions{margin-top:3px}.agreement-major{margin-right:auto}.agreement-major b{color:var(--red)}.agreement-live{background:var(--greenbg);color:var(--green);margin-left:4px}.agreement-off{background:#EEECE6;color:var(--ink3)}.agreement-small{padding:4px 7px;font-size:11px}.agreement-selected td{background:#E6F1FB}.agreement-foot{margin-top:8px}.agreement-users{max-height:280px}.agreement-empty{text-align:center}.btn:disabled{opacity:.45;cursor:not-allowed}@media(max-width:1050px){.agreement-grid{grid-template-columns:1fr}.agreement-meta{width:100%;margin-left:0}.agreement-fields{grid-template-columns:1fr}}
 </style>

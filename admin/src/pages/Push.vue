@@ -2,6 +2,7 @@
 import { onMounted, ref } from "vue";
 import { api } from "../api";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
+import { showToast } from "../composables/useToast";
 
 const cfg = ref<any>({
   enabled: true,
@@ -14,7 +15,6 @@ const cfg = ref<any>({
 });
 const loading = ref(true);
 const err = ref("");
-const msg = ref("");
 const saving = ref(false);
 
 const scenes = [
@@ -53,12 +53,11 @@ async function load() {
 
 async function save() {
   saving.value = true;
-  msg.value = "";
   try {
     await api("/admin/push", { method: "PUT", body: { data: cfg.value } });
-    msg.value = "已保存";
+    showToast("已保存");
   } catch (e: any) {
-    msg.value = e?.message || "保存失败";
+    showToast(e?.message || "保存失败", true);
   } finally {
     saving.value = false;
   }
@@ -71,8 +70,6 @@ onMounted(load);
   <AppAsyncPage :loading="loading" :error="err" @retry="load">
     <div>
       <div class="hdr">消息推送配置 <em>微信订阅消息 · 替代原语音播报/打印机</em></div>
-      <p v-if="msg" class="notice">{{ msg }}</p>
-
       <div class="card">
         <div class="st">总开关</div>
         <div class="li">
@@ -113,7 +110,6 @@ onMounted(load);
 </template>
 
 <style scoped>
-.notice { color: var(--green); font-size: 12px; margin-bottom: 8px; }
 .mut { display: block; font-size: 11px; color: var(--ink3); margin-top: 1px; }
 .tpl-inp { max-width: 280px; margin: 0; }
 .save-btn { margin-top: 4px; }

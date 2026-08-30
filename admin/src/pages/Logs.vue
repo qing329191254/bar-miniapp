@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { api } from "../api";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
+import { showToast } from "../composables/useToast";
 
 type LogRow = {
   t: string;
@@ -15,16 +16,8 @@ type LogRow = {
 const rows = ref<LogRow[]>([]);
 const loading = ref(true);
 const err = ref("");
-const msg = ref("");
 
 const total = computed(() => rows.value.length);
-
-function notify(text: string) {
-  msg.value = text;
-  window.setTimeout(() => {
-    if (msg.value === text) msg.value = "";
-  }, 2200);
-}
 
 async function load() {
   loading.value = true;
@@ -41,7 +34,7 @@ async function load() {
 }
 
 function exportDemo() {
-  notify("已导出 Excel（演示）");
+  showToast("已导出 Excel（演示）");
 }
 
 onMounted(load);
@@ -51,8 +44,6 @@ onMounted(load);
   <AppAsyncPage :loading="loading" :error="err" @retry="load">
     <div>
       <div class="hdr">操作日志 <em>仅老板可见 · 永久保留不可删除</em></div>
-      <p v-if="msg" class="notice">{{ msg }}</p>
-
       <div class="toolbar row">
         <button class="btn sm" @click="exportDemo">导出</button>
         <span class="total">共 {{ total }} 条</span>
@@ -91,7 +82,6 @@ onMounted(load);
 </template>
 
 <style scoped>
-.notice { color: var(--green); font-size: 12px; margin-bottom: 8px; }
 .toolbar { gap: 8px; margin-bottom: 11px; align-items: center; }
 .total { margin-left: auto; font-size: 11px; color: var(--ink3); }
 .tb-wrap { padding: 0; overflow: auto; }

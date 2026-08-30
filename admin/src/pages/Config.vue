@@ -2,6 +2,7 @@
 import { onMounted, ref } from "vue";
 import { api, savedUser } from "../api";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
+import { showToast } from "../composables/useToast";
 
 const defaults = {
   pointLimit: false,
@@ -18,7 +19,6 @@ const defaults = {
 const cfg = ref({ ...defaults });
 const loading = ref(true);
 const err = ref("");
-const msg = ref("");
 const saving = ref(false);
 const isBoss = savedUser()?.role === "BOSS";
 
@@ -38,12 +38,11 @@ async function load() {
 async function save() {
   if (!isBoss) return;
   saving.value = true;
-  msg.value = "";
   try {
     await api("/admin/config", { method: "PUT", body: { data: cfg.value } });
-    msg.value = "已保存";
+    showToast("已保存");
   } catch (e: any) {
-    msg.value = e?.message || "保存失败";
+    showToast(e?.message || "保存失败", true);
   } finally {
     saving.value = false;
   }
@@ -56,8 +55,6 @@ onMounted(load);
   <AppAsyncPage :loading="loading" :error="err" @retry="load">
     <div>
       <div class="hdr">风控参数 <em>{{ isBoss ? "仅老板可改" : "店长只读" }}</em></div>
-      <p v-if="msg" class="notice">{{ msg }}</p>
-
       <div class="card">
         <div class="li">
           <div class="gr">
@@ -128,11 +125,6 @@ onMounted(load);
 </template>
 
 <style scoped>
-.notice {
-  color: var(--green);
-  font-size: 12px;
-  margin-bottom: 8px;
-}
 .mut {
   display: block;
   font-size: 11px;

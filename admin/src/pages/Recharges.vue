@@ -5,6 +5,7 @@ import { api, DEFAULT_PAGE_SIZE, pageQs } from "../api";
 import AppPagination from "../components/AppPagination.vue";
 import AppDateInput from "../components/AppDateInput.vue";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
+import { showToast } from "../composables/useToast";
 
 const router = useRouter();
 
@@ -41,7 +42,6 @@ const memberUid = ref(0);
 const data = ref<any>(null);
 const loading = ref(true);
 const err = ref("");
-const msg = ref("");
 const tablePage = ref(1);
 const tablePageSize = ref(DEFAULT_PAGE_SIZE);
 const now = ref(Date.now());
@@ -138,12 +138,11 @@ async function load(resetPage = false) {
 async function confirmOne(r: any) {
   if (!window.confirm(`确认收款 ${r.no} · ¥${fmt(r.amount)}？`)) return;
   actingId.value = r.id;
-  msg.value = "";
   try {
     await api(`/admin/recharges/${r.id}/confirm`, { method: "POST" });
     await load();
   } catch (e: any) {
-    msg.value = e?.message || "确认失败";
+    showToast(e?.message || "确认失败", true);
   } finally {
     actingId.value = 0;
   }
@@ -151,7 +150,6 @@ async function confirmOne(r: any) {
 function openReject(r: any) {
   rejectTarget.value = r;
   rejectReason.value = "";
-  msg.value = "";
 }
 function closeReject() {
   if (rejecting.value) return;
@@ -162,18 +160,17 @@ async function submitReject() {
   const r = rejectTarget.value;
   const reason = rejectReason.value.trim();
   if (!r || reason.length < 2) {
-    msg.value = "请填写拒绝原因（至少 2 个字）";
+    showToast("请填写拒绝原因（至少 2 个字）", true);
     return;
   }
   rejecting.value = true;
-  msg.value = "";
   try {
     await api(`/admin/recharges/${r.id}/reject`, { method: "POST", body: { reason } });
     rejectTarget.value = null;
     rejectReason.value = "";
     await load();
   } catch (e: any) {
-    msg.value = e?.message || "拒绝失败";
+    showToast(e?.message || "拒绝失败", true);
   } finally {
     rejecting.value = false;
   }
@@ -282,8 +279,6 @@ watch([opUid, memberUid], () => load(true));
         <div class="tiny pending-foot">顾客到吧台口报单号末 4 位（红色部分）核对后确认。金额不可编辑，确认接口幂等防连点重复入账。</div>
       </div>
 
-      <div v-if="msg && !rejectTarget" class="err">{{ msg }}</div>
-
       <div class="card table-card">
         <table class="tb2 tb-even rc-table" data-cols="llccccccc">
           <thead>
@@ -336,7 +331,6 @@ watch([opUid, memberUid], () => load(true));
         <div class="reject-info">{{ memberLabel(rejectTarget) }} · ¥{{ fmt(rejectTarget.amount) }} + 赠 {{ fmt(rejectTarget.bonus) }}</div>
         <div class="tiny reject-label">拒绝原因（必填，至少 2 个字）</div>
         <textarea v-model="rejectReason" class="inp reject-reason" maxlength="100" placeholder="例如：顾客未付款离开"></textarea>
-        <div v-if="msg" class="err">{{ msg }}</div>
         <div class="reject-actions">
           <button class="btn ghost" :disabled="rejecting" @click="closeReject">取消</button>
           <button class="btn danger" :disabled="rejecting" @click="submitReject">{{ rejecting ? "提交中…" : "确认拒绝" }}</button>

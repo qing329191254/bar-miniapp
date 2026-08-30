@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { api, DEFAULT_PAGE_SIZE, pageQs, savedUser } from "../api";
 import AppPagination from "../components/AppPagination.vue";
+import { showToast } from "../composables/useToast";
 
 type Col = { k: string; h: string; kind?: string };
 
@@ -164,7 +165,6 @@ const tablePage = ref(1);
 const tablePageSize = ref(DEFAULT_PAGE_SIZE);
 const members = ref<any[]>([]);
 const tpls = ref<any[]>([]);
-const msg = ref("");
 const coll = () => String(route.params.coll || route.path.replace("/", ""));
 const sourceColl = () => ({
   reports: "dailyBiz",
@@ -203,7 +203,6 @@ async function load() {
     rows.value = res.items || [];
     rowTotal.value = res.total ?? rows.value.length;
   }
-  msg.value = "";
   if (!members.value.length) {
     try {
       members.value = await api("/admin/members?pageSize=0");
@@ -286,7 +285,7 @@ async function approve(id: number, action: string) {
     await api(`/admin/coin-adjust/${id}/${action}`, { method: "POST" });
     await load();
   } catch (e: any) {
-    msg.value = e.message;
+    showToast(e.message, true);
   }
 }
 async function deact(id: number, action: string) {
@@ -294,7 +293,7 @@ async function deact(id: number, action: string) {
     await api(`/admin/deactivations/${id}/${action}`, { method: "POST", body: { reason: action === "reject" ? "驳回" : "核对通过" } });
     await load();
   } catch (e: any) {
-    msg.value = e.message;
+    showToast(e.message, true);
   }
 }
 
@@ -309,7 +308,6 @@ function hasOp(r: any) {
 <template>
   <div>
     <div class="hdr">{{ title }}</div>
-    <p class="tiny" v-if="msg">{{ msg }}</p>
 
     <div class="card" v-if="isObj">
       <table class="tb2">

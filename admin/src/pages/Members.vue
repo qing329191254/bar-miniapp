@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { api, DEFAULT_PAGE_SIZE, pageQs, savedUser } from "../api";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
 import AppPagination from "../components/AppPagination.vue";
+import { showToast } from "../composables/useToast";
 
 const route = useRoute();
 const router = useRouter();
@@ -18,7 +19,6 @@ const tablePageSize = ref(DEFAULT_PAGE_SIZE);
 const kw = ref("");
 const loading = ref(true);
 const err = ref("");
-const msg = ref("");
 
 const detail = ref<any>(null);
 const detailLoading = ref(false);
@@ -142,39 +142,37 @@ function openAdj(kind: AdjKind) {
     reason: "",
   };
   adjOpen.value = kind;
-  msg.value = "";
 }
 
 async function submitAdj() {
   if (!me.value || !adjOpen.value) return;
   const reason = adjForm.value.reason.trim();
   if (reason.length < 2) {
-    msg.value = "原因至少 2 个字";
+    showToast("原因至少 2 个字", true);
     return;
   }
   if (adjOpen.value !== "card") {
     const n = Number(adjForm.value.delta || 0);
     if (!n) {
-      msg.value = "请输入调整值";
+      showToast("请输入调整值", true);
       return;
     }
     if (adjOpen.value === "coin") {
       const before = Number(me.value.coin?.total || 0);
       if (n < 0 && -n > before) {
-        msg.value = `${isBoss.value ? "扣减失败，超出" : "扣减申请超出"}余额（当前 ${fmt(before)}）`;
+        showToast(`${isBoss.value ? "扣减失败，超出" : "扣减申请超出"}余额（当前 ${fmt(before)}）`, true);
         return;
       }
     }
     if (adjOpen.value === "shard") {
       const w = Number(me.value.shard?.w || 0);
       if (n < 0 && -n > w) {
-        msg.value = `扣减失败，超出本周碎片（当前 ${fmt(w)}）`;
+        showToast(`扣减失败，超出本周碎片（当前 ${fmt(w)}）`, true);
         return;
       }
     }
   }
   acting.value = true;
-  msg.value = "";
   try {
     const id = me.value.id;
     if (adjOpen.value === "coin") {
@@ -182,30 +180,30 @@ async function submitAdj() {
         method: "POST",
         body: { data: { delta: Number(adjForm.value.delta || 0), reason } },
       });
-      msg.value = res.pending ? "申请已提交，待老板审批后生效" : "已调整并留痕";
+      showToast(res.pending ? "申请已提交，待老板审批后生效" : "已调整并留痕");
     } else if (adjOpen.value === "point") {
       await api(`/admin/members/${id}/adjust-point`, {
         method: "POST",
         body: { data: { delta: Number(adjForm.value.delta || 0), reason } },
       });
-      msg.value = "已调整并留痕";
+      showToast("已调整并留痕");
     } else if (adjOpen.value === "shard") {
       await api(`/admin/members/${id}/adjust-shard`, {
         method: "POST",
         body: { data: { delta: Number(adjForm.value.delta || 0), reason } },
       });
-      msg.value = "已调整并留痕";
+      showToast("已调整并留痕");
     } else {
       await api(`/admin/members/${id}/grant-cards`, {
         method: "POST",
         body: { data: { tpl: Number(adjForm.value.tpl), qty: Number(adjForm.value.qty || 1), reason } },
       });
-      msg.value = "已补发";
+      showToast("已补发");
     }
     adjOpen.value = null;
     await loadDetail(id);
   } catch (e: any) {
-    msg.value = e?.message || "操作失败";
+    showToast(e?.message || "操作失败", true);
   } finally {
     acting.value = false;
   }
@@ -221,7 +219,6 @@ onMounted(async () => {
 });
 
 watch(uid, async (id) => {
-  msg.value = "";
   if (id) await loadDetail(id);
   else {
     detail.value = null;
@@ -250,8 +247,6 @@ watch(kw, () => {
         会员详情 · {{ me.nick }}
         <em class="back" @click="backList">← 返回列表</em>
       </div>
-      <p v-if="msg" class="notice">{{ msg }}</p>
-
       <div class="card">
         <div class="st">基本信息</div>
         <div class="g4">
@@ -478,7 +473,6 @@ watch(kw, () => {
 </template>
 
 <style scoped>
-.notice { color: var(--green); font-size: 12px; margin-bottom: 8px; }
 .back { cursor: pointer; margin-left: auto; }
 .toolbar { gap: 8px; margin-bottom: 11px; }
 .search { max-width: 260px; }

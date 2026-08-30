@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { api } from "../api";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
+import { showToast } from "../composables/useToast";
 
 const route = useRoute();
 const router = useRouter();
@@ -10,12 +11,10 @@ const id = computed(() => Number(route.params.id));
 const data = ref<any>(null);
 const loading = ref(true);
 const err = ref("");
-const msg = ref("");
 const refundOk = ref(false);
 const dlg = ref<null | "exec" | "reject">(null);
 const reason = ref("");
 const acting = ref(false);
-const dlgErr = ref("");
 
 const ST: Record<string, [string, string, string]> = {
   PENDING: ["待处理", "#BA7517", "#FAEEDA"],
@@ -106,36 +105,31 @@ async function load() {
 
 function openExec() {
   if (!refundOk.value) {
-    msg.value = "请先勾选「本金已退还」";
+    showToast("请先勾选「本金已退还」", true);
     return;
   }
   if (hasFz.value) {
-    msg.value = "该会员仍有冻结积分，请先处理其提分单";
+    showToast("该会员仍有冻结积分，请先处理其提分单", true);
     return;
   }
   dlg.value = "exec";
-  dlgErr.value = "";
 }
 function openReject() {
   dlg.value = "reject";
   reason.value = "";
-  dlgErr.value = "";
 }
 function closeDlg() {
   dlg.value = null;
   reason.value = "";
-  dlgErr.value = "";
 }
 
 async function submitDlg() {
   if (!dlg.value || !data.value) return;
   if (dlg.value === "reject" && reason.value.trim().length < 2) {
-    dlgErr.value = "驳回原因至少 2 个字";
+    showToast("驳回原因至少 2 个字", true);
     return;
   }
   acting.value = true;
-  dlgErr.value = "";
-  msg.value = "";
   try {
     const action = dlg.value === "exec" ? "exec" : "reject";
     await api(`/admin/deactivations/${data.value.id}/${action}`, {
@@ -143,10 +137,10 @@ async function submitDlg() {
       body: dlg.value === "reject" ? { reason: reason.value.trim() } : {},
     });
     closeDlg();
-    msg.value = action === "exec" ? "已注销" : "已驳回";
+    showToast(action === "exec" ? "已注销" : "已驳回");
     await load();
   } catch (e: any) {
-    dlgErr.value = e?.message || "操作失败";
+    showToast(e?.message || "操作失败", true);
   } finally {
     acting.value = false;
   }
@@ -164,8 +158,6 @@ watch(id, load);
       <span v-if="data" class="pill hdr-pill" :style="pillStyle(ST[data.status] || ['', '#6B6A65', '#F5F4F0'])">{{ ST[data.status]?.[0] }}</span>
       <button class="btn sm hdr-back" @click="back">‹ 返回列表</button>
     </div>
-
-    <p v-if="msg" class="tiny" style="color:#3B6D11;margin-bottom:10px">{{ msg }}</p>
 
     <AppAsyncPage
       :loading="loading"
@@ -262,7 +254,6 @@ watch(id, load);
           <div class="tiny" style="margin:10px 0 6px">驳回原因（必填，至少 2 个字）</div>
           <textarea v-model="reason" class="inp deact-reason" maxlength="100" placeholder="例如：资产尚未结清，请到店办理"></textarea>
         </template>
-        <div v-if="dlgErr" class="deact-err">{{ dlgErr }}</div>
         <div class="deact-actions">
           <button class="btn ghost" :disabled="acting" @click="closeDlg">取消</button>
           <button class="btn dan" :disabled="acting" @click="submitDlg">{{ acting ? "处理中…" : dlg === "exec" ? "确认执行" : "确认驳回" }}</button>
@@ -383,11 +374,6 @@ watch(id, load);
   min-height: 72px;
   resize: vertical;
   box-sizing: border-box;
-}
-.deact-err {
-  color: var(--red);
-  font-size: 12px;
-  margin-top: 8px;
 }
 .deact-actions {
   display: flex;

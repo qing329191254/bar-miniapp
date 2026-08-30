@@ -2,6 +2,7 @@
 import { computed, reactive, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { clearSession, savedUser } from "./api";
+import AppToast from "./components/AppToast.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -191,5 +192,6 @@ watch(
       </aside>
       <main class="main"><router-view /></main>
     </div>
+    <AppToast />
   </div>
 </template>

@@ -138,11 +138,12 @@ class Product(Base):
     img: Mapped[str | None] = mapped_column(String(512), nullable=True)
     type: Mapped[str | None] = mapped_column(String(16), nullable=True)
     combo: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    daily_limit: Mapped[int] = mapped_column(Integer, default=-1)
     offline: Mapped[bool] = mapped_column(Boolean, default=False)
 
     def to_dict(self):
         d = {"id": self.id, "cid": self.cid, "name": self.name, "desc": self.desc, "price": self.price,
-             "hasSpec": self.has_spec, "soldOut": self.sold_out, "offline": self.offline}
+             "hasSpec": self.has_spec, "soldOut": self.sold_out, "offline": self.offline, "dailyLimit": self.daily_limit}
         if self.spec_multi:
             d["specMulti"] = True
         if self.specs:

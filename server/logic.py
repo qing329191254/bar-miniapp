@@ -1989,7 +1989,12 @@ def withdrawals_page(
     for w in rows:
         st = w.get("status") or ""
         by_status[st] = by_status.get(st, 0) + 1
-    pg = paginate(rows, page, page_size)
+    pg = paginate(rows, page, page_size) if page_size > 0 else {
+        "items": rows,
+        "total": len(rows),
+        "page": 1,
+        "pageSize": 0,
+    }
     staff = [public_user(sess, s) for s in sess.query(User).filter(User.role != "CUSTOMER").order_by(User.id).all()]
     return {
         "totalAll": len(all_rows),

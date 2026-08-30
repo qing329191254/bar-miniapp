@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { api } from "../api";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
+import { showToast } from "../composables/useToast";
 
 type Member = { id: number; nick: string; no: string; champions: number; shard: number };
 type Team = {
@@ -17,7 +18,6 @@ type Team = {
 const teams = ref<Team[]>([]);
 const loading = ref(true);
 const err = ref("");
-const msg = ref("");
 const acting = ref(false);
 
 const showNew = ref(false);
@@ -33,13 +33,6 @@ const activeTeams = computed(() => teams.value.filter((t) => t.status !== "DISAB
 
 function fmt(n: number) {
   return Number(n || 0).toLocaleString("en-US");
-}
-
-function notify(text: string) {
-  msg.value = text;
-  window.setTimeout(() => {
-    if (msg.value === text) msg.value = "";
-  }, 2200);
 }
 
 async function load() {
@@ -64,7 +57,7 @@ function openNew() {
 async function createTeam() {
   const name = newForm.value.name.trim();
   if (!name) {
-    notify("请填写战队名称");
+    showToast("请填写战队名称", true);
     return;
   }
   acting.value = true;
@@ -75,9 +68,9 @@ async function createTeam() {
     });
     showNew.value = false;
     await load();
-    notify("已新增");
+    showToast("已新增");
   } catch (e: any) {
-    notify(e?.message || "新增失败");
+    showToast(e?.message || "新增失败", true);
   } finally {
     acting.value = false;
   }
@@ -92,7 +85,7 @@ async function saveTeam() {
   if (!editing.value) return;
   const name = editForm.value.name.trim();
   if (!name) {
-    notify("请填写战队名称");
+    showToast("请填写战队名称", true);
     return;
   }
   acting.value = true;
@@ -103,9 +96,9 @@ async function saveTeam() {
     });
     editing.value = null;
     await load();
-    notify("已保存");
+    showToast("已保存");
   } catch (e: any) {
-    notify(e?.message || "保存失败");
+    showToast(e?.message || "保存失败", true);
   } finally {
     acting.value = false;
   }
@@ -141,9 +134,9 @@ async function confirmMove() {
     });
     moveDlg.value = null;
     await load();
-    notify("已调队");
+    showToast("已调队");
   } catch (e: any) {
-    notify(e?.message || "调队失败");
+    showToast(e?.message || "调队失败", true);
   } finally {
     acting.value = false;
   }
@@ -159,9 +152,9 @@ async function confirmRemove() {
     });
     removeDlg.value = null;
     await load();
-    notify("已移出");
+    showToast("已移出");
   } catch (e: any) {
-    notify(e?.message || "移出失败");
+    showToast(e?.message || "移出失败", true);
   } finally {
     acting.value = false;
   }
@@ -174,8 +167,6 @@ onMounted(load);
   <AppAsyncPage :loading="loading" :error="err" @retry="load">
     <div>
       <div class="hdr">战队管理 <em>支持新增 / 编辑 · 调队二次确认</em></div>
-      <p v-if="msg" class="notice">{{ msg }}</p>
-
       <div class="toolbar row">
         <button class="btn sm pri" @click="openNew">＋ 新增战队</button>
         <span class="tiny">新增后成员可通过「调至」下拉选择加入</span>
@@ -297,7 +288,6 @@ onMounted(load);
 </template>
 
 <style scoped>
-.notice { color: var(--green); font-size: 12px; margin-bottom: 8px; }
 .toolbar { gap: 8px; margin-bottom: 11px; align-items: center; }
 .team-card { margin-bottom: 12px; padding-bottom: 0; overflow: hidden; }
 .team-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 14px 14px 0; }

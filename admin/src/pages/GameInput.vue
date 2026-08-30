@@ -3,11 +3,11 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { api } from "../api";
 import AppSelect from "../components/AppSelect.vue";
 import DateTimePicker from "../components/DateTimePicker.vue";
+import { showToast } from "../composables/useToast";
 
 const meta = ref({ projects: [] as any[], tables: [] as any[] });
 const members = ref<any[]>([]);
 const search = ref("");
-const msg = ref("");
 const searchArea = ref<HTMLElement | null>(null);
 
 function localDateTimeValue(date = new Date()) {
@@ -85,27 +85,27 @@ function addFromResult(u: any) {
 function addFirstHit() {
   const first = hits.value.find((x) => !added(x.id));
   if (!search.value.trim()) {
-    msg.value = "请先输入搜索关键词";
+    showToast("请先输入搜索关键词", true);
   } else if (!first) {
-    msg.value = hits.value.length ? "匹配到的会员均已添加" : "未找到匹配会员";
+    showToast(hits.value.length ? "匹配到的会员均已添加" : "未找到匹配会员", !hits.value.length);
   } else {
     add(first);
-    msg.value = `已添加 ${first.nick}`;
+    showToast(`已添加 ${first.nick}`);
     closeSearch();
   }
 }
 function addAllHits() {
   if (!search.value.trim()) {
-    msg.value = "请先输入搜索关键词";
+    showToast("请先输入搜索关键词", true);
     return;
   }
   const pending = hits.value.filter((x) => !added(x.id));
   if (!pending.length) {
-    msg.value = hits.value.length ? "匹配到的会员均已添加" : "未找到匹配会员";
+    showToast(hits.value.length ? "匹配到的会员均已添加" : "未找到匹配会员", !hits.value.length);
     return;
   }
   pending.forEach(add);
-  msg.value = `已批量添加 ${pending.length} 位玩家`;
+  showToast(`已批量添加 ${pending.length} 位玩家`);
   closeSearch();
 }
 function remove(uid: number) {
@@ -113,7 +113,6 @@ function remove(uid: number) {
   delete form.winners[uid];
 }
 async function submit() {
-  msg.value = "";
   try {
     await api("/staff/games", {
       method: "POST",
@@ -127,11 +126,11 @@ async function submit() {
         time: form.time,
       },
     });
-    msg.value = "提交成功，已入账";
+    showToast("提交成功，已入账");
     form.players = [];
     form.winners = {};
   } catch (e: any) {
-    msg.value = e.message;
+    showToast(e.message, true);
   }
 }
 </script>
@@ -139,7 +138,6 @@ async function submit() {
 <template>
   <div>
     <div class="hdr game-hdr">对局结果录入 <em>已并入个人冠军录入 · 所有玩家可填积分</em></div>
-    <p class="tiny" v-if="msg" style="color:#3B6D11">{{ msg }}</p>
     <div class="prod-grid">
       <div>
         <div class="card">

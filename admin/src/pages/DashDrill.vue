@@ -5,6 +5,7 @@ import { api, DEFAULT_PAGE_SIZE, pageQs } from "../api";
 import AppPagination from "../components/AppPagination.vue";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
 import PointTrendChart from "./PointTrendChart.vue";
+import { showToast } from "../composables/useToast";
 
 const props = defineProps<{ kind?: "coin" | "point" | "card" | "alert" }>();
 const route = useRoute();
@@ -18,7 +19,6 @@ const voidPreview = ref<any>(null);
 const voidReason = ref("");
 const voidCards = ref(true);
 const voiding = ref(false);
-const voidMsg = ref("");
 
 const kind = computed(() => {
   const map: Record<string, "coin" | "point" | "card" | "alert"> = {
@@ -113,31 +113,28 @@ async function load(resetPage = false, resetData = false) {
 }
 
 async function openVoid(g: any) {
-  voidMsg.value = "";
   voidReason.value = "";
   voidCards.value = true;
   try {
     voidPreview.value = await api(`/admin/games/${g.id}/void-preview`);
   } catch (e: any) {
-    voidMsg.value = e?.message || "加载预览失败";
+    showToast(e?.message || "加载预览失败", true);
     voidPreview.value = { id: g.id, pname: g.pname, rows: [], _err: true };
   }
 }
 
 function closeVoid() {
   voidPreview.value = null;
-  voidMsg.value = "";
   voidReason.value = "";
 }
 
 async function submitVoid() {
   if (!voidPreview.value || voidPreview.value._err) return;
   if (voidReason.value.trim().length < 2) {
-    voidMsg.value = "作废原因至少 2 个字";
+    showToast("作废原因至少 2 个字", true);
     return;
   }
   voiding.value = true;
-  voidMsg.value = "";
   try {
     await api(`/admin/games/${voidPreview.value.id}/void`, {
       method: "POST",
@@ -146,7 +143,7 @@ async function submitVoid() {
     closeVoid();
     await load();
   } catch (e: any) {
-    voidMsg.value = e?.message || "作废失败";
+    showToast(e?.message || "作废失败", true);
   } finally {
     voiding.value = false;
   }
@@ -362,7 +359,6 @@ watch([tablePage, tablePageSize], () => load());
         </table>
         <div class="tiny" style="margin:10px 0 6px">作废原因（必填，至少 2 个字）</div>
         <textarea v-model="voidReason" class="inp void-reason" maxlength="100" placeholder="例如：玩家身份录错"></textarea>
-        <div v-if="voidMsg" class="void-err">{{ voidMsg }}</div>
         <div class="void-actions">
           <button class="btn ghost" :disabled="voiding" @click="closeVoid">取消</button>
           <button class="btn void-submit" :disabled="voiding || voidPreview._err" @click="submitVoid">{{ voiding ? "处理中…" : "确认作废" }}</button>
@@ -429,7 +425,6 @@ watch([tablePage, tablePageSize], () => load());
 .void-pill-ok { background: #eaf3de; color: #3b6d11; }
 .void-card-opt { display: block; margin-top: 6px; line-height: 1.5; }
 .void-reason { min-height: 72px; resize: vertical; }
-.void-err { margin-top: 8px; font-size: 12px; color: #a32d2d; }
 .void-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .void-actions .btn { margin: 0; }
 .void-submit { background: #a32d2d; color: #fff; }

@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { api, DEFAULT_PAGE_SIZE, pageQs } from "../api";
 import AppPagination from "../components/AppPagination.vue";
+import { showToast } from "../composables/useToast";
 
 const WD: Record<string, [string, string]> = {
   PENDING_CONFIRM: ["待确认", "#BA7517"],
@@ -24,7 +25,6 @@ const status = ref("");
 const voidPreview = ref<any>(null);
 const voidCards = ref(true);
 const voidReason = ref("");
-const voidMsg = ref("");
 const voiding = ref(false);
 
 const titles: Record<string, [string, string]> = {
@@ -57,29 +57,26 @@ function pill(map: Record<string, [string, string]>, s: string) {
   return map[s] || [s, "#9C9A93"];
 }
 async function openVoid(game: any) {
-  voidMsg.value = "";
   voidReason.value = "";
   voidCards.value = true;
   try {
     voidPreview.value = await api(`/admin/games/${game.id}/void-preview`);
   } catch (e: any) {
-    voidMsg.value = e?.message || "加载预览失败";
+    showToast(e?.message || "加载预览失败", true);
     voidPreview.value = { id: game.id, pname: game.pname, rows: [], _err: true };
   }
 }
 function closeVoid() {
   voidPreview.value = null;
-  voidMsg.value = "";
   voidReason.value = "";
 }
 async function submitVoid() {
   if (!voidPreview.value || voidPreview.value._err) return;
   if (voidReason.value.trim().length < 2) {
-    voidMsg.value = "作废原因至少 2 个字";
+    showToast("作废原因至少 2 个字", true);
     return;
   }
   voiding.value = true;
-  voidMsg.value = "";
   try {
     await api(`/admin/games/${voidPreview.value.id}/void`, {
       method: "POST",
@@ -88,7 +85,7 @@ async function submitVoid() {
     closeVoid();
     await load();
   } catch (e: any) {
-    voidMsg.value = e?.message || "作废失败";
+    showToast(e?.message || "作废失败", true);
   } finally {
     voiding.value = false;
   }
@@ -169,7 +166,6 @@ const pendingWdr = computed(() =>
         </table>
         <div class="tiny void-reason-label">作废原因（必填，至少 2 个字）</div>
         <textarea v-model="voidReason" class="inp void-reason" maxlength="100" placeholder="例如：玩家身份录错"></textarea>
-        <div v-if="voidMsg" class="void-err">{{ voidMsg }}</div>
         <div class="void-actions"><button class="btn ghost" :disabled="voiding" @click="closeVoid">取消</button><button class="btn void-submit" :disabled="voiding || voidPreview._err" @click="submitVoid">{{ voiding ? "处理中…" : "确认作废" }}</button></div>
       </div>
     </div>
@@ -187,6 +183,6 @@ const pendingWdr = computed(() =>
 .void-mask{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(28,27,25,.42)}
 .void-dialog{width:min(560px,100%);max-height:min(90vh,640px);overflow:auto;padding:18px;border-radius:14px;background:#fff;box-shadow:0 18px 48px rgba(28,27,25,.24)}
 .void-table td{vertical-align:top}.void-pill-warn{background:var(--redbg);color:var(--red)}.void-pill-ok{background:var(--greenbg);color:var(--green)}
-.void-card-opt{display:block;margin-top:6px;line-height:1.5}.void-reason-label{margin:10px 0 6px}.void-reason{min-height:72px;resize:vertical}.void-err{margin-top:8px;color:var(--red);font-size:12px}
+.void-card-opt{display:block;margin-top:6px;line-height:1.5}.void-reason-label{margin:10px 0 6px}.void-reason{min-height:72px;resize:vertical}
 .void-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}.void-actions .btn{margin:0}.void-submit{background:var(--red);color:#fff}
 </style>

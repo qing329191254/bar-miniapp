@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { api, uploadFile } from "../api";
 import ImgField from "../components/ImgField.vue";
 import IcoBtn from "../components/IcoBtn.vue";
+import { showToast } from "../composables/useToast";
 
 const addInp = ref<HTMLInputElement | null>(null);
 const tab = ref<"gallery" | "play">("gallery");
@@ -10,18 +11,6 @@ const content = ref<any>({
   gallery: { title: "店铺相册", items: [] },
   howToPlay: { title: "店铺玩法", sub: "", items: [], pic: "" },
 });
-const msg = ref("");
-const msgError = ref(false);
-let msgTimer: number | undefined;
-
-function showTip(text: string, error = false) {
-  window.clearTimeout(msgTimer);
-  msg.value = text;
-  msgError.value = error;
-  msgTimer = window.setTimeout(() => { msg.value = ""; }, error ? 3500 : 1800);
-}
-
-onUnmounted(() => window.clearTimeout(msgTimer));
 
 onMounted(async () => {
   const r = await api<any>("/admin/content");
@@ -38,12 +27,11 @@ function isImg(v: string) {
 }
 
 async function save(part: string) {
-  msg.value = "";
   try {
     await api("/admin/content", { method: "PUT", body: { data: { [part]: content.value[part] } } });
-    showTip("已保存，小程序已同步");
+    showToast("已保存，小程序已同步");
   } catch (e: any) {
-    showTip(e.message || "保存失败", true);
+    showToast(e.message || "保存失败", true);
   }
 }
 function addPhoto() {
@@ -53,7 +41,6 @@ async function onAddFiles(e: Event) {
   const files = [...((e.target as HTMLInputElement).files || [])];
   (e.target as HTMLInputElement).value = "";
   if (!files.length) return;
-  msg.value = "";
   try {
     const items = g.value.items || [];
     for (const f of files) {
@@ -63,7 +50,7 @@ async function onAddFiles(e: Event) {
     }
     g.value.items = items;
   } catch (e: any) {
-    showTip(e.message || "上传失败", true);
+    showToast(e.message || "上传失败", true);
   }
 }
 function delPhoto(i: number) {
@@ -95,9 +82,6 @@ function movePlay(i: number, d: number) {
 <template>
   <div v-if="content">
     <div class="hdr">店铺相册与玩法 <em>小程序首页内容配置</em></div>
-    <Transition name="tip-fade">
-      <div v-if="msg" class="content-toast" :class="{ error: msgError }">{{ msg }}</div>
-    </Transition>
     <div class="row" style="gap:8px;margin-bottom:11px;flex-wrap:wrap">
       <span class="chip" :class="{ on: tab==='gallery' }" @click="tab='gallery'">店铺相册 · {{ g.items?.length || 0 }} 张</span>
       <span class="chip" :class="{ on: tab==='play' }" @click="tab='play'">店铺玩法 · {{ h.items?.length || 0 }} 条</span>
@@ -209,25 +193,6 @@ function movePlay(i: number, d: number) {
   gap: 16px;
   align-items: start;
 }
-.content-toast {
-  position: fixed;
-  top: 36%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  z-index: 30;
-  padding: 7px 12px;
-  border: 1px solid rgba(59,109,17,.2);
-  border-radius: 8px;
-  background: rgba(234,243,222,.96);
-  color: var(--green);
-  font-size: 12px;
-  line-height: 1.4;
-  box-shadow: 0 5px 16px rgba(28,27,25,.1);
-  pointer-events: none;
-}
-.content-toast.error { color: var(--red); background: rgba(252,235,235,.97); border-color: rgba(163,45,45,.2); }
-.tip-fade-enter-active,.tip-fade-leave-active { transition: opacity .18s ease, transform .18s ease; }
-.tip-fade-enter-from,.tip-fade-leave-to { opacity: 0; transform: translate(-50%, calc(-50% - 6px)); }
 .content-grid > .card,
 .preview-col,
 .preview-col > .card { min-width: 0; }

@@ -5,6 +5,7 @@ import { api, DEFAULT_PAGE_SIZE, pageQs } from "../api";
 import AppPagination from "../components/AppPagination.vue";
 import AppDateInput from "../components/AppDateInput.vue";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
+import { showToast } from "../composables/useToast";
 
 const router = useRouter();
 const route = useRoute();
@@ -39,7 +40,6 @@ const status = ref("");
 const data = ref<any>(null);
 const loading = ref(true);
 const err = ref("");
-const msg = ref("");
 const tablePage = ref(1);
 const tablePageSize = ref(DEFAULT_PAGE_SIZE);
 const refundTarget = ref<any | null>(null);
@@ -130,7 +130,6 @@ async function load(resetPage = false) {
 function openRefund(order: any) {
   refundTarget.value = order;
   refundReason.value = "";
-  msg.value = "";
 }
 function closeRefund() {
   if (refunding.value) return;
@@ -141,19 +140,18 @@ async function submitRefund() {
   const order = refundTarget.value;
   const reason = refundReason.value.trim();
   if (!order || reason.length < 2) {
-    msg.value = "请填写退款原因";
+    showToast("请填写退款原因", true);
     return;
   }
   if (!window.confirm(`确认退款订单 ${order.no}？该操作不可撤销。`)) return;
   refunding.value = true;
-  msg.value = "";
   try {
     await api(`/admin/orders/${order.id}/refund`, { method: "POST", body: { reason } });
     refundTarget.value = null;
     refundReason.value = "";
     await load();
   } catch (error: any) {
-    msg.value = error.message || "退款失败";
+    showToast(error.message || "退款失败", true);
   } finally {
     refunding.value = false;
   }
@@ -347,7 +345,6 @@ watch(status, () => load(true));
         </div>
         <div class="tiny refund-label">退款原因（必填，至少 2 个字）</div>
         <textarea v-model="refundReason" class="inp refund-reason" maxlength="100" placeholder="例如：商品缺货，已与顾客协商退款"></textarea>
-        <div v-if="msg" class="err">{{ msg }}</div>
         <div class="refund-actions">
           <button class="btn ghost" :disabled="refunding" @click="closeRefund">取消</button>
           <button class="btn danger" :disabled="refunding" @click="submitRefund">{{ refunding ? "退款处理中…" : "确认退款" }}</button>

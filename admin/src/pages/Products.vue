@@ -3,22 +3,25 @@ import { computed, onMounted, ref } from "vue";
 import { api } from "../api";
 import AppSelect from "../components/AppSelect.vue";
 import ImgField from "../components/ImgField.vue";
+import { showToast } from "../composables/useToast";
 
 const products = ref<any[]>([]);
 const cats = ref<any[]>([]);
+const tpls = ref<any[]>([]);
 const edit = ref<any>(null);
-const msg = ref("");
 const catDlg = ref<null | "add" | { id: number; name: string }>(null);
 const catForm = ref({ name: "", sort: 9 });
 const catBusy = ref(false);
 
 async function load() {
-  const [p, c] = await Promise.all([
+  const [p, c, t] = await Promise.all([
     api<any>("/admin/products?pageSize=0"),
     api<any>("/admin/cats?pageSize=0"),
+    api<any>("/admin/cardTpls?pageSize=0"),
   ]);
   products.value = Array.isArray(p) ? p : p.items || [];
   cats.value = Array.isArray(c) ? c : c.items || [];
+  tpls.value = Array.isArray(t) ? t : t.items || [];
 }
 onMounted(load);
 
@@ -42,6 +45,49 @@ const catRows = computed(() =>
 );
 const defaultCid = computed(() => cats.value.find((c) => !c.disabled)?.id || cats.value[0]?.id);
 
+function tplName(id: number) {
+  return tpls.value.find((t) => t.id === id)?.name || "（卡券已删）";
+}
+function comboText(p: any) {
+  if (p.type !== "COMBO") return "—";
+  const parts = (p.combo || []).map((c: any) => `${tplName(c.tpl)}×${c.qty || 1}`);
+  return parts.length ? parts.join("、") : "—";
+}
+function blankProduct() {
+  return {
+    name: "",
+    cid: defaultCid.value,
+    price: 0,
+    type: "SINGLE",
+    desc: "",
+    combo: [] as { tpl: number; qty: number }[],
+    dailyLimit: -1,
+    img: "",
+  };
+}
+function openEdit(p: any) {
+  edit.value = {
+    ...p,
+    type: p.type || "SINGLE",
+    combo: (p.combo || []).map((c: any) => ({ tpl: Number(c.tpl), qty: Number(c.qty || 1) })),
+    dailyLimit: p.dailyLimit ?? -1,
+  };
+}
+function onTypeChange() {
+  if (!edit.value) return;
+  if (edit.value.type === "COMBO" && !edit.value.combo?.length) {
+    edit.value.combo = [{ tpl: tpls.value[0]?.id || 1, qty: 1 }];
+  }
+}
+function addComboRow() {
+  if (!edit.value) return;
+  edit.value.combo = edit.value.combo || [];
+  edit.value.combo.push({ tpl: tpls.value[0]?.id || 1, qty: 1 });
+}
+function removeComboRow(i: number) {
+  edit.value?.combo?.splice(i, 1);
+}
+
 function openCatAdd() {
   catForm.value = { name: "", sort: 9 };
   catDlg.value = "add";
@@ -58,29 +104,28 @@ function closeCatDlg() {
 async function saveCat() {
   const name = catForm.value.name.trim();
   if (!name) {
-    msg.value = "请填写分类名称";
+    showToast("请填写分类名称", true);
     return;
   }
   catBusy.value = true;
-  msg.value = "";
   try {
     if (catDlg.value === "add") {
       await api("/admin/cats", {
         method: "POST",
         body: { data: { name, sort: Number(catForm.value.sort) || 9 } },
       });
-      msg.value = "已新增，C 端点单页同步";
+      showToast("已新增，C 端点单页同步");
     } else if (catDlg.value && typeof catDlg.value === "object") {
       await api(`/admin/cats/${catDlg.value.id}`, {
         method: "PUT",
         body: { data: { name, sort: Number(catForm.value.sort) || 99 } },
       });
-      msg.value = "已保存";
+      showToast("已保存");
     }
     closeCatDlg();
     await load();
   } catch (e: any) {
-    msg.value = e?.message || "保存失败";
+    showToast(e?.message || "保存失败", true);
   } finally {
     catBusy.value = false;
   }
@@ -91,13 +136,12 @@ async function saveCatSort(c: any, sort: number) {
     await api(`/admin/cats/${c.id}`, { method: "PUT", body: { data: { name: c.name, sort } } });
     c.sort = sort;
   } catch (e: any) {
-    msg.value = e?.message || "排序保存失败";
+    showToast(e?.message || "排序保存失败", true);
     await load();
   }
 }
 
 async function toggleCat(c: any) {
-  msg.value = "";
   try {
     await api(`/admin/cats/${c.id}`, {
       method: "PUT",
@@ -105,7 +149,7 @@ async function toggleCat(c: any) {
     });
     await load();
   } catch (e: any) {
-    msg.value = e?.message || "操作失败";
+    showToast(e?.message || "操作失败", true);
   }
 }
 
@@ -115,13 +159,12 @@ async function deleteCat(c: any) {
     ? `该分类下有 ${offlineN} 个已下架商品，删除后它们将归为「未分类」，重新上架前需先改分类。`
     : "";
   if (!window.confirm(`确认删除分类「${c.name}」？${tip ? "\n" + tip : ""}`)) return;
-  msg.value = "";
   try {
     await api(`/admin/cats/${c.id}`, { method: "DELETE" });
-    msg.value = "已删除";
+    showToast("已删除");
     await load();
   } catch (e: any) {
-    msg.value = e?.message || "删除失败";
+    showToast(e?.message || "删除失败", true);
   }
 }
 
@@ -135,25 +178,33 @@ async function toggleOff(p: any, off: boolean) {
 }
 async function save() {
   if (!edit.value?.name) {
-    msg.value = "请填写商品名称";
+    showToast("请填写商品名称", true);
     return;
   }
   const c = cats.value.find((x) => x.id === edit.value.cid);
   if (c?.disabled) {
-    msg.value = `该商品所属分类「${c.name}」已停用，请先启用分类或改分类`;
+    showToast(`该商品所属分类「${c.name}」已停用，请先启用分类或改分类`, true);
     return;
   }
-  await api("/admin/products", { method: "POST", body: { data: edit.value } });
+  if (edit.value.type === "COMBO" && !(edit.value.combo || []).length) {
+    showToast("套餐商品请至少配置一项发放内容", true);
+    return;
+  }
+  const payload = {
+    ...edit.value,
+    dailyLimit: Number(edit.value.dailyLimit ?? -1),
+    combo: edit.value.type === "COMBO" ? edit.value.combo : [],
+  };
+  await api("/admin/products", { method: "POST", body: { data: payload } });
   edit.value = null;
-  msg.value = "已保存";
+  showToast("已保存");
   await load();
 }
 </script>
 
 <template>
   <div class="prod-page">
-    <div class="hdr">商品管理 <em>两类 SKU：单品走核销 · 套餐下单自动发卡</em></div>
-    <p class="tiny" v-if="msg" style="margin-bottom:8px">{{ msg }}</p>
+    <div class="hdr products-hdr"><span class="hdr-title">商品管理</span><em class="hdr-note">两类 SKU：单品走核销 · 套餐下单自动发卡</em></div>
     <div class="prod-grid">
       <div class="card prod-list">
         <div class="row" style="margin-bottom:11px;flex:none">
@@ -162,13 +213,13 @@ async function save() {
           <button
             class="btn gold"
             style="margin-left:auto"
-            @click="edit = { name:'', cid: defaultCid, price:0, type:'SINGLE', desc:'', combo:[], img:'' }"
+            @click="edit = blankProduct()"
           >＋ 新增商品</button>
         </div>
         <div class="tb-wrap">
-          <table class="tb2" data-cols="lccccc">
+          <table class="tb2" data-cols="lcccccc">
             <thead>
-              <tr><th>商品</th><th>分类</th><th>价格</th><th>类型</th><th>状态</th><th>操作</th></tr>
+              <tr><th>商品</th><th>分类</th><th>价格</th><th>类型</th><th>发放配置</th><th>状态</th><th>操作</th></tr>
             </thead>
             <tbody>
             <tr v-for="p in online" :key="p.id">
@@ -184,23 +235,26 @@ async function save() {
               </td>
               <td class="tiny">{{ catName(p.cid) }}</td>
               <td><b>{{ p.price }}</b></td>
-              <td><span class="pill">{{ p.type === "COMBO" ? "套餐发卡" : "单品" }}</span></td>
+              <td><span class="pill" :class="p.type === 'COMBO' ? 'combo-pill' : 'single-pill'">{{ p.type === "COMBO" ? "套餐发卡" : "单品" }}</span></td>
+              <td class="tiny combo-cell">{{ comboText(p) }}</td>
               <td><span class="pill" :style="{ color: p.soldOut ? '#A32D2D' : '#3B6D11' }">{{ p.soldOut ? "已估清" : "在售" }}</span></td>
               <td>
-                <button class="btn ghost" @click="edit = { ...p }">编辑</button>
+                <button class="btn ghost" @click="openEdit(p)">编辑</button>
                 <button class="btn ghost" @click="toggleSold(p)">{{ p.soldOut ? "恢复" : "估清" }}</button>
                 <button class="btn ghost" style="color:#A32D2D" @click="toggleOff(p, true)">下架</button>
               </td>
             </tr>
-            <tr v-if="offline.length"><td colspan="6" class="tiny" style="background:#FAF9F5">— 已下架 {{ offline.length }} 个 —</td></tr>
+            <tr v-if="offline.length"><td colspan="7" class="tiny" style="background:#FAF9F5">— 已下架 {{ offline.length }} 个 —</td></tr>
             <tr v-for="p in offline" :key="'o'+p.id" style="opacity:.55">
               <td>{{ p.name }}</td>
               <td class="tiny">{{ catName(p.cid) }}</td>
               <td>{{ p.price }}</td>
-              <td colspan="2"></td>
+              <td><span class="pill single-pill">{{ p.type === "COMBO" ? "套餐发卡" : "单品" }}</span></td>
+              <td class="tiny combo-cell">{{ comboText(p) }}</td>
+              <td><span class="pill" style="color:#6B6A65">已下架</span></td>
               <td><button class="btn ghost" @click="toggleOff(p, false)">重新上架</button></td>
             </tr>
-            <tr v-if="!online.length && !offline.length"><td colspan="6" class="table-empty">暂无商品，可点击右上角新增</td></tr>
+            <tr v-if="!online.length && !offline.length"><td colspan="7" class="table-empty">暂无商品，可点击右上角新增</td></tr>
             </tbody>
           </table>
         </div>
@@ -250,17 +304,36 @@ async function save() {
       <div class="prod-side">
         <div v-if="edit" class="card">
           <div class="st">{{ edit.id ? "编辑 · " + edit.name : "新增商品" }} <em style="cursor:pointer" @click="edit=null">✕</em></div>
-          <div class="tiny">商品图片</div>
-          <ImgField v-model="edit.img" size="md" />
-          <div class="tiny" style="margin:4px 0 8px">建议方图，单张 ≤ 2MB</div>
-          <div class="tiny">商品名称 *</div>
+          <div class="fld">商品图片</div>
+          <ImgField v-model="edit.img" size="md" actions />
+          <div class="tiny img-hint">建议方图，单张 ≤ 2MB</div>
+          <div class="fld">商品名称 *</div>
           <input class="inp" v-model="edit.name" />
-          <div class="tiny">分类</div>
+          <div class="fld">分类</div>
           <AppSelect v-if="edit" v-model="edit.cid" :options="catOpts" />
-          <div class="tiny">金币价格 *</div>
+          <div class="fld">金币价格 *</div>
           <input class="inp" type="number" v-model.number="edit.price" />
-          <div class="tiny">描述</div>
+          <div class="fld">类型 *</div>
+          <select v-model="edit.type" class="inp" @change="onTypeChange">
+            <option value="SINGLE">单品（下单核销）</option>
+            <option value="COMBO">套餐（下单自动发卡）</option>
+          </select>
+          <div class="fld">描述</div>
           <input class="inp" v-model="edit.desc" />
+          <div v-if="edit.type === 'COMBO'" class="combo-editor">
+            <div class="fld">发放配置 *</div>
+            <div v-if="!(edit.combo || []).length" class="tiny combo-empty">尚未配置发放内容</div>
+            <div v-for="(row, i) in edit.combo || []" :key="i" class="combo-row">
+              <select v-model.number="row.tpl" class="inp combo-tpl">
+                <option v-for="t in tpls" :key="t.id" :value="t.id">{{ t.name }}</option>
+              </select>
+              <input v-model.number="row.qty" class="inp combo-qty" type="number" min="1" />
+              <button type="button" class="btn sm" @click="removeComboRow(i)">删</button>
+            </div>
+            <button type="button" class="btn sm combo-add" @click="addComboRow">＋ 添加发放项</button>
+          </div>
+          <div class="fld">每日限量（-1 不限）</div>
+          <input v-model.number="edit.dailyLimit" class="inp" type="number" />
           <button class="btn" style="width:100%;margin-top:8px" @click="save">{{ edit.id ? "保存修改" : "创建商品" }}</button>
         </div>
       </div>
@@ -292,6 +365,10 @@ async function save() {
   width: 100%;
 }
 .prod-page .hdr { flex: none; }
+.products-hdr .hdr-note { position: static; transform: none; margin-left: auto; text-align: right; pointer-events: auto; white-space: normal; }
+@media (max-width: 900px) {
+  .products-hdr .hdr-note { margin-left: 0; text-align: left; width: 100%; }
+}
 .prod-list {
   min-height: 0;
   display: flex;
@@ -367,5 +444,17 @@ async function save() {
   font-size: 12px;
   color: var(--ink2);
   margin-bottom: 4px;
+  margin-top: 8px;
 }
+.fld:first-of-type { margin-top: 0; }
+.img-hint { margin: 4px 0 0; color: var(--ink3); }
+.combo-cell { max-width: 220px; line-height: 1.5; }
+.single-pill { border: 1px solid var(--line); color: var(--ink2); background: transparent; }
+.combo-pill { background: #F3EEFB; color: #4A2A7A; }
+.combo-editor { margin-top: 4px; }
+.combo-empty { margin-bottom: 6px; color: var(--ink3); }
+.combo-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+.combo-tpl { flex: 1; margin: 0; min-width: 0; }
+.combo-qty { width: 64px; margin: 0; text-align: right; }
+.combo-add { margin-top: 2px; }
 </style>

@@ -3,8 +3,8 @@ import { computed, ref } from "vue";
 import { uploadFile } from "../api";
 
 const props = withDefaults(
-  defineProps<{ modelValue?: string; size?: "sm" | "md" }>(),
-  { modelValue: "", size: "sm" },
+  defineProps<{ modelValue?: string; size?: "sm" | "md"; actions?: boolean }>(),
+  { modelValue: "", size: "sm", actions: false },
 );
 const emit = defineEmits<{ "update:modelValue": [v: string] }>();
 
@@ -32,6 +32,10 @@ async function onFile(e: Event) {
     busy.value = false;
   }
 }
+function clearImg() {
+  err.value = "";
+  emit("update:modelValue", "");
+}
 </script>
 
 <template>
@@ -42,11 +46,17 @@ async function onFile(e: Event) {
       <input ref="inp" type="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden @change="onFile" />
     </div>
     <div v-if="err" class="imgf-error">{{ err }}</div>
+    <div v-if="actions && displayUrl" class="imgf-actions">
+      <button type="button" class="btn sm" :disabled="busy" @click="pick">替换</button>
+      <button type="button" class="btn sm" :disabled="busy" @click="clearImg">删图</button>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .imgf-wrap { display: inline-flex; flex-direction: column; align-items: flex-start; max-width: 100%; }
+.imgf-actions { display: flex; gap: 4px; margin-top: 5px; flex-wrap: wrap; }
+.imgf-actions .btn { padding: 3px 7px; font-size: 11px; }
 .imgf {
   position: relative;
   background: #EDEBE4;

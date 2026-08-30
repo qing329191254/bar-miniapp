@@ -2,6 +2,7 @@
 import { onMounted, ref } from "vue";
 import { api } from "../api";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
+import { showToast } from "../composables/useToast";
 
 type StaffRow = {
   id: number;
@@ -18,7 +19,6 @@ type StaffRow = {
 const rows = ref<StaffRow[]>([]);
 const loading = ref(true);
 const err = ref("");
-const msg = ref("");
 const acting = ref(false);
 
 const addForm = ref({ phone: "", nick: "", role: "STAFF" });
@@ -30,13 +30,6 @@ const ROLE_NAME: Record<string, string> = { STAFF: "店员", MANAGER: "店长", 
 
 function fmt(n: number) {
   return Number(n || 0).toLocaleString("en-US");
-}
-
-function notify(text: string) {
-  msg.value = text;
-  window.setTimeout(() => {
-    if (msg.value === text) msg.value = "";
-  }, 2200);
 }
 
 async function load() {
@@ -56,7 +49,7 @@ async function load() {
 async function addStaff() {
   const phone = addForm.value.phone.trim();
   if (!phone) {
-    notify("请填写手机号");
+    showToast("请填写手机号", true);
     return;
   }
   acting.value = true;
@@ -67,9 +60,9 @@ async function addStaff() {
     });
     addForm.value = { phone: "", nick: "", role: "STAFF" };
     await load();
-    notify("已添加，该手机号登录后自动识别为员工");
+    showToast("已添加，该手机号登录后自动识别为员工");
   } catch (e: any) {
-    notify(e?.message || "添加失败");
+    showToast(e?.message || "添加失败", true);
   } finally {
     acting.value = false;
   }
@@ -79,7 +72,7 @@ function onRoleChange(row: StaffRow, event: Event) {
   const select = event.target as HTMLSelectElement;
   const role = select.value;
   if (role === "BOSS" || row.role === "BOSS") {
-    notify("老板角色不可在此变更");
+    showToast("老板角色不可在此变更", true);
     select.value = row.role;
     return;
   }
@@ -104,7 +97,7 @@ async function confirmRole() {
   if (!roleDlg.value) return;
   const reason = roleDlg.value.reason.trim();
   if (reason.length < 2) {
-    notify("请填写原因");
+    showToast("请填写原因", true);
     return;
   }
   acting.value = true;
@@ -115,9 +108,9 @@ async function confirmRole() {
     });
     roleDlg.value = null;
     await load();
-    notify("角色已变更，已记入日志");
+    showToast("角色已变更，已记入日志");
   } catch (e: any) {
-    notify(e?.message || "变更失败");
+    showToast(e?.message || "变更失败", true);
   } finally {
     acting.value = false;
   }
@@ -130,9 +123,9 @@ async function confirmDisable() {
     await api(`/admin/staff/${disableDlg.value.id}/disable`, { method: "POST" });
     disableDlg.value = null;
     await load();
-    notify("已停用，立即失效，历史记录保留");
+    showToast("已停用，立即失效，历史记录保留");
   } catch (e: any) {
-    notify(e?.message || "停用失败");
+    showToast(e?.message || "停用失败", true);
   } finally {
     acting.value = false;
   }
@@ -145,8 +138,6 @@ onMounted(load);
   <AppAsyncPage :loading="loading" :error="err" @retry="load">
     <div>
       <div class="hdr">员工与权限 <em>仅老板 · 员工不可自助注册</em></div>
-      <p v-if="msg" class="notice">{{ msg }}</p>
-
       <div class="card tb-wrap">
         <table class="tb2">
           <thead>
@@ -243,7 +234,6 @@ onMounted(load);
 </template>
 
 <style scoped>
-.notice { color: var(--green); font-size: 12px; margin-bottom: 8px; }
 .tb-wrap { padding: 0; overflow: auto; }
 .name { font-weight: 500; }
 .disabled-tag { margin-left: 6px; color: var(--red); font-size: 11px; font-weight: 400; }

@@ -2,11 +2,11 @@
 import { onMounted, ref } from "vue";
 import { api } from "../api";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
+import { showToast } from "../composables/useToast";
 
 const rows = ref<any[]>([]);
 const loading = ref(true);
 const err = ref("");
-const msg = ref("");
 const saving = ref(false);
 const isNew = ref(false);
 const editingId = ref<number | null>(null);
@@ -63,7 +63,6 @@ function openNew() {
   isNew.value = true;
   editingId.value = null;
   form.value = blank();
-  msg.value = "";
 }
 
 function openEdit(row: any) {
@@ -77,7 +76,6 @@ function openEdit(row: any) {
       weekdays: (row.rules?.weekdays || []).map(Number),
     },
   };
-  msg.value = "";
 }
 
 function closeForm() {
@@ -113,25 +111,24 @@ function exchText(row: any) {
 
 async function save() {
   if (!form.value.name.trim()) {
-    msg.value = "请填写卡券名称";
+    showToast("请填写卡券名称", true);
     return;
   }
   saving.value = true;
-  msg.value = "";
   try {
     const item = normalized();
     if (isNew.value) {
       const saved = await api<any>("/admin/card-templates", { method: "POST", body: { data: item } });
       isNew.value = false;
       editingId.value = saved.id;
-      msg.value = "已新增";
+      showToast("已新增");
     } else {
       await api(`/admin/card-templates/${editingId.value}`, { method: "PUT", body: { data: item } });
-      msg.value = "已保存";
+      showToast("已保存");
     }
     await load();
   } catch (e: any) {
-    msg.value = e?.message || "保存失败";
+    showToast(e?.message || "保存失败", true);
   } finally {
     saving.value = false;
   }
@@ -154,8 +151,6 @@ onMounted(load);
       :skeleton="{ tableCols: 7, tableRows: 8 }"
       @retry="load"
     >
-      <p v-if="msg" class="page-msg" :class="{ err: msg.includes('失败') || msg.includes('请填写') }">{{ msg }}</p>
-
       <div class="card-tpl-layout">
         <section class="card list-card">
           <div class="list-head">
@@ -382,18 +377,6 @@ onMounted(load);
 .tips-body {
   color: var(--red);
   line-height: 1.8;
-}
-.page-msg {
-  margin: 0 0 10px;
-  padding: 8px 11px;
-  border-radius: 8px;
-  background: var(--greenbg);
-  color: var(--green);
-  font-size: 12px;
-}
-.page-msg.err {
-  background: var(--redbg);
-  color: var(--red);
 }
 @media (max-width: 960px) {
   .card-tpl-layout {

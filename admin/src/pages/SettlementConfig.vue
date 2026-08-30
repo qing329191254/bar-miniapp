@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { api } from "../api";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
+import { showToast } from "../composables/useToast";
 
 type Config = {
   rankDim:"WEEK"|"MONTH"; rankRange:number; prizeMap:Record<string,string>;
@@ -11,7 +12,7 @@ type CardTpl = { id:number; name:string; sub:string };
 
 const defaults:Config={rankDim:"WEEK",rankRange:3,prizeMap:{1:"TREASURE_DIAMOND",2:"TREASURE_GOLD",3:"TREASURE_SILVER"},teamReward:true,teamCard:"TREASURE_TEAM",stack:true,reqShard:true,settleCap:20};
 const cfg=ref<Config>({...defaults,prizeMap:{...defaults.prizeMap}}), templates=ref<CardTpl[]>([]);
-const loading=ref(true), err=ref(""), message=ref(""), saving=ref(false);
+const loading=ref(true), err=ref(""), saving=ref(false);
 const fallback=["TREASURE_DIAMOND","TREASURE_GOLD","TREASURE_SILVER"];
 const personalSubs=["TREASURE_DIAMOND","TREASURE_GOLD","TREASURE_SILVER","TREASURE_TEAM"];
 const teamSubs=["TREASURE_TEAM","TREASURE_SILVER","TREASURE_DIAMOND"];
@@ -27,7 +28,7 @@ function setRange(value:number|string){
 function setCap(value:number|string){cfg.value.settleCap=Math.max(1,Math.min(999,Math.floor(Number(value)||20)))}
 function optionName(sub:string){return templateMap.value[sub]?.name||({TREASURE_DIAMOND:"钻石宝箱卡",TREASURE_GOLD:"黄金宝箱卡",TREASURE_SILVER:"白银宝箱卡",TREASURE_TEAM:"战队宝箱卡"} as Record<string,string>)[sub]||sub}
 async function load(){loading.value=true;err.value="";try{const d=await api<any>("/admin/settlement-config");cfg.value={...defaults,...(d.cfg||{}),prizeMap:{...defaults.prizeMap,...(d.cfg?.prizeMap||{})}};templates.value=d.templates||[];setRange(cfg.value.rankRange);setCap(cfg.value.settleCap)}catch(e:any){err.value=e?.message||"加载失败"}finally{loading.value=false}}
-async function save(){saving.value=true;message.value="";try{setRange(cfg.value.rankRange);setCap(cfg.value.settleCap);await api("/admin/settlement-config",{method:"PUT",body:{data:cfg.value}});message.value="规则已保存，C 端榜单同步生效"}catch(e:any){message.value=e?.message||"保存失败"}finally{saving.value=false}}
+async function save(){saving.value=true;try{setRange(cfg.value.rankRange);setCap(cfg.value.settleCap);await api("/admin/settlement-config",{method:"PUT",body:{data:cfg.value}});showToast("规则已保存，C 端榜单同步生效")}catch(e:any){showToast(e?.message||"保存失败",true)}finally{saving.value=false}}
 onMounted(load);
 </script>
 
@@ -35,8 +36,6 @@ onMounted(load);
   <div class="settle-config-page">
     <div class="hdr settle-config-hdr"><span class="hdr-title">榜单与奖励规则</span><em class="hdr-note">影响 C 端榜单口径与周/月结算发放 · 仅老板可改</em></div>
     <AppAsyncPage :loading="loading" :data="cfg" :err="err" @retry="load">
-      <div v-if="message" class="save-message" :class="{error:message.includes('失败')}">{{ message }}</div>
-
       <section class="card">
         <div class="st">榜单统计口径</div>
         <div class="dimension-row"><div class="chip-row"><button class="chip" :class="{on:cfg.rankDim==='WEEK'}" @click="cfg.rankDim='WEEK'">周维度</button><button class="chip" :class="{on:cfg.rankDim==='MONTH'}" @click="cfg.rankDim='MONTH'">月维度</button></div><span class="tiny">{{ dimHint }}</span></div>
@@ -79,5 +78,5 @@ onMounted(load);
 </template>
 
 <style scoped>
-.settle-config-page{width:100%;min-width:0}.settle-config-hdr .hdr-note{position:static;transform:none;margin-left:auto;text-align:right;pointer-events:auto;white-space:normal}.dimension-row,.range-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.dimension-row{justify-content:space-between}.chip-row{display:flex;gap:6px}.chip{font-family:inherit}.section-note{margin:9px 0 0}.range-row{margin-bottom:10px}.custom-label{margin-left:4px}.range-input{width:78px;margin:0;padding:4px 7px;font-size:12px}.prize-table th:nth-child(odd){width:14%}.prize-table th:nth-child(even){width:36%}.prize-select{margin:0;padding:5px 30px 5px 8px;font-size:12px}.config-footnote{margin-top:7px;color:var(--ink3);font-size:11px;line-height:1.7}.setting-row{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:11px 0;border-bottom:1px solid var(--line);cursor:pointer}.setting-row.no-border{border-bottom:0}.setting-row span{min-width:0}.setting-row b{display:block;font-size:13px;font-weight:500}.setting-row small{display:block;margin-top:2px;color:var(--ink2);font-size:11px;font-weight:400}.team-select{width:220px;margin:0}.toggle{width:36px;height:20px;accent-color:var(--ink);cursor:pointer}.cap-input{width:90px;margin:0;padding:5px 8px;text-align:right}.cap-help b{color:var(--ink2)}.save-btn{margin-bottom:11px}.save-btn:disabled{opacity:.55;cursor:not-allowed}.final-note{margin-bottom:0}.save-message{margin-bottom:12px;padding:9px 12px;border-radius:8px;background:var(--greenbg);color:var(--green);font-size:12px}.save-message.error{background:var(--redbg);color:var(--red)}@media(max-width:720px){.settle-config-hdr .hdr-note{margin-left:0;text-align:left;width:100%}.setting-row{align-items:flex-start}.team-select{width:min(220px,50%)}.prize-table{min-width:620px}}
+.settle-config-page{width:100%;min-width:0}.settle-config-hdr .hdr-note{position:static;transform:none;margin-left:auto;text-align:right;pointer-events:auto;white-space:normal}.dimension-row,.range-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.dimension-row{justify-content:space-between}.chip-row{display:flex;gap:6px}.chip{font-family:inherit}.section-note{margin:9px 0 0}.range-row{margin-bottom:10px}.custom-label{margin-left:4px}.range-input{width:78px;margin:0;padding:4px 7px;font-size:12px}.prize-table th:nth-child(odd){width:14%}.prize-table th:nth-child(even){width:36%}.prize-select{margin:0;padding:5px 30px 5px 8px;font-size:12px}.config-footnote{margin-top:7px;color:var(--ink3);font-size:11px;line-height:1.7}.setting-row{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:11px 0;border-bottom:1px solid var(--line);cursor:pointer}.setting-row.no-border{border-bottom:0}.setting-row span{min-width:0}.setting-row b{display:block;font-size:13px;font-weight:500}.setting-row small{display:block;margin-top:2px;color:var(--ink2);font-size:11px;font-weight:400}.team-select{width:220px;margin:0}.toggle{width:36px;height:20px;accent-color:var(--ink);cursor:pointer}.cap-input{width:90px;margin:0;padding:5px 8px;text-align:right}.cap-help b{color:var(--ink2)}.save-btn{margin-bottom:11px}.save-btn:disabled{opacity:.55;cursor:not-allowed}.final-note{margin-bottom:0}@media(max-width:720px){.settle-config-hdr .hdr-note{margin-left:0;text-align:left;width:100%}.setting-row{align-items:flex-start}.team-select{width:min(220px,50%)}.prize-table{min-width:620px}}
 </style>

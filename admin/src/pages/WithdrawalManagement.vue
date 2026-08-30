@@ -4,6 +4,8 @@ import { api, DEFAULT_PAGE_SIZE, pageQs } from "../api";
 import AppPagination from "../components/AppPagination.vue";
 import AppDateInput from "../components/AppDateInput.vue";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
+import { showToast } from "../composables/useToast";
+import { csvFilename, downloadCsv } from "../exportCsv";
 
 const PRESETS: [string, string][] = [
   ["today", "今天"],
@@ -35,6 +37,7 @@ const loading = ref(true);
 const err = ref("");
 const tablePage = ref(1);
 const tablePageSize = ref(DEFAULT_PAGE_SIZE);
+const exporting = ref(false);
 const now = ref(Date.now());
 let timer: number | undefined;
 
@@ -95,8 +98,48 @@ function noteText(row: any) {
   if (row.status === "CANCELLED") return "顾客自行取消，已全额退回";
   return "—";
 }
-function exportDemo() {
-  window.alert("已导出当前筛选结果（演示）");
+function exportFilename(rangeLabel: string) {
+  return csvFilename("提分单", rangeLabel);
+}
+async function exportRows() {
+  if (exporting.value) return;
+  exporting.value = true;
+  try {
+    const params = new URLSearchParams(
+      pageQs(1, 0, {
+        preset: preset.value,
+        opUid: opUid.value,
+        status: status.value,
+      }),
+    );
+    if (preset.value === "custom") {
+      if (dateFrom.value) params.set("from", dateFrom.value);
+      if (dateTo.value) params.set("to", dateTo.value);
+    }
+    const res = await api<any>(`/admin/withdrawals-page?${params}`);
+    const list: any[] = res.rows || [];
+    if (!list.length) {
+      showToast("当前筛选条件下无数据可导出", true);
+      return;
+    }
+    const headers = ["提分单号", "会员", "数量", "状态", "提交时间", "等待时长", "经手员工", "备注"];
+    const body = list.map((row) => [
+      row.no || "",
+      memberLabel(row),
+      String(row.pts ?? ""),
+      statusPill(row.status)[0],
+      stamp(row),
+      durTxt(wdrWait(row)),
+      row.opName ? `${row.opName}${row.opRole ? ` · ${row.opRole}` : ""}` : "—",
+      noteText(row),
+    ]);
+    downloadCsv(exportFilename(res.rangeLabel || ""), headers, body);
+    showToast(`已导出 ${list.length} 条提分单`);
+  } catch (e: any) {
+    showToast(e?.message || "导出失败", true);
+  } finally {
+    exporting.value = false;
+  }
 }
 function setPreset(p: string) {
   if (p !== "custom" && p === preset.value) return;
@@ -183,7 +226,7 @@ watch([opUid, status], () => load(true));
     <div class="hdr">
       <span class="hdr-title">提分单管理</span>
       <em v-if="data" class="hdr-note">{{ hdrNote }}</em>
-      <button class="btn sm hdr-export" @click="exportDemo">导出</button>
+      <button class="btn sm hdr-export" :disabled="exporting" @click="exportRows">{{ exporting ? "导出中…" : "导出" }}</button>
     </div>
 
     <div class="note rd">
@@ -212,7 +255,7 @@ watch([opUid, status], () => load(true));
           <label class="flt-field">
             <span class="fld">经手员工</span>
             <select v-model.number="opUid" class="inp flt-select">
-              <option :value="0">全部员工</option>
+              <option :value="0">全部操作人</option>
               <option v-for="s in data.staff || []" :key="s.id" :value="s.id">{{ s.nick }} · {{ ROLE[s.role] || s.role }}</option>
             </select>
           </label>
@@ -353,6 +396,7 @@ watch([opUid, status], () => load(true));
 
 <style scoped>
 .hdr-export { margin-left: auto; }
+.hdr-export:disabled { opacity: .55; cursor: not-allowed; }
 .flt-card .st em { font-weight: normal; color: var(--ink2); }
 .flt-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .flt-custom { display: flex; align-items: center; gap: 6px; margin-top: 10px; flex-wrap: wrap; }

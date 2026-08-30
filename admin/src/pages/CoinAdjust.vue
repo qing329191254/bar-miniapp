@@ -4,6 +4,7 @@ import { useRouter } from "vue-router";
 import { api, DEFAULT_PAGE_SIZE, pageQs, savedUser } from "../api";
 import AppPagination from "../components/AppPagination.vue";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
+import { showToast } from "../composables/useToast";
 
 const router = useRouter();
 const data = ref<any>(null);
@@ -11,11 +12,9 @@ const loading = ref(true);
 const tablePage = ref(1);
 const tablePageSize = ref(DEFAULT_PAGE_SIZE);
 const err = ref("");
-const msg = ref("");
 const dlg = ref<null | { mode: "approve" | "reject"; row: any }>(null);
 const reason = ref("");
 const acting = ref(false);
-const dlgErr = ref("");
 
 const isBoss = computed(() => savedUser()?.role === "BOSS");
 
@@ -76,39 +75,34 @@ watch([tablePage, tablePageSize], () => load());
 function openApprove(row: any) {
   dlg.value = { mode: "approve", row };
   reason.value = "";
-  dlgErr.value = "";
 }
 function openReject(row: any) {
   dlg.value = { mode: "reject", row };
   reason.value = "";
-  dlgErr.value = "";
 }
 function closeDlg() {
   dlg.value = null;
   reason.value = "";
-  dlgErr.value = "";
 }
 
 async function submitDlg() {
   if (!dlg.value) return;
   const { mode, row } = dlg.value;
   if (mode === "reject" && reason.value.trim().length < 2) {
-    dlgErr.value = "驳回原因至少 2 个字";
+    showToast("驳回原因至少 2 个字", true);
     return;
   }
   acting.value = true;
-  dlgErr.value = "";
-  msg.value = "";
   try {
     await api(`/admin/coin-adjust/${row.id}/${mode}`, {
       method: "POST",
       body: mode === "reject" ? { reason: reason.value.trim() } : {},
     });
     closeDlg();
-    msg.value = mode === "approve" ? "已通过，金币已调整" : "已驳回";
+    showToast(mode === "approve" ? "已通过，金币已调整" : "已驳回");
     await load();
   } catch (e: any) {
-    dlgErr.value = e?.message || "操作失败";
+    showToast(e?.message || "操作失败", true);
   } finally {
     acting.value = false;
   }
@@ -128,8 +122,6 @@ onMounted(load);
     <div v-if="!isBoss" class="note rd">
       <b>权限不足：</b>手动调整金币直接改动真实负债，审批权仅归老板。店长可发起申请与查看进度，不可自行通过——否则「有权改数据的人同时能批准自己的改动」，风控形同虚设。
     </div>
-
-    <p v-if="msg" class="tiny" style="color:#3B6D11;margin-bottom:10px">{{ msg }}</p>
 
     <AppAsyncPage
       :loading="loading"
@@ -207,7 +199,6 @@ onMounted(load);
           <div class="tiny" style="margin:10px 0 6px">驳回原因（必填，至少 2 个字）</div>
           <textarea v-model="reason" class="inp adj-reason" maxlength="100" placeholder="例如：凭证不完整"></textarea>
         </template>
-        <div v-if="dlgErr" class="adj-err">{{ dlgErr }}</div>
         <div class="adj-actions">
           <button class="btn ghost" :disabled="acting" @click="closeDlg">取消</button>
           <button
@@ -304,11 +295,6 @@ onMounted(load);
   min-height: 72px;
   resize: vertical;
   box-sizing: border-box;
-}
-.adj-err {
-  color: var(--red);
-  font-size: 12px;
-  margin-top: 8px;
 }
 .adj-actions {
   display: flex;

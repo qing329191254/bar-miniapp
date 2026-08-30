@@ -2,12 +2,12 @@
 import { computed, onMounted, ref } from "vue";
 import { api } from "../api";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
+import { showToast } from "../composables/useToast";
 
 type TierRow = { id: number; amount: number; bonus: number; rec: boolean; pendingCount?: number };
 
 const loading = ref(true);
 const err = ref("");
-const msg = ref("");
 const singleLimit = ref(0);
 const rows = ref<TierRow[]>([]);
 const drafts = ref<Record<number, { amount: number; bonus: number }>>({});
@@ -62,34 +62,31 @@ async function load() {
 function setAmount(row: TierRow, value: number) {
   const v = Number(value || 0);
   if (v <= 0) {
-    msg.value = "金额必须大于 0";
+    showToast("金额必须大于 0", true);
     syncDrafts(rows.value);
     return;
   }
   if (rows.value.some((x) => x.id !== row.id && x.amount === v)) {
-    msg.value = `已存在 ¥${v} 档位`;
+    showToast(`已存在 ¥${v} 档位`, true);
     syncDrafts(rows.value);
     return;
   }
   drafts.value[row.id] = { ...draftOf(row), amount: v };
-  msg.value = "";
 }
 
 function setBonus(row: TierRow, value: number) {
   const v = Number(value || 0);
   if (v < 0) {
-    msg.value = "赠送金币不能为负";
+    showToast("赠送金币不能为负", true);
     syncDrafts(rows.value);
     return;
   }
   drafts.value[row.id] = { ...draftOf(row), bonus: v };
-  msg.value = "";
 }
 
 async function saveRow(row: TierRow) {
   const draft = draftOf(row);
   savingId.value = row.id;
-  msg.value = "";
   try {
     const saved = await api<TierRow>(`/admin/tiers/${row.id}`, {
       method: "PUT",
@@ -98,9 +95,9 @@ async function saveRow(row: TierRow) {
     const idx = rows.value.findIndex((x) => x.id === row.id);
     if (idx >= 0) rows.value[idx] = { ...rows.value[idx], ...saved };
     syncDrafts(rows.value);
-    msg.value = "已保存，C 端同步";
+    showToast("已保存，C 端同步");
   } catch (e: any) {
-    msg.value = e?.message || "保存失败";
+    showToast(e?.message || "保存失败", true);
     syncDrafts(rows.value);
   } finally {
     savingId.value = null;
@@ -108,35 +105,32 @@ async function saveRow(row: TierRow) {
 }
 
 async function toggleRec(row: TierRow) {
-  msg.value = "";
   try {
     const saved = await api<TierRow>(`/admin/tiers/${row.id}/recommend`, { method: "POST" });
     rows.value = rows.value.map((x) => ({ ...x, rec: x.id === saved.id ? saved.rec : false }));
-    msg.value = saved.rec ? "已设为最划算" : "已取消推荐";
+    showToast(saved.rec ? "已设为最划算" : "已取消推荐");
   } catch (e: any) {
-    msg.value = e?.message || "操作失败";
+    showToast(e?.message || "操作失败", true);
   }
 }
 
 function openAdd() {
   addForm.value = { amount: null, bonus: 0 };
   showAdd.value = true;
-  msg.value = "";
 }
 
 async function createTier() {
   const amount = Number(addForm.value.amount || 0);
   const bonus = Number(addForm.value.bonus || 0);
   if (amount <= 0) {
-    msg.value = "请填写有效的充值金额";
+    showToast("请填写有效的充值金额", true);
     return;
   }
   if (bonus < 0) {
-    msg.value = "赠送金币不能为负";
+    showToast("赠送金币不能为负", true);
     return;
   }
   adding.value = true;
-  msg.value = "";
   try {
     const saved = await api<TierRow>("/admin/tiers", {
       method: "POST",
@@ -144,16 +138,17 @@ async function createTier() {
     });
     showAdd.value = false;
     await load();
-    msg.value =
+    showToast(
       singleLimit.value && amount > singleLimit.value
         ? `已新增，但超过单笔上限 ¥${fmt(singleLimit.value)}，C 端不展示`
-        : "已新增，C 端充值页同步";
+        : "已新增，C 端充值页同步",
+    );
     if (!rows.value.some((x) => x.id === saved.id)) {
       rows.value.push({ ...saved, pendingCount: 0 });
       syncDrafts(rows.value);
     }
   } catch (e: any) {
-    msg.value = e?.message || "创建失败";
+    showToast(e?.message || "创建失败", true);
   } finally {
     adding.value = false;
   }
@@ -161,7 +156,7 @@ async function createTier() {
 
 function openDelete(row: TierRow) {
   if (rows.value.length <= 1) {
-    msg.value = "至少保留一个充值档位";
+    showToast("至少保留一个充值档位", true);
     return;
   }
   deleteTarget.value = row;
@@ -170,14 +165,13 @@ function openDelete(row: TierRow) {
 async function confirmDelete() {
   if (!deleteTarget.value) return;
   deleting.value = true;
-  msg.value = "";
   try {
     await api(`/admin/tiers/${deleteTarget.value.id}`, { method: "DELETE" });
     deleteTarget.value = null;
     await load();
-    msg.value = "已删除，C 端同步";
+    showToast("已删除，C 端同步");
   } catch (e: any) {
-    msg.value = e?.message || "删除失败";
+    showToast(e?.message || "删除失败", true);
   } finally {
     deleting.value = false;
   }
@@ -190,8 +184,6 @@ onMounted(load);
   <AppAsyncPage :loading="loading" :error="err" @retry="load">
     <div>
       <div class="hdr">充值档位配置 <em>仅老板可改 · 资金规则</em></div>
-      <p v-if="msg" class="notice">{{ msg }}</p>
-
       <div class="toolbar row">
         <button class="btn sm pri" @click="openAdd">＋ 新增档位</button>
         <span class="tiny">新增后 C 端充值页立即出现该档位，按金额升序排列</span>
@@ -302,7 +294,6 @@ onMounted(load);
 </template>
 
 <style scoped>
-.notice { color: var(--green); font-size: 12px; margin-bottom: 8px; }
 .toolbar { gap: 8px; margin-bottom: 11px; align-items: center; }
 .table-card { padding: 0; overflow: auto; }
 .tier-inp { padding: 4px 7px; }
