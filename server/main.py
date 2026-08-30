@@ -1359,6 +1359,32 @@ def staff_page(admin: dict = Depends(admin_user), db: Session = Depends(get_db))
     return L.staff_page(db)
 
 
+@app.get("/api/admin/signin-overview")
+def signin_overview(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(15, ge=1, le=200, alias="pageSize"),
+    admin: dict = Depends(admin_user),
+    db: Session = Depends(get_db),
+):
+    config = L.setting(db, "config") or {}
+    members = []
+    for user in db.query(User).filter(User.role == "CUSTOMER").order_by(User.id.desc()).all():
+        wallet = L.wallet_of(db, user.id)
+        members.append({"id": user.id, "nick": user.nick, "streak": wallet.sign_streak or 0})
+    rules = [r.to_dict() for r in db.query(SignRule).order_by(SignRule.days)]
+    for rule in rules:
+        rule["qualified"] = sum(1 for m in members if m["streak"] >= rule["days"])
+    pg = L.paginate(members, page, page_size)
+    return {
+        "signPoints": int(config.get("signPoints") or 0),
+        "rules": rules,
+        "members": pg["items"],
+        "memberTotal": pg["total"],
+        "page": pg["page"],
+        "pageSize": pg["pageSize"],
+    }
+
+
 @app.get("/api/admin/{coll}")
 def admin_list(
     coll: str,
@@ -1494,32 +1520,6 @@ def _sign_rule_item(item: dict, db: Session, ignore_id: int | None = None, allow
     if not allow_empty and not pts and not cards:
         raise HTTPException(400, "至少配置积分或卡券中的一项奖励")
     return days, pts, cards, bool(item.get("enabled", True))
-
-
-@app.get("/api/admin/signin-overview")
-def signin_overview(
-    page: int = Query(1, ge=1),
-    page_size: int = Query(15, ge=1, le=200, alias="pageSize"),
-    admin: dict = Depends(admin_user),
-    db: Session = Depends(get_db),
-):
-    config = L.setting(db, "config") or {}
-    members = []
-    for user in db.query(User).filter(User.role == "CUSTOMER").order_by(User.id.desc()).all():
-        wallet = L.wallet_of(db, user.id)
-        members.append({"id": user.id, "nick": user.nick, "streak": wallet.sign_streak or 0})
-    rules = [r.to_dict() for r in db.query(SignRule).order_by(SignRule.days)]
-    for rule in rules:
-        rule["qualified"] = sum(1 for m in members if m["streak"] >= rule["days"])
-    pg = L.paginate(members, page, page_size)
-    return {
-        "signPoints": int(config.get("signPoints") or 0),
-        "rules": rules,
-        "members": pg["items"],
-        "memberTotal": pg["total"],
-        "page": pg["page"],
-        "pageSize": pg["pageSize"],
-    }
 
 
 @app.post("/api/admin/sign-rules")

@@ -183,7 +183,10 @@ onMounted(load);
 <template>
   <AppAsyncPage :loading="loading" :data="rows" :err="err" @retry="load">
     <div>
-      <div class="hdr">充值档位配置 <em>仅老板可改 · 资金规则</em></div>
+      <div class="hdr tiers-hdr">
+        <span class="hdr-title">充值档位配置</span>
+        <em class="hdr-note">仅老板可改 · 资金规则</em>
+      </div>
       <div class="toolbar row">
         <button class="btn sm pri" @click="openAdd">＋ 新增档位</button>
         <span class="tiny">新增后 C 端充值页立即出现该档位，按金额升序排列</span>
@@ -294,6 +297,14 @@ onMounted(load);
 </template>
 
 <style scoped>
+.tiers-hdr .hdr-note {
+  position: static;
+  transform: none;
+  margin-left: auto;
+  text-align: right;
+  pointer-events: auto;
+  white-space: normal;
+}
 .toolbar { gap: 8px; margin-bottom: 11px; align-items: center; }
 .table-card { padding: 0; overflow: auto; }
 .tb2 :is(th, td):nth-child(4),
