@@ -126,7 +126,7 @@ async function exportRows() {
     const body = list.map((row) => [
       row.no || "",
       memberLabel(row),
-      String(row.pts ?? ""),
+      Number(row.pts ?? 0),
       statusPill(row.status)[0],
       stamp(row),
       durTxt(wdrWait(row)),
@@ -134,8 +134,10 @@ async function exportRows() {
       noteText(row),
     ]);
     downloadExcelTable(exportFilename(res.rangeLabel || ""), headers, body, {
-      colWidths: [120, 110, 56, 72, 150, 72, 120, 260],
+      colWidths: [95, 90, 55, 60, 115, 55, 90, 220],
       textCols: [0, 4],
+      numberCols: [2],
+      sheetName: "提分单",
     });
     showToast(`已导出 ${list.length} 条提分单`);
   } catch (e: any) {

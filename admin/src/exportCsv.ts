@@ -4,11 +4,12 @@ function escapeCell(v: unknown) {
   return s;
 }
 
-function escapeHtml(v: unknown) {
+function escapeXml(v: unknown) {
   return String(v ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 export function downloadCsv(filename: string, headers: string[], rows: string[][]) {
@@ -22,27 +23,56 @@ export function downloadCsv(filename: string, headers: string[], rows: string[][
   URL.revokeObjectURL(url);
 }
 
-/** Excel 可直接打开的 HTML 表格，支持列宽与文本列格式（避免时间显示 ####） */
+type ExcelExportOpts = {
+  colWidths?: number[];
+  textCols?: number[];
+  numberCols?: number[];
+  sheetName?: string;
+};
+
+/** Excel 2003 XML（SpreadsheetML），列宽/文本/数字格式正确，无 HTML 伪 xls 警告 */
 export function downloadExcelTable(
   filename: string,
   headers: string[],
-  rows: string[][],
-  opts: { colWidths?: number[]; textCols?: number[] } = {},
+  rows: unknown[][],
+  opts: ExcelExportOpts = {},
 ) {
-  const { colWidths = [], textCols = [] } = opts;
+  const { colWidths = [], textCols = [], numberCols = [], sheetName = "Sheet1" } = opts;
   const textSet = new Set(textCols);
-  const cols =
-    colWidths.length > 0
-      ? `<colgroup>${colWidths.map((w) => `<col width="${w}">`).join("")}</colgroup>`
-      : "";
-  const cell = (value: unknown, idx: number) => {
-    const style = textSet.has(idx) ? " style=\"mso-number-format:'\\@';\"" : "";
-    return `<td${style}>${escapeHtml(value)}</td>`;
+  const numberSet = new Set(numberCols);
+  const safeSheet = sheetName.replace(/[\\/*?:[\]]/g, "_").slice(0, 31) || "Sheet1";
+
+  const cellXml = (value: unknown, idx: number) => {
+    if (numberSet.has(idx)) {
+      const n = Number(value);
+      const num = Number.isFinite(n) ? n : 0;
+      return `<Cell><Data ss:Type="Number">${num}</Data></Cell>`;
+    }
+    if (textSet.has(idx)) {
+      return `<Cell ss:StyleID="Text"><Data ss:Type="String">${escapeXml(value)}</Data></Cell>`;
+    }
+    return `<Cell><Data ss:Type="String">${escapeXml(value)}</Data></Cell>`;
   };
-  const head = `<tr>${headers.map((h) => `<th>${escapeHtml(h)}</th>`).join("")}</tr>`;
-  const body = rows.map((r) => `<tr>${r.map((c, i) => cell(c, i)).join("")}</tr>`).join("");
-  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><table border="1">${cols}${head}${body}</table></body></html>`;
-  const blob = new Blob(["\uFEFF" + html], { type: "application/vnd.ms-excel;charset=utf-8" });
+
+  const cols = colWidths.map((w) => `<Column ss:Width="${w}"/>`).join("");
+  const head = `<Row>${headers.map((h, i) => cellXml(h, i)).join("")}</Row>`;
+  const body = rows.map((r) => `<Row>${r.map((c, i) => cellXml(c, i)).join("")}</Row>`).join("");
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+<Styles>
+<Style ss:ID="Default" ss:Name="Normal"><Alignment ss:Vertical="Center"/></Style>
+<Style ss:ID="Text"><NumberFormat ss:Format="@"/></Style>
+</Styles>
+<Worksheet ss:Name="${escapeXml(safeSheet)}">
+<Table>${cols}${head}${body}</Table>
+</Worksheet>
+</Workbook>`;
+
+  const blob = new Blob(["\uFEFF" + xml], { type: "application/vnd.ms-excel;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
