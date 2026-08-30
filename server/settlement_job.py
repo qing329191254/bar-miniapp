@@ -51,11 +51,14 @@ def settlement_week(db: Session) -> str:
 
 
 def resolve_display_week(db: Session) -> str:
-    wk = settlement_week(db)
-    if wk:
-        return wk
+    """Prefer configured week when it has records; otherwise show the latest settled week."""
+    configured = settlement_week(db)
+    if configured and db.query(SettleLog).filter(SettleLog.week == configured).count():
+        return configured
     weeks = sorted({x.week for x in db.query(SettleLog).all() if x.week}, reverse=True)
-    return weeks[0] if weeks else ""
+    if weeks:
+        return weeks[0]
+    return configured or ""
 
 
 def settlement_meta(db: Session, week: str) -> dict:
@@ -238,5 +241,22 @@ def start_settlement_scheduler():
 
 
 def bootstrap_settlement(db: Session):
-    ensure_settle_week_current(db)
+    sync_demo_settle_settings(db)
     tick_settlement(db)
+
+
+def sync_demo_settle_settings(db: Session):
+    """Keep demo settleWeek / settleMeta aligned with seed after restarts."""
+    from seed_db import SEED
+
+    seed_week = SEED.get("settleWeek") or {}
+    if seed_week.get("start"):
+        current = L.setting(db, "settleWeek") or {}
+        seed_key = week_key(seed_week)
+        current_key = week_key(current)
+        has_seed_logs = bool(seed_key and db.query(SettleLog).filter(SettleLog.week == seed_key).count())
+        # Restore demo display week when auto-rollover left an empty new week but seed logs exist.
+        if has_seed_logs and current_key != seed_key and not db.query(SettleLog).filter(SettleLog.week == current_key).count():
+            L.save_setting(db, "settleWeek", seed_week)
+    if SEED.get("settleMeta") and not L.setting(db, "settleMeta"):
+        L.save_setting(db, "settleMeta", SEED["settleMeta"])

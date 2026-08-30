@@ -117,6 +117,19 @@ def seed_all(reset: bool = False):
                 grant_demo_sign(db, w.user_id)
             if not db.get(Setting, "settleMeta") and SEED.get("settleMeta"):
                 db.add(Setting(k="settleMeta", v=SEED["settleMeta"]))
+            seed_week = SEED.get("settleWeek") or {}
+            if seed_week.get("start"):
+                row = db.get(Setting, "settleWeek")
+                seed_key = f"{seed_week['start']}~{seed_week['end']}"
+                cur = row.v if row else {}
+                cur_key = f"{cur.get('start', '')}~{cur.get('end', '')}" if cur else ""
+                has_seed = db.query(SettleLog).filter(SettleLog.week == seed_key).count()
+                has_cur = db.query(SettleLog).filter(SettleLog.week == cur_key).count() if cur_key else 0
+                if has_seed and not has_cur and cur_key != seed_key:
+                    if row:
+                        row.v = seed_week
+                    else:
+                        db.add(Setting(k="settleWeek", v=seed_week))
             db.commit()
             return {"ok": True, "skipped": True}
         s = SEED
