@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { api, DEFAULT_PAGE_SIZE } from "../api";
 import AppPagination from "../components/AppPagination.vue";
 import { usePagination } from "../composables/usePagination";
@@ -17,7 +17,6 @@ const openVer = ref<number | null>(null);
 const keyword = ref("");
 const busy = ref(false);
 const showPublishDlg = ref(false);
-const userListRef = ref<HTMLElement | null>(null);
 
 const current = computed(() => docs.value?.[tab.value]);
 const docName = computed(() => tab.value === "terms" ? "用户协议" : "隐私政策");
@@ -26,6 +25,9 @@ const memberMap = computed(() => new Map(members.value.map((u) => [u.id, u])));
 const history = computed(() => current.value?.hist || []);
 function verNum(v: unknown) {
   return Number(v);
+}
+function histVer(h: { v?: unknown; ver?: unknown }) {
+  return Number(h?.v ?? h?.ver ?? 0);
 }
 function isOpenVer(v: unknown) {
   return openVer.value != null && openVer.value === verNum(v);
@@ -52,30 +54,17 @@ function count(ver: number) {
 }
 function toggleVerList(ver: unknown) {
   const n = verNum(ver);
+  if (!n) return;
   if (openVer.value === n) {
     openVer.value = null;
     return;
   }
   openVer.value = n;
   keyword.value = "";
-  scrollToUserList();
 }
 function closeUserList() {
   openVer.value = null;
   keyword.value = "";
-}
-function scrollToUserList() {
-  nextTick(() => {
-    const el = userListRef.value;
-    if (!el) return;
-    const main = el.closest(".main") as HTMLElement | null;
-    if (main) {
-      const top = el.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop - 16;
-      main.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
-      return;
-    }
-    el.scrollIntoView({ behavior: "smooth", block: "start" });
-  });
 }
 function switchTab(next: DocKey) {
   tab.value = next;
@@ -126,16 +115,21 @@ async function confirmPublish() {
 
 onMounted(async () => {
   try {
-    const [agreements, agreeLogs, users] = await Promise.all([
-      api("/admin/agreements"),
-      api("/admin/agreeLogs?pageSize=0"),
-      api("/admin/members?pageSize=0&includeInactive=1"),
-    ]);
-    docs.value = agreements;
-    logs.value = asList(agreeLogs);
-    members.value = asList(users);
+    docs.value = await api("/admin/agreements");
   } catch (e: any) {
-    showToast(e.message, true);
+    showToast(e.message || "加载协议失败", true);
+    return;
+  }
+  try {
+    logs.value = asList(await api("/admin/agreeLogs?pageSize=0"));
+  } catch (e: any) {
+    logs.value = [];
+    showToast(e.message || "同意记录加载失败", true);
+  }
+  try {
+    members.value = asList(await api("/admin/members?pageSize=0"));
+  } catch {
+    members.value = [];
   }
 });
 </script>
@@ -172,11 +166,11 @@ onMounted(async () => {
             <table class="tb2 agreement-history-table">
               <thead><tr><th>版本</th><th>类型</th><th>已同意用户</th><th>操作</th></tr></thead>
               <tbody>
-                <tr v-for="h in history" :key="h.v" :class="{ 'agreement-selected': isOpenVer(h.v) }">
-                  <td><b>v{{ h.v }}</b><span v-if="verNum(h.v) === verNum(current.ver)" class="pill agreement-live">生效中</span></td>
+                <tr v-for="h in history" :key="histVer(h)" :class="{ 'agreement-selected': isOpenVer(histVer(h)) }">
+                  <td><b>v{{ histVer(h) }}</b><span v-if="histVer(h) === verNum(current.ver)" class="pill agreement-live">生效中</span></td>
                   <td class="tiny">{{ h.type }}<br />{{ h.pub }}</td>
-                  <td><b>{{ count(h.v) }}</b> 人<div class="tiny">{{ count(h.v) ? '可下钻查看' : '暂无记录' }}</div></td>
-                  <td><button type="button" class="btn ghost agreement-small" @click.stop="toggleVerList(h.v)">{{ isOpenVer(h.v) ? '收起' : '查看名单' }}</button></td>
+                  <td><b>{{ count(histVer(h)) }}</b> 人<div class="tiny">{{ count(histVer(h)) ? '可下钻查看' : '暂无记录' }}</div></td>
+                  <td><button type="button" class="btn ghost agreement-small" @click="toggleVerList(histVer(h))">{{ isOpenVer(histVer(h)) ? '收起' : '查看名单' }}</button></td>
                 </tr>
                 <tr v-if="!history.length"><td colspan="4" class="table-empty">暂无协议版本记录</td></tr>
               </tbody>
@@ -184,30 +178,33 @@ onMounted(async () => {
           </div>
           <div class="tiny agreement-foot">同意人数来自 C 端注册及重大变更后的重新确认记录。</div>
         </div>
-        <div v-if="openVer != null" ref="userListRef" class="card agreement-user-card">
-          <div class="st agreement-user-hdr">
-            <span>v{{ openVer }} 已同意用户 <em>{{ selectedLogs.length }} 人</em></span>
-            <button type="button" class="agreement-close" @click="closeUserList">收起</button>
-          </div>
-          <input v-model="keyword" class="inp" placeholder="搜索昵称 / 会员号 / ID" />
-          <div class="tb-wrap agreement-users">
-            <table class="tb2">
-              <thead><tr><th>昵称</th><th>会员号</th><th>同意时间</th><th>状态</th></tr></thead>
-              <tbody>
-                <tr v-for="x in logsPg.items" :key="`${x.uid}-${x.at}`">
-                  <td>{{ x.user?.nick || '未知用户' }}</td>
-                  <td>{{ x.user?.no || `uid ${x.uid}` }}</td>
-                  <td class="tiny">{{ x.at }}</td>
-                  <td><span class="pill" :class="x.user?.status === 'ACTIVE' ? 'agreement-live' : 'agreement-off'">{{ x.user?.status === 'ACTIVE' ? '正常' : '已注销' }}</span></td>
-                </tr>
-                <tr v-if="!selectedLogs.length"><td colspan="4" class="tiny agreement-empty">{{ count(openVer!) ? '无匹配记录' : '该版本暂无同意记录' }}</td></tr>
-              </tbody>
-            </table>
-          </div>
-          <AppPagination v-model:page="logsPg.page" v-model:page-size="logsPg.pageSize" :total="logsPg.total" />
-        </div>
         <div class="note rd"><b>合规底线：</b>须覆盖个人信息收集与用途、账号注销与资产处理、金币性质与退款规则、积分清零、卡券有效期与争议解决方式。</div>
       </div>
+    </div>
+
+    <div v-if="openVer != null" class="dlg-mask agreement-user-mask" @click.self="closeUserList">
+      <section class="dlg agreement-user-dlg">
+        <div class="st agreement-user-hdr">
+          <span>v{{ openVer }} 已同意用户 <em>{{ selectedLogs.length }} 人</em></span>
+          <button type="button" class="agreement-close" @click="closeUserList">收起</button>
+        </div>
+        <input v-model="keyword" class="inp" placeholder="搜索昵称 / 会员号 / ID" />
+        <div class="tb-wrap agreement-users">
+          <table class="tb2">
+            <thead><tr><th>昵称</th><th>会员号</th><th>同意时间</th><th>状态</th></tr></thead>
+            <tbody>
+              <tr v-for="x in logsPg.items" :key="`${x.uid}-${x.at}`">
+                <td>{{ x.user?.nick || '未知用户' }}</td>
+                <td>{{ x.user?.no || `uid ${x.uid}` }}</td>
+                <td class="tiny">{{ x.at }}</td>
+                <td><span class="pill" :class="x.user?.status === 'ACTIVE' ? 'agreement-live' : 'agreement-off'">{{ x.user?.status === 'ACTIVE' ? '正常' : '已注销' }}</span></td>
+              </tr>
+              <tr v-if="!selectedLogs.length"><td colspan="4" class="tiny agreement-empty">{{ count(openVer!) ? '无匹配记录' : '该版本暂无同意记录' }}</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <AppPagination v-model:page="logsPg.page" v-model:page-size="logsPg.pageSize" :total="logsPg.total" />
+      </section>
     </div>
 
     <div v-if="showPublishDlg && current" class="dlg-mask" @click.self="showPublishDlg = false">
@@ -236,5 +233,5 @@ onMounted(async () => {
 .dlg-hint{display:block;margin-top:8px;color:var(--ink3);font-size:12px}
 .dlg-actions{display:grid;grid-template-columns:1fr 1.6fr;gap:10px;margin-top:20px}
 .dlg-actions .btn{width:100%}
-.agreement-grid{display:grid;grid-template-columns:minmax(0,1fr) 390px;gap:12px}.agreement-tabs{margin-bottom:11px;flex-wrap:wrap}.agreement-meta{margin-left:auto}.agreement-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px}.agreement-ver-hint{color:var(--ink3);background:#fff;cursor:default;user-select:none}.agreement-editor{height:300px;resize:vertical;line-height:1.75}.agreement-actions{margin-top:3px}.agreement-major{margin-right:auto}.agreement-major b{color:var(--red)}.agreement-live{background:var(--greenbg);color:var(--green);margin-left:4px}.agreement-off{background:#EEECE6;color:var(--ink3)}.agreement-small{padding:4px 7px;font-size:11px}.agreement-history-table :is(th,td):nth-child(4){text-align:center}.agreement-selected td{background:#E6F1FB}.agreement-foot{margin-top:8px}.agreement-user-card{animation:agreement-panel-in .22s ease}.agreement-user-hdr{margin-bottom:10px}.agreement-user-hdr em{font-style:normal;font-size:11px;color:var(--ink3);font-weight:400;margin-left:6px}.agreement-close{margin-left:auto;border:none;background:transparent;padding:0;font-size:11px;color:var(--blue);cursor:pointer}.agreement-close:hover{text-decoration:underline}.agreement-users{max-height:320px;overflow:auto;margin-top:8px}.agreement-empty{text-align:center;padding:16px 0}@keyframes agreement-panel-in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}@media(max-width:1050px){.agreement-grid{grid-template-columns:1fr}.agreement-meta{width:100%;margin-left:0}.agreement-fields{grid-template-columns:1fr}}
+.agreement-grid{display:grid;grid-template-columns:minmax(0,1fr) 390px;gap:12px}.agreement-tabs{margin-bottom:11px;flex-wrap:wrap}.agreement-meta{margin-left:auto}.agreement-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px}.agreement-ver-hint{color:var(--ink3);background:#fff;cursor:default;user-select:none}.agreement-editor{height:300px;resize:vertical;line-height:1.75}.agreement-actions{margin-top:3px}.agreement-major{margin-right:auto}.agreement-major b{color:var(--red)}.agreement-live{background:var(--greenbg);color:var(--green);margin-left:4px}.agreement-off{background:#EEECE6;color:var(--ink3)}.agreement-small{padding:4px 7px;font-size:11px}.agreement-history-table :is(th,td):nth-child(4){text-align:center}.agreement-selected td{background:#E6F1FB}.agreement-foot{margin-top:8px}.agreement-user-mask{z-index:40}.agreement-user-dlg{width:min(640px,100%);max-height:min(88vh,720px);overflow:auto}.agreement-user-hdr{margin-bottom:10px}.agreement-user-hdr em{font-style:normal;font-size:11px;color:var(--ink3);font-weight:400;margin-left:6px}.agreement-close{margin-left:auto;border:none;background:transparent;padding:0;font-size:11px;color:var(--blue);cursor:pointer}.agreement-close:hover{text-decoration:underline}.agreement-users{max-height:min(52vh,420px);overflow:auto;margin-top:8px}.agreement-empty{text-align:center;padding:16px 0}@media(max-width:1050px){.agreement-grid{grid-template-columns:1fr}.agreement-meta{width:100%;margin-left:0}.agreement-fields{grid-template-columns:1fr}}
 </style>
