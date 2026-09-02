@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { api, token } from "../api";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
@@ -87,17 +87,20 @@ async function syncSummary(allowAlert = true) {
   try {
     const next = await api<Summary>("/staff/todo-summary");
     const nextIds = new Set(next.accept.ids || []);
-    if (allowAlert && lastAcceptIds.value) {
-      const hasNew = [...nextIds].some((id) => !lastAcceptIds.value!.has(id));
-      if (hasNew) {
-        repeatedTimes = 0;
-        speakNewOrder();
-      }
-    }
+    const hasNew = Boolean(
+      allowAlert
+      && lastAcceptIds.value
+      && [...nextIds].some((id) => !lastAcceptIds.value!.has(id)),
+    );
     lastAcceptIds.value = nextIds;
     summary.value = next;
     lastSync.value = new Date();
     err.value = "";
+    await nextTick();
+    if (hasNew) {
+      repeatedTimes = 0;
+      speakNewOrder();
+    }
     return next;
   } catch (e: any) {
     err.value = e?.message || "同步失败";
@@ -145,12 +148,10 @@ function connectSocket() {
       if (socket?.readyState === WebSocket.OPEN) socket.send("ping");
     }, 25000);
   };
-  socket.onmessage = (event) => {
+  socket.onmessage = async (event) => {
     try {
       const message = JSON.parse(event.data);
-      window.setTimeout(async () => {
-        await syncSummary(message.event === "order.created");
-      }, 250);
+      await syncSummary(message.event === "order.created");
     } catch { /* ignore malformed event */ }
   };
   socket.onerror = () => socket?.close();

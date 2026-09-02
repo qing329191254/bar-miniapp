@@ -383,6 +383,9 @@ def products(db: Session = Depends(get_db)):
 def create_order(body: OrderIn, user: dict = Depends(current_user), db: Session = Depends(get_db)):
     try:
         row = L.create_order(db, user["id"], body.items, body.payType, body.tableId, body.remark)
+        # The reminder consumer immediately reads from a separate DB session,
+        # so the order must be committed before the WebSocket event is sent.
+        db.commit()
         reminders.publish("order.created", row.get("id") or 0)
         return row
     except ValueError as e:
