@@ -631,6 +631,7 @@ def todo_summary_data(db: Session) -> dict:
             "miniVoice": reminder_cfg.get("miniVoice", True),
             "miniVibrate": reminder_cfg.get("miniVibrate", True),
             "miniBadge": reminder_cfg.get("miniBadge", True),
+            "repeatEnabled": reminder_cfg.get("repeatEnabled", True),
             "repeatSeconds": int(reminder_cfg.get("repeatSeconds") or 60),
             "repeatTimes": int(reminder_cfg.get("repeatTimes") or 5),
         },

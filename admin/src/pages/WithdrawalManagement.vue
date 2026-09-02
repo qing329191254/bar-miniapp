@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { useRoute } from "vue-router";
 import { api, DEFAULT_PAGE_SIZE, pageQs } from "../api";
 import AppPagination from "../components/AppPagination.vue";
 import AppDateInput from "../components/AppDateInput.vue";
@@ -17,6 +18,7 @@ const PRESETS: [string, string][] = [
   ["all", "全部"],
   ["custom", "自定义"],
 ];
+const route = useRoute();
 
 const STATUS: Record<string, [string, string, string]> = {
   PENDING_CONFIRM: ["待确认", "#BA7517", "#FAEEDA"],
@@ -227,6 +229,8 @@ async function load(resetPage = false) {
 }
 
 onMounted(() => {
+  const qStatus = String(route.query.status || "");
+  if (qStatus && STATUS[qStatus]) status.value = qStatus;
   load();
   timer = window.setInterval(() => { now.value = Date.now(); }, 1000);
 });
@@ -235,6 +239,10 @@ onUnmounted(() => {
 });
 watch([tablePage, tablePageSize], () => load());
 watch([opUid, status], () => load(true));
+watch(() => route.query.status, (q) => {
+  const value = String(q || "");
+  status.value = value && STATUS[value] ? value : "";
+});
 </script>
 
 <template>

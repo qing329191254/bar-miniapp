@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
 import { api, token } from "../api";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
+
+defineOptions({ name: "Counter" });
 
 type Bucket = { count: number; ids: number[] };
 type Summary = {
@@ -16,6 +19,7 @@ type Summary = {
 };
 
 const summary = ref<Summary | null>(null);
+const router = useRouter();
 const loading = ref(true);
 const running = ref(false);
 const connected = ref(false);
@@ -68,7 +72,7 @@ function speakNewOrder() {
 
 function checkRepeatReminder() {
   const cfg = summary.value?.reminder || {};
-  if (!running.value || !summary.value?.accept.count || cfg.enabled === false || cfg.order === false || cfg.pcVoice === false) {
+  if (!running.value || !summary.value?.accept.count || cfg.enabled === false || cfg.order === false || cfg.pcVoice === false || cfg.repeatEnabled === false) {
     if (!summary.value?.accept.count) repeatedTimes = 0;
     return;
   }
@@ -198,6 +202,16 @@ function toggleFullscreen() {
   else document.documentElement.requestFullscreen?.();
 }
 
+function openQueue(kind: "accept" | "pay" | "recharge" | "withdrawal") {
+  const targets = {
+    accept: { path: "/orders", query: { status: "PENDING_ACCEPT" } },
+    pay: { path: "/orders", query: { status: "PENDING_PAY" } },
+    recharge: { path: "/recharges" },
+    withdrawal: { path: "/withdrawals", query: { status: "PENDING_CONFIRM" } },
+  };
+  router.push(targets[kind]);
+}
+
 onMounted(() => {
   clockTimer = window.setInterval(() => (clock.value = new Date()), 1000);
   loadInitial();
@@ -228,10 +242,10 @@ onBeforeUnmount(() => {
     <div v-if="err" class="counter-alert">{{ err }}</div>
 
     <div class="counter-metrics">
-      <div class="counter-metric primary"><span>待接单</span><b>{{ summary?.accept.count || 0 }}</b><small>新单将立即语音播报</small></div>
-      <div class="counter-metric"><span>待收款</span><b>{{ summary?.payOrder.count || 0 }}</b><small>现场付款订单</small></div>
-      <div class="counter-metric"><span>待确认充值</span><b>{{ summary?.recharge.count || 0 }}</b><small>请核对到账金额</small></div>
-      <div class="counter-metric"><span>待确认提分</span><b>{{ summary?.withdrawal.count || 0 }}</b><small>需当面完成发放</small></div>
+      <button type="button" class="counter-metric primary" @click="openQueue('accept')"><span>待接单</span><b>{{ summary?.accept.count || 0 }}</b><small>新单将立即语音播报 · 点击查看</small></button>
+      <button type="button" class="counter-metric" @click="openQueue('pay')"><span>待收款</span><b>{{ summary?.payOrder.count || 0 }}</b><small>现场付款订单 · 点击查看</small></button>
+      <button type="button" class="counter-metric" @click="openQueue('recharge')"><span>待确认充值</span><b>{{ summary?.recharge.count || 0 }}</b><small>进入充值管理 · 点击查看</small></button>
+      <button type="button" class="counter-metric" @click="openQueue('withdrawal')"><span>待确认提分</span><b>{{ summary?.withdrawal.count || 0 }}</b><small>进入提分单管理 · 点击查看</small></button>
     </div>
 
     <div class="counter-panel">
@@ -251,7 +265,7 @@ onBeforeUnmount(() => {
       <span>实时通道</span><b>{{ connected ? "正常" : "未连接" }}</b>
       <span>语音权限</span><b>{{ soundReady ? "已启用" : "待启用" }}</b>
       <span>兜底刷新</span><b>{{ fallback ? "每 5 秒" : "待命" }}</b>
-      <span>未接单复播</span><b>{{ summary?.reminder?.repeatTimes ?? 3 }} 次</b>
+      <span>未接单复播</span><b>{{ summary?.reminder?.repeatEnabled === false ? "已关闭" : `${summary?.reminder?.repeatTimes ?? 3} 次` }}</b>
     </div>
   </div>
   </AppAsyncPage>
@@ -264,7 +278,7 @@ onBeforeUnmount(() => {
 .counter-status{display:flex;align-items:center;gap:7px;margin-top:5px;color:var(--ink3);font-size:12px}.counter-status i{width:8px;height:8px;border-radius:50%;background:#9c9a93}.counter-status.ok{color:#3b6d11}.counter-status.ok i{background:#61a72b;box-shadow:0 0 0 4px rgba(97,167,43,.12)}.counter-status.warn{color:#ba7517}.counter-status.warn i{background:#d7932e}
 .counter-clock{text-align:right}.counter-clock b{display:block;font-size:28px;font-variant-numeric:tabular-nums}.counter-clock span{display:block;color:var(--ink3);font-size:11px}
 .counter-alert{padding:10px 13px;border-radius:10px;background:#fcebeb;color:#a32d2d;font-size:12px}
-.counter-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.counter-metric{min-height:190px;padding:22px;border:1px solid var(--line);border-radius:18px;background:#fff;display:flex;flex-direction:column;justify-content:center;box-shadow:var(--shadow)}.counter-metric.primary{background:linear-gradient(145deg,#fff7e9,#fae3bd);border-color:rgba(185,120,34,.3)}.counter-metric span{font-size:14px;color:var(--ink2)}.counter-metric b{margin:6px 0;font-size:64px;line-height:1;font-variant-numeric:tabular-nums}.counter-metric.primary b{color:#9d6118}.counter-metric small{color:var(--ink3);font-size:11px}
+.counter-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.counter-metric{min-height:190px;padding:22px;border:1px solid var(--line);border-radius:18px;background:#fff;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;box-shadow:var(--shadow);font:inherit;text-align:left;color:inherit;cursor:pointer;transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease}.counter-metric:hover{transform:translateY(-2px);border-color:rgba(185,120,34,.38);box-shadow:0 12px 28px rgba(74,52,28,.1)}.counter-metric:focus-visible{outline:2px solid rgba(185,120,34,.5);outline-offset:2px}.counter-metric.primary{background:linear-gradient(145deg,#fff7e9,#fae3bd);border-color:rgba(185,120,34,.3)}.counter-metric span{font-size:14px;color:var(--ink2)}.counter-metric b{margin:6px 0;font-size:64px;line-height:1;font-variant-numeric:tabular-nums}.counter-metric.primary b{color:#9d6118}.counter-metric small{color:var(--ink3);font-size:11px}
 .counter-panel{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:20px;border:1px solid var(--line);border-radius:18px;background:#fff}.counter-panel-copy b,.counter-panel-copy span{display:block}.counter-panel-copy b{font-size:15px}.counter-panel-copy span{margin-top:4px;color:var(--ink3);font-size:12px}.counter-actions{display:flex;align-items:center;gap:8px;flex:none}.counter-actions .btn{margin:0}.counter-main-btn{min-width:118px}
 .counter-footnote{display:flex;gap:10px;align-items:center;padding:13px 16px;border-radius:12px;background:#f6f3ed;color:var(--ink3);font-size:11px}.counter-footnote b{margin-right:16px;color:var(--ink2)}
 @media(max-width:900px){.counter-metrics{grid-template-columns:repeat(2,1fr)}.counter-metric{min-height:145px}.counter-panel{align-items:flex-start;flex-direction:column}.counter-actions{width:100%;flex-wrap:wrap}}

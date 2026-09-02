@@ -111,8 +111,24 @@ function scheduleReconnect() {
 function connectSocket() {
   if (!reminderState.running || !isStaff()) return;
   const url = `${BASE.replace(/^http/, "ws").replace(/\/$/, "")}/ws/staff-reminders?token=${encodeURIComponent(token())}`;
-  socketTask = uni.connectSocket({ url });
-  socketTask.onOpen(() => {
+  let task;
+  try {
+    // Passing a callback disables uni-app's Promise wrapping and returns the
+    // cross-platform SocketTask documented by uni-app.
+    task = uni.connectSocket({ url, complete: () => undefined });
+  } catch {
+    scheduleReconnect();
+    return;
+  }
+  if (!task || typeof task.onOpen !== "function") {
+    // Keep polling available if an older/unsupported runtime still cannot
+    // provide SocketTask.
+    task?.catch?.(() => undefined);
+    scheduleReconnect();
+    return;
+  }
+  socketTask = task;
+  task.onOpen(() => {
     reminderState.connected = true;
     reminderState.fallback = false;
     reconnectAttempt = 0;
@@ -121,7 +137,7 @@ function connectSocket() {
     clearInterval(heartbeatTimer);
     heartbeatTimer = setInterval(() => socketTask?.send({ data: "ping" }), 25000);
   });
-  socketTask.onMessage((event) => {
+  task.onMessage((event) => {
     try {
       const message = JSON.parse(event.data);
       if (message.event === "order.created") {
@@ -134,8 +150,8 @@ function connectSocket() {
       setTimeout(() => syncReminderSummary(false), 300);
     } catch { /* ignore malformed event */ }
   });
-  socketTask.onError(() => undefined);
-  socketTask.onClose(scheduleReconnect);
+  task.onError(() => undefined);
+  task.onClose(scheduleReconnect);
 }
 
 export async function startStaffReminder() {

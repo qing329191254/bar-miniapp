@@ -15,6 +15,7 @@ const cfg = ref<any>({
   miniVoice: true,
   miniVibrate: true,
   miniBadge: true,
+  repeatEnabled: true,
   repeatSeconds: 60,
   repeatTimes: 5,
 });
@@ -45,6 +46,7 @@ async function load() {
       miniVoice: true,
       miniVibrate: true,
       miniBadge: true,
+      repeatEnabled: true,
       repeatSeconds: 60,
       repeatTimes: 5,
       ...(data || {}),
@@ -111,8 +113,9 @@ onMounted(load);
 
       <div class="card push-card">
         <div class="st">未接单重复提醒</div>
-        <div class="push-row"><span class="gr"><b>重复间隔（秒）</b><span class="mut">建议 60 秒，避免提醒过于频繁</span></span><input v-model.number="cfg.repeatSeconds" type="number" min="30" max="300" class="inp num-inp" /></div>
-        <div class="push-row no-border"><span class="gr"><b>最多重复次数</b></span><input v-model.number="cfg.repeatTimes" type="number" min="0" max="10" class="inp num-inp" /></div>
+        <label class="push-row"><span class="gr"><b>启用重复提醒</b><span class="mut">关闭后，新单仍会首次播报，但不会再次催单</span></span><input v-model="cfg.repeatEnabled" type="checkbox" class="ui-toggle" :disabled="!cfg.enabled || !cfg.pcVoice" /></label>
+        <div class="push-row"><span class="gr"><b>重复间隔（秒）</b><span class="mut">建议 60 秒，避免提醒过于频繁</span></span><input v-model.number="cfg.repeatSeconds" type="number" min="30" max="300" class="inp num-inp" :disabled="!cfg.enabled || !cfg.pcVoice || !cfg.repeatEnabled" /></div>
+        <div class="push-row no-border"><span class="gr"><b>最多重复次数</b></span><input v-model.number="cfg.repeatTimes" type="number" min="0" max="10" class="inp num-inp" :disabled="!cfg.enabled || !cfg.pcVoice || !cfg.repeatEnabled" /></div>
       </div>
 
       <div class="push-actions">
@@ -159,6 +162,7 @@ onMounted(load);
   margin:0;
   text-align:center;
 }
+.num-inp:disabled{background:#f3f0ea;color:var(--ink3);cursor:not-allowed;opacity:.72}
 .push-actions{
   display:flex;
   justify-content:flex-end;

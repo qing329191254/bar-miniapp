@@ -197,7 +197,13 @@ watch(
           <button class="btn ghost logout-btn" @click="logout"><UiIcon name="logout" />退出登录</button>
         </div>
       </aside>
-      <main class="main"><router-view /></main>
+      <main class="main">
+        <router-view v-slot="{ Component }">
+          <KeepAlive include="Counter">
+            <component :is="Component" />
+          </KeepAlive>
+        </router-view>
+      </main>
     </div>
     <AppToast />
   </div>
