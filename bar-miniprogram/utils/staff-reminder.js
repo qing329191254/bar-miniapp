@@ -1,9 +1,9 @@
 import { reactive } from "vue";
-import { api, BASE, canUseCloudContainer, savedUser, token } from "@/utils/api";
+import { api, BASE, canUseCloudContainer, CLOUD_MAX_TIMEOUT_MS, savedUser, token } from "@/utils/api";
 
 const PREF_KEY = "wanka_staff_reminder_pref";
 const ALERT_EVENTS = new Set(["order.created", "recharge.created", "withdrawal.created"]);
-const LONG_POLL_TIMEOUT = 25;
+const LONG_POLL_TIMEOUT = 12;
 const CONNECTED_POLL_MS = 30000;
 const FALLBACK_POLL_MS = 5000;
 const CONNECT_TIMEOUT_MS = 8000;
@@ -307,7 +307,11 @@ async function runLongPollLoop() {
 
   while (reminderState.running && longPollToken === loopId) {
     try {
-      const result = await api(`/staff/todo-wait?timeout=${LONG_POLL_TIMEOUT}`, { loading: false, silent: true });
+      const result = await api(`/staff/todo-wait?timeout=${LONG_POLL_TIMEOUT}`, {
+        loading: false,
+        silent: true,
+        timeoutMs: CLOUD_MAX_TIMEOUT_MS,
+      });
       if (!reminderState.running || longPollToken !== loopId) return;
 
       reminderState.connected = true;

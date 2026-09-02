@@ -164,8 +164,19 @@ function requestViaHttp(path, opts, method, finish, resolve, reject) {
   });
 }
 
+export const CLOUD_MAX_TIMEOUT_MS = 15000;
+
+function cloudFailMessage(err) {
+  const raw = String(err?.errMsg || err?.message || "");
+  if (raw.includes("timeout") || raw.includes("102002")) return "云通道请求超时";
+  if (raw.includes("Invalid AppId")) return "云环境未关联本小程序";
+  return "云通道连接失败";
+}
+
 function requestViaCloud(path, opts, method, finish, resolve, reject) {
   wx.cloud.init({ env: CLOUD_ENV, traceUser: true });
+  // 小程序 callContainer 单次不得超过 15s（含长轮询挂起时间）
+  const timeoutMs = Math.min(Number(opts.timeoutMs) || CLOUD_MAX_TIMEOUT_MS, CLOUD_MAX_TIMEOUT_MS);
   wx.cloud.callContainer({
     config: { env: CLOUD_ENV },
     path: "/api" + path,
@@ -176,13 +187,14 @@ function requestViaCloud(path, opts, method, finish, resolve, reject) {
       ...(token() ? { Authorization: "Bearer " + token() } : {}),
     },
     data: opts.body === undefined ? {} : opts.body,
-    timeout: 60000,
+    timeout: timeoutMs,
     success(res) {
       parseResponse(res, method, opts, finish, resolve, reject);
     },
     fail(err) {
-      // 云托管通道失败时，改走云托管 HTTPS 公网地址（仍是同一套云端数据）
-      requestViaHttp(path, opts, method, finish, resolve, reject);
+      // 真机无法配置测试公网域名，callContainer 失败后勿回退 HTTP
+      finish();
+      reject(new Error(cloudFailMessage(err)));
     },
   });
 }
