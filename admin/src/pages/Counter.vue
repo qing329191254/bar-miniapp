@@ -18,6 +18,8 @@ type Summary = {
   reminder: Record<string, any>;
 };
 
+const ALERT_EVENTS = new Set(["order.created", "recharge.created", "withdrawal.created"]);
+
 const summary = ref<Summary | null>(null);
 const router = useRouter();
 const loading = ref(true);
@@ -29,6 +31,8 @@ const lastSync = ref<Date | null>(null);
 const clock = ref(new Date());
 const err = ref("");
 const lastAcceptIds = ref<Set<number> | null>(null);
+const lastRechargeIds = ref<Set<number> | null>(null);
+const lastWithdrawalIds = ref<Set<number> | null>(null);
 let socket: WebSocket | null = null;
 let reconnectTimer = 0;
 let pollTimer = 0;
@@ -39,6 +43,7 @@ let reconnectAttempt = 0;
 let lastAlertAt = 0;
 let repeatedTimes = 0;
 let audio: HTMLAudioElement | null = null;
+let weakAudio: HTMLAudioElement | null = null;
 
 const statusText = computed(() => {
   if (!running.value) return "值守未启动";
@@ -54,8 +59,13 @@ function wsUrl() {
   return `${protocol}//${location.host}/ws/staff-reminders?token=${encodeURIComponent(token())}`;
 }
 
+function hasNewIds(nextIds: Set<number>, lastIds: Set<number> | null) {
+  return Boolean(lastIds && [...nextIds].some((id) => !lastIds.has(id)));
+}
+
 function speakNewOrder() {
   if (!soundReady.value || summary.value?.reminder?.enabled === false || summary.value?.reminder?.order === false || summary.value?.reminder?.pcVoice === false) return;
+  audio!.volume = 1;
   audio?.play().catch(() => undefined);
   try {
     if ("speechSynthesis" in window) {
@@ -70,6 +80,14 @@ function speakNewOrder() {
   lastAlertAt = Date.now();
 }
 
+function speakWeak(sceneKey: "recharge" | "withdrawal") {
+  const cfg = summary.value?.reminder || {};
+  if (!soundReady.value || cfg.enabled === false || cfg.pcVoice === false || cfg[sceneKey] === false) return;
+  weakAudio!.volume = 0.42;
+  weakAudio!.currentTime = 0;
+  weakAudio?.play().catch(() => undefined);
+}
+
 function checkRepeatReminder() {
   const cfg = summary.value?.reminder || {};
   if (!running.value || !summary.value?.accept.count || cfg.enabled === false || cfg.order === false || cfg.pcVoice === false || cfg.repeatEnabled === false) {
@@ -77,30 +95,41 @@ function checkRepeatReminder() {
     return;
   }
   const seconds = Math.max(10, Number(cfg.repeatSeconds || 30));
-  const times = Math.max(0, Number(cfg.repeatTimes ?? 3));
+  const times = Math.max(0, Number(cfg.repeatTimes ?? 5));
   if (repeatedTimes >= times || Date.now() - lastAlertAt < seconds * 1000) return;
   repeatedTimes += 1;
   speakNewOrder();
 }
 
+function processAlerts(next: Summary) {
+  const canAlert = lastAcceptIds.value || lastRechargeIds.value || lastWithdrawalIds.value;
+  if (!canAlert) return;
+
+  const nextAccept = new Set(next.accept.ids || []);
+  const nextRecharge = new Set(next.recharge.ids || []);
+  const nextWithdrawal = new Set(next.withdrawal.ids || []);
+
+  if (hasNewIds(nextAccept, lastAcceptIds.value)) {
+    repeatedTimes = 0;
+    speakNewOrder();
+  } else if (hasNewIds(nextRecharge, lastRechargeIds.value)) {
+    speakWeak("recharge");
+  } else if (hasNewIds(nextWithdrawal, lastWithdrawalIds.value)) {
+    speakWeak("withdrawal");
+  }
+}
+
 async function syncSummary(allowAlert = true) {
   try {
     const next = await api<Summary>("/staff/todo-summary");
-    const nextIds = new Set(next.accept.ids || []);
-    const hasNew = Boolean(
-      allowAlert
-      && lastAcceptIds.value
-      && [...nextIds].some((id) => !lastAcceptIds.value!.has(id)),
-    );
-    lastAcceptIds.value = nextIds;
+    if (allowAlert) processAlerts(next);
+    lastAcceptIds.value = new Set(next.accept.ids || []);
+    lastRechargeIds.value = new Set(next.recharge.ids || []);
+    lastWithdrawalIds.value = new Set(next.withdrawal.ids || []);
     summary.value = next;
     lastSync.value = new Date();
     err.value = "";
     await nextTick();
-    if (hasNew) {
-      repeatedTimes = 0;
-      speakNewOrder();
-    }
     return next;
   } catch (e: any) {
     err.value = e?.message || "同步失败";
@@ -158,7 +187,7 @@ function connectSocket() {
     if (socket !== current) return;
     try {
       const message = JSON.parse(event.data);
-      await syncSummary(message.event === "order.created");
+      await syncSummary(ALERT_EVENTS.has(message.event));
     } catch { /* ignore malformed event */ }
   };
   current.onerror = () => current.close();
@@ -173,6 +202,7 @@ function connectSocket() {
 
 async function start() {
   audio ||= new Audio("/audio/new-order.wav");
+  weakAudio ||= new Audio("/audio/new-order.wav");
   audio.volume = 1;
   await audio.play().catch(() => undefined);
   audio.pause();
@@ -252,10 +282,10 @@ onBeforeUnmount(() => {
     <div v-if="err" class="counter-alert">{{ err }}</div>
 
     <div class="counter-metrics">
-      <button type="button" class="counter-metric primary" @click="openQueue('accept')"><span>待接单</span><b>{{ summary?.accept.count || 0 }}</b><small>新单将立即语音播报 · 点击查看</small></button>
-      <button type="button" class="counter-metric" @click="openQueue('pay')"><span>待收款</span><b>{{ summary?.payOrder.count || 0 }}</b><small>现场付款订单 · 点击查看</small></button>
-      <button type="button" class="counter-metric" @click="openQueue('recharge')"><span>待确认充值</span><b>{{ summary?.recharge.count || 0 }}</b><small>进入充值管理 · 点击查看</small></button>
-      <button type="button" class="counter-metric" @click="openQueue('withdrawal')"><span>待确认提分</span><b>{{ summary?.withdrawal.count || 0 }}</b><small>进入提分单管理 · 点击查看</small></button>
+      <button type="button" class="counter-metric primary" @click="openQueue('accept')"><span>待接单</span><b>{{ summary?.accept.count || 0 }}</b><small>强提醒：完整语音 + 可重复催单</small></button>
+      <button type="button" class="counter-metric" @click="openQueue('pay')"><span>待收款</span><b>{{ summary?.payOrder.count || 0 }}</b><small>仅更新角标，不单独播报</small></button>
+      <button type="button" class="counter-metric" @click="openQueue('recharge')"><span>待确认充值</span><b>{{ summary?.recharge.count || 0 }}</b><small>弱提醒：短促提示音</small></button>
+      <button type="button" class="counter-metric" @click="openQueue('withdrawal')"><span>待确认提分</span><b>{{ summary?.withdrawal.count || 0 }}</b><small>弱提醒：短促提示音</small></button>
     </div>
 
     <div class="counter-panel">
@@ -266,7 +296,7 @@ onBeforeUnmount(() => {
       <div class="counter-actions">
         <button v-if="!running" class="btn gold counter-main-btn" @click="start">开始值守</button>
         <button v-else class="btn ghost counter-main-btn" @click="stop">暂停值守</button>
-        <button class="btn ghost" @click="testSound">测试语音</button>
+        <button class="btn ghost" @click="testSound">测试强提醒</button>
         <button class="btn ghost" @click="toggleFullscreen">全屏显示</button>
       </div>
     </div>
@@ -275,7 +305,7 @@ onBeforeUnmount(() => {
       <span>实时通道</span><b>{{ connected ? "正常" : "未连接" }}</b>
       <span>语音权限</span><b>{{ soundReady ? "已启用" : "待启用" }}</b>
       <span>兜底刷新</span><b>{{ fallback ? "每 5 秒" : "待命" }}</b>
-      <span>未接单复播</span><b>{{ summary?.reminder?.repeatEnabled === false ? "已关闭" : `${summary?.reminder?.repeatTimes ?? 3} 次` }}</b>
+      <span>未接单复播</span><b>{{ summary?.reminder?.repeatEnabled === false ? "已关闭" : `${summary?.reminder?.repeatTimes ?? 5} 次` }}</b>
     </div>
   </div>
   </AppAsyncPage>

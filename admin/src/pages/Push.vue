@@ -25,10 +25,10 @@ const err = ref("");
 const saving = ref(false);
 
 const scenes = [
-  { key: "order", label: "新订单", note: "实时语音、震动并更新待办角标" },
-  { key: "pay", label: "待收款", note: "现场付款订单进入待处理时提醒" },
-  { key: "recharge", label: "待确认充值", note: "顾客生成充值单后更新待办" },
-  { key: "withdrawal", label: "待确认提分", note: "顾客提交提分单后更新待办" },
+  { key: "order", label: "新订单", note: "强提醒：完整语音 + 震动，电脑端可重复催单" },
+  { key: "pay", label: "待收款", note: "仅计入待办角标，不单独播报" },
+  { key: "recharge", label: "待确认充值", note: "弱提醒：短促提示音 + 短震动（不重复催单）" },
+  { key: "withdrawal", label: "待确认提分", note: "弱提醒：短促提示音 + 短震动（不重复催单）" },
 ] as const;
 
 async function load() {
@@ -105,9 +105,9 @@ onMounted(load);
 
       <div class="card push-card">
         <div class="st">提醒方式</div>
-        <label class="push-row"><span class="gr"><b>电脑端语音播报</b><span class="mut">吧台值守页收到新单后立即播报</span></span><input v-model="cfg.pcVoice" type="checkbox" class="ui-toggle" :disabled="!cfg.enabled" /></label>
-        <label class="push-row"><span class="gr"><b>小程序前台语音</b><span class="mut">员工端保持前台时播放提示音</span></span><input v-model="cfg.miniVoice" type="checkbox" class="ui-toggle" :disabled="!cfg.enabled" /></label>
-        <label class="push-row"><span class="gr"><b>小程序震动</b><span class="mut">新单到达时同步震动</span></span><input v-model="cfg.miniVibrate" type="checkbox" class="ui-toggle" :disabled="!cfg.enabled" /></label>
+        <label class="push-row"><span class="gr"><b>电脑端语音播报</b><span class="mut">新单完整播报 + 语音；充值/提分短促提示音</span></span><input v-model="cfg.pcVoice" type="checkbox" class="ui-toggle" :disabled="!cfg.enabled" /></label>
+        <label class="push-row"><span class="gr"><b>小程序前台语音</b><span class="mut">强提醒满音量；弱提醒较轻提示音</span></span><input v-model="cfg.miniVoice" type="checkbox" class="ui-toggle" :disabled="!cfg.enabled" /></label>
+        <label class="push-row"><span class="gr"><b>小程序震动</b><span class="mut">强提醒长震动；弱提醒短震动</span></span><input v-model="cfg.miniVibrate" type="checkbox" class="ui-toggle" :disabled="!cfg.enabled" /></label>
         <label class="push-row no-border"><span class="gr"><b>待办角标</b><span class="mut">员工端底部“待办”显示未处理数量</span></span><input v-model="cfg.miniBadge" type="checkbox" class="ui-toggle" :disabled="!cfg.enabled" /></label>
       </div>
 
@@ -127,6 +127,7 @@ onMounted(load);
 
       <div class="side-note multi">
         <div class="side-note-body">
+          <p><b>提醒分级：</b>新待接单为强提醒（完整语音，电脑端可重复催单）；待确认充值/提分为弱提醒（短促提示音，不重复）；待收款仅更新角标。</p>
           <p><b>使用说明：</b>电脑端需点击一次“开始值守”解锁浏览器音频，并保持页面打开、电脑不休眠。员工端提醒仅在小程序前台运行时生效。</p>
           <p>WebSocket 负责即时提醒；连接中断后会自动使用轮询兜底，恢复连接时重新校准待办状态。</p>
         </div>

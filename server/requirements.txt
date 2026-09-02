@@ -5,6 +5,5 @@ python-multipart
 sqlalchemy>=2.0.40
 pymysql>=1.1
 cryptography
-redis>=5.0
 python-dotenv>=1.0
 requests>=2.32

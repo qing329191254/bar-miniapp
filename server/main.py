@@ -20,7 +20,7 @@ from models import (
     TableSeat, Team, Tier, User, VerifyLog, Wallet, Withdrawal,
 )
 from seed_db import seed_all
-from settings import cloud_env_id, cos_public_base, host_for_log, in_cloud, is_loopback, mysql_url, redis_url
+from settings import cloud_env_id, cos_public_base, host_for_log, in_cloud, is_loopback, mysql_url
 import settlement_job as SJ
 import weixin
 import reminders
@@ -191,7 +191,7 @@ async def on_startup():
             "MYSQL_USERNAME、MYSQL_PASSWORD、MYSQL_DATABASE=wanka。"
         )
     print("MySQL ->", host_for_log(db_url))
-    print("Redis ->", host_for_log(redis_url()))
+    print("Session -> signed token (in-process, no Redis)")
     last = None
     for i in range(12):
         try:
@@ -310,7 +310,7 @@ def me(user: dict = Depends(current_user), db: Session = Depends(get_db)):
         "cfg": L.setting(db, "cfg"),
         "shop": (L.setting(db, "content") or {}).get("shopInfo"),
         "agreements": L.setting(db, "agreements"),
-        "push": L.setting(db, "push"),
+        "push": push_config_normalized(db),
         "content": L.setting(db, "content"),
     }
 
@@ -426,6 +426,7 @@ def list_recharges(user: dict = Depends(current_user), db: Session = Depends(get
 def create_recharge(body: RechargeIn, user: dict = Depends(current_user), db: Session = Depends(get_db)):
     try:
         row = L.create_recharge(db, user["id"], body.tierId)
+        db.commit()
         reminders.publish("recharge.created", row.get("id") or 0)
         return row
     except ValueError as e:
@@ -454,6 +455,7 @@ def points(user: dict = Depends(current_user), db: Session = Depends(get_db)):
 def create_wdr(body: WithdrawIn, user: dict = Depends(current_user), db: Session = Depends(get_db)):
     try:
         row = L.create_withdraw(db, user["id"], body.pts)
+        db.commit()
         reminders.publish("withdrawal.created", row.get("id") or 0)
         return row
     except ValueError as e:
@@ -608,6 +610,30 @@ def today_amt(db: Session) -> int:
     return (t.coin + t.offline) if t else 0
 
 
+def push_config_normalized(db: Session) -> dict:
+    raw = dict(L.setting(db, "push") or {})
+    defaults = {
+        "enabled": True,
+        "order": True,
+        "pay": True,
+        "recharge": True,
+        "withdrawal": True,
+        "pcVoice": True,
+        "miniVoice": True,
+        "miniVibrate": True,
+        "miniBadge": True,
+        "repeatEnabled": True,
+        "repeatSeconds": 60,
+        "repeatTimes": 5,
+    }
+    merged = {**defaults, **raw}
+    for legacy in ("todo", "settle", "tplOrder", "tplTodo", "tplSettle"):
+        merged.pop(legacy, None)
+    merged["repeatSeconds"] = int(merged.get("repeatSeconds") or 60)
+    merged["repeatTimes"] = int(merged.get("repeatTimes") or 5)
+    return merged
+
+
 def todo_summary_data(db: Session) -> dict:
     L.expire_timeouts(db)
     accept = [x[0] for x in db.query(Order.id).filter_by(status="PENDING_ACCEPT").order_by(Order.id).all()]
@@ -615,7 +641,7 @@ def todo_summary_data(db: Session) -> dict:
     recharges = [x[0] for x in db.query(Recharge.id).filter_by(status="PENDING_PAY").order_by(Recharge.id).all()]
     withdrawals = [x[0] for x in db.query(Withdrawal.id).filter_by(status="PENDING_CONFIRM").order_by(Withdrawal.id).all()]
     making = [x[0] for x in db.query(Order.id).filter_by(status="MAKING").order_by(Order.id).all()]
-    reminder_cfg = L.setting(db, "push") or {}
+    reminder_cfg = push_config_normalized(db)
     return {
         "accept": {"count": len(accept), "ids": accept},
         "payOrder": {"count": len(pay_orders), "ids": pay_orders},
@@ -624,20 +650,7 @@ def todo_summary_data(db: Session) -> dict:
         "making": {"count": len(making), "ids": making},
         "total": len(accept) + len(pay_orders) + len(recharges) + len(withdrawals),
         "serverTime": L.now_ms(),
-        "reminder": {
-            "enabled": reminder_cfg.get("enabled", True),
-            "order": reminder_cfg.get("order", True),
-            "pay": reminder_cfg.get("pay", True),
-            "recharge": reminder_cfg.get("recharge", True),
-            "withdrawal": reminder_cfg.get("withdrawal", True),
-            "pcVoice": reminder_cfg.get("pcVoice", True),
-            "miniVoice": reminder_cfg.get("miniVoice", True),
-            "miniVibrate": reminder_cfg.get("miniVibrate", True),
-            "miniBadge": reminder_cfg.get("miniBadge", True),
-            "repeatEnabled": reminder_cfg.get("repeatEnabled", True),
-            "repeatSeconds": int(reminder_cfg.get("repeatSeconds") or 60),
-            "repeatTimes": int(reminder_cfg.get("repeatTimes") or 5),
-        },
+        "reminder": reminder_cfg,
     }
 
 
@@ -1493,6 +1506,8 @@ def admin_list(
     db: Session = Depends(get_db),
 ):
     if coll in ("agreements", "content", "config", "cfg", "push"):
+        if coll == "push":
+            return push_config_normalized(db)
         return L.setting(db, coll)
     if coll == "members":
         q = db.query(User).filter(User.role == "CUSTOMER")

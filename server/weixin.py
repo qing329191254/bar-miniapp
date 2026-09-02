@@ -9,7 +9,6 @@ from pathlib import Path
 
 import requests
 
-from cache import r
 from settings import wx_appid, wx_secret
 
 WX_ERR = {
@@ -26,13 +25,6 @@ _memory_access_token_expires = 0
 
 
 def _cached_access_token() -> str:
-    global _memory_access_token, _memory_access_token_expires
-    try:
-        cached = r.get("wx:access_token")
-        if cached:
-            return cached
-    except Exception:
-        pass
     if _memory_access_token and _memory_access_token_expires > time.time():
         return _memory_access_token
     return ""
@@ -42,20 +34,12 @@ def _save_access_token(token: str, ttl: int) -> None:
     global _memory_access_token, _memory_access_token_expires
     _memory_access_token = token
     _memory_access_token_expires = time.time() + ttl
-    try:
-        r.setex("wx:access_token", ttl, token)
-    except Exception:
-        pass
 
 
 def _clear_access_token() -> None:
     global _memory_access_token, _memory_access_token_expires
     _memory_access_token = ""
     _memory_access_token_expires = 0
-    try:
-        r.delete("wx:access_token")
-    except Exception:
-        pass
 
 
 def _wx_json(url: str, payload: dict | None = None, timeout: int = 8) -> dict:

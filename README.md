@@ -1,13 +1,13 @@
 # 玩咖桌游酒吧
 
-C 端 + 员工端是 **uni-app 微信小程序**（`bar-miniprogram/`）。运营后台是 Web（`admin/`）。后端 FastAPI + MySQL + Redis。
+C 端 + 员工端是 **uni-app 微信小程序**（`bar-miniprogram/`）。运营后台是 Web（`admin/`）。后端 FastAPI + MySQL（无需 Redis）。
 
-账本、订单、会员、卡券落 **MySQL**。Redis 只做登录会话、待付充值/待确认提分锁、核销码 TTL、店员确认幂等。
+账本、订单、会员、卡券落 **MySQL**。登录会话为服务端签名 token；待付充值/待确认提分锁与店员确认幂等走进程内内存（单实例部署即可）。
 
 ## 启动
 
 ```bash
-# 1. MySQL 8.4 + Redis（宿主机 MySQL 映射 3308）
+# 1. MySQL 8.4（宿主机映射 3308）
 docker compose up -d
 
 # 2. 后端（必须 0.0.0.0，微信开发者工具才能打到本机）

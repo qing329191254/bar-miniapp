@@ -4,17 +4,19 @@ import base64
 import hashlib
 import hmac
 import time
-import uuid
 
-import redis
-
-from settings import redis_url, session_secret
-
-REDIS_URL = redis_url()
-r = redis.Redis.from_url(REDIS_URL, decode_responses=True)
+from settings import session_secret
 
 SESSION_TTL = 7 * 24 * 3600
 _local_locks: dict[str, float] = {}
+_idem_keys: dict[str, float] = {}
+
+
+def _drop_expired(store: dict[str, float]) -> None:
+    now = time.time()
+    for key in list(store.keys()):
+        if store[key] <= now:
+            del store[key]
 
 
 def _signed_token(user_id: int) -> str:
@@ -41,20 +43,8 @@ def _signed_user(token: str) -> int | None:
         return None
 
 
-def ping() -> bool:
-    try:
-        return r.ping()
-    except Exception:
-        return False
-
-
 def session_create(user_id: int) -> str:
-    token = uuid.uuid4().hex
-    try:
-        r.setex(f"sess:{token}", SESSION_TTL, str(user_id))
-        return token
-    except Exception:
-        return _signed_token(user_id)
+    return _signed_token(user_id)
 
 
 def session_get(token: str) -> int | None:
@@ -62,34 +52,30 @@ def session_get(token: str) -> int | None:
         return None
     if token.startswith("s1."):
         return _signed_user(token)
-    try:
-        uid = r.get(f"sess:{token}")
-        return int(uid) if uid else None
-    except Exception:
-        return None
+    return None
 
 
 def lock_pending(kind: str, uid: int, ttl: int) -> bool:
     key = f"lock:{kind}:{uid}"
     ttl = max(ttl, 5)
-    try:
-        return bool(r.set(key, "1", nx=True, ex=ttl))
-    except Exception:
-        now = time.time()
-        if _local_locks.get(key, 0) > now:
-            return False
-        _local_locks[key] = now + ttl
-        return True
+    _drop_expired(_local_locks)
+    now = time.time()
+    if _local_locks.get(key, 0) > now:
+        return False
+    _local_locks[key] = now + ttl
+    return True
 
 
 def unlock_pending(kind: str, uid: int) -> None:
-    key = f"lock:{kind}:{uid}"
-    _local_locks.pop(key, None)
-    try:
-        r.delete(key)
-    except Exception:
-        pass
+    _local_locks.pop(f"lock:{kind}:{uid}", None)
 
 
 def idem_begin(key: str, ttl: int = 60) -> bool:
-    return bool(r.set(f"idem:{key}", "1", nx=True, ex=ttl))
+    store_key = f"idem:{key}"
+    ttl = max(ttl, 1)
+    _drop_expired(_idem_keys)
+    now = time.time()
+    if _idem_keys.get(store_key, 0) > now:
+        return False
+    _idem_keys[store_key] = now + ttl
+    return True
