@@ -2,6 +2,7 @@
 import { onMounted } from "vue";
 import { savedUser, hideWxHomeButton } from "@/utils/api";
 import { iconSrc as svgIcon } from "@/utils/icons";
+import { reminderState } from "@/utils/staff-reminder";
 
 const scanSrc = svgIcon("scan");
 
@@ -54,6 +55,7 @@ onMounted(() => {
       >
         <image class="ptab-i" :src="iconSrc(t)" mode="aspectFit" />
         {{ t.label }}
+        <text v-if="t.key === 'todo' && reminderState.total" class="ptab-badge">{{ reminderState.total > 99 ? '99+' : reminderState.total }}</text>
       </view>
     </view>
   </view>
@@ -71,4 +73,6 @@ onMounted(() => {
   margin-top: 2px;
   line-height: 1;
 }
+.ptab{position:relative}
+.ptab-badge{position:absolute;top:3px;left:calc(50% + 8px);min-width:16px;height:16px;padding:0 4px;border-radius:99px;background:#b93a34;color:#fff;font-size:9px;line-height:16px;text-align:center;font-weight:700;box-sizing:border-box}
 </style>

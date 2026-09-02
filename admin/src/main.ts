@@ -35,12 +35,14 @@ import DeactivationDetail from "./pages/DeactivationDetail.vue";
 import Staff from "./pages/Staff.vue";
 import Logs from "./pages/Logs.vue";
 import DashDrill from "./pages/DashDrill.vue";
+import Counter from "./pages/Counter.vue";
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: "/", component: Login },
     { path: "/dash", component: Dashboard },
+    { path: "/counter", component: Counter },
     { path: "/dailyBiz", component: DailyBiz },
     { path: "/liabCoin", component: DashDrill, props: { kind: "coin" } },
     { path: "/liabPoint", component: DashDrill, props: { kind: "point" } },

@@ -153,6 +153,12 @@ def main():
     code, todo = req("GET", "/api/staff/todo", token=s_tok)
     accept_n = len((todo or {}).get("accept") or [])
     ok("staff todo", code == 200 and todo is not None, f"accept={accept_n}")
+    code, reminder = req("GET", "/api/staff/todo-summary", token=s_tok)
+    ok(
+        "staff realtime reminder summary",
+        code == 200 and isinstance(reminder, dict) and isinstance(reminder.get("accept"), dict),
+        f"status={code}",
+    )
 
     if oid:
         code, _ = req("POST", f"/api/staff/orders/{oid}/accept", token=s_tok, body={"reason": "flow-test"})
@@ -230,10 +236,6 @@ def main():
     # game input uses staff APIs from admin page
     code, _ = req("GET", "/api/staff/projects", token=m_tok)
     ok("admin gameinput via staff/projects", code == 200, f"status={code}")
-
-    # known incomplete: no send pipeline for push
-    if push and not any(k for k in ("send", "subscribe") if k in json.dumps(push)):
-        warn("push not implemented", "config only — no subscribe/send in backend")
 
     print(f"\n=== Summary: {len(PASS)} passed, {len(FAIL)} failed, {len(WARN)} warnings, {len(SKIP)} skipped ===")
     if FAIL:

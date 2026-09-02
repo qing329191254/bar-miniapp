@@ -1,4 +1,6 @@
 <script>
+import { startStaffReminder, stopStaffReminder } from "@/utils/staff-reminder";
+
 export default {
 	onLaunch() {
 		if (typeof wx !== "undefined" && wx.cloud) {
@@ -10,6 +12,12 @@ export default {
 		uni.reLaunch({
 			url: u.role === "CUSTOMER" ? "/pages/c/home" : "/pages/s/todo",
 		});
+	},
+	onShow() {
+		startStaffReminder();
+	},
+	onHide() {
+		stopStaffReminder();
 	},
 };
 </script>

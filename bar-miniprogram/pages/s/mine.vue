@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import { api, clearSession, go, relaunch } from "@/utils/api";
+import { reminderState, saveReminderPrefs, testStaffReminder } from "@/utils/staff-reminder";
 
 const me = ref(null);
 const todo = ref(null);
@@ -29,11 +30,10 @@ const jobItems = computed(() => {
 const pushItems = computed(() => {
   if (!me.value) return [];
   const p = me.value.push || {};
-  const on = (v) => (v ? "已开启" : "已关闭");
   return [
-    { icon: "bell", tone: "blue", title: "新订单提醒", sub: "微信订阅消息推送", on: on(p.enabled && p.order) },
-    { icon: "accept", tone: "amber", title: "待办事项提醒", sub: "待接单 / 待收款", on: on(p.enabled && p.todo) },
-    { icon: "rank", tone: "purple", title: "周结算提醒", sub: "榜单结算通知", on: on(p.enabled && p.settle) },
+    { key: "voice", icon: "bell", tone: "blue", title: "前台声音提醒", sub: "新单到达时播放提示音", enabled: p.enabled !== false && p.miniVoice !== false && reminderState.prefs.voice },
+    { key: "vibrate", icon: "accept", tone: "amber", title: "前台震动提醒", sub: "新单到达时同步震动", enabled: p.enabled !== false && p.miniVibrate !== false && reminderState.prefs.vibrate },
+    { key: "badge", icon: "todo", tone: "purple", title: "待办角标", sub: "底部待办入口显示未处理数量", enabled: p.enabled !== false && p.miniBadge !== false && reminderState.prefs.badge },
   ];
 });
 
@@ -48,6 +48,9 @@ function logout() {
 }
 function openDetail(kind) {
   go(`/pages/s/job-detail?kind=${kind}`);
+}
+function toggleReminder(item) {
+  saveReminderPrefs({ [item.key]: !reminderState.prefs[item.key] });
 }
 </script>
 
@@ -89,15 +92,16 @@ function openDetail(kind) {
     </view>
 
     <view class="card">
-      <view class="h2">消息推送</view>
-      <view v-for="(item, i) in pushItems" :key="item.title" class="job-stat" :class="{ 'job-stat-last': i === pushItems.length - 1 }">
+      <view class="sec-head"><view class="h2 sec-title">前台值守提醒</view><text class="sec-hint">仅小程序前台生效</text></view>
+      <view v-for="(item, i) in pushItems" :key="item.title" class="job-stat reminder-item" :class="{ 'job-stat-last': i === pushItems.length - 1 }" @tap="toggleReminder(item)">
         <app-icon :name="item.icon" :tone="item.tone" size="sm" shape="soft" />
         <view class="gr">
           <view style="font-weight:500">{{ item.title }}</view>
           <view class="li-sub">{{ item.sub }}</view>
         </view>
-        <text class="pill" :class="item.on === '已开启' ? 'pill-on' : 'pill-off'">{{ item.on }}</text>
+        <view class="mini-toggle" :class="{ on: item.enabled }"><i /></view>
       </view>
+      <button class="btn ghost block reminder-test" @tap="testStaffReminder">测试声音和震动</button>
     </view>
 
     <button class="btn ghost block foot-btn" @tap="logout">切换账号</button>
@@ -127,6 +131,7 @@ function openDetail(kind) {
   margin-top: 2px;
   line-height: 1.45;
 }
+.reminder-item{cursor:pointer}.mini-toggle{position:relative;width:40px;height:22px;flex:none;border:1px solid rgba(82,59,32,.16);border-radius:99px;background:#ded4c6;box-sizing:border-box}.mini-toggle i{position:absolute;left:2px;top:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(74,52,28,.18);transition:transform .18s}.mini-toggle.on{background:linear-gradient(135deg,#c8862a,#e8b45a);border-color:rgba(185,120,34,.42)}.mini-toggle.on i{transform:translateX(18px)}.reminder-test{margin-top:12px}
 .li-val {
   font-weight: 600;
   flex-shrink: 0;

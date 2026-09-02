@@ -31,6 +31,7 @@ const groups = computed(() => {
   const all: { g: string; items: { k: string; n: string; i: string }[] }[] = [
     { g: "经营", items: [
       { k: "dash", n: "数据看板", i: "dashboard" },
+      { k: "counter", n: "吧台值守", i: "bell" },
       { k: "dailyBiz", n: "营业一览", i: "trend" },
       { k: "orders", n: "订单管理", i: "orders" },
       { k: "recharges", n: "充值管理", i: "recharge" },

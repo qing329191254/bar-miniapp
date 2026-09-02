@@ -1,6 +1,8 @@
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, ref } from "vue";
+import { onShow } from "@dcloudio/uni-app";
 import { api, go, loadGameDraft, toastText } from "@/utils/api";
+import { reminderState, syncReminderSummary } from "@/utils/staff-reminder";
 
 const data = ref(null);
 const msg = ref("");
@@ -22,7 +24,10 @@ async function load() {
     if (next) tab.value = next;
   }
 }
-onMounted(load);
+onShow(() => {
+  load();
+  syncReminderSummary(false);
+});
 
 const defs = computed(() => {
   if (!data.value) return [];
@@ -91,6 +96,10 @@ async function confirmReject() {
   <page-meta :page-style="`overflow:${rejectOrder ? 'hidden' : 'visible'}`" />
   <app-toast />
   <view class="pbody" v-if="data">
+    <view class="reminder-link" :class="{ ok: reminderState.connected, warn: reminderState.fallback }">
+      <i />
+      <text>{{ reminderState.connected ? "实时提醒已连接" : reminderState.fallback ? "实时连接中断，已启用定时刷新" : "正在连接实时提醒" }}</text>
+    </view>
     <view class="todo-overview card" :class="{ clear: !total }">
       <view class="todo-overview-top">
         <view class="todo-overview-main">
@@ -242,6 +251,7 @@ async function confirmReject() {
 </template>
 
 <style scoped>
+.reminder-link{display:flex;align-items:center;gap:7px;margin:0 2px 9px;color:#9c9a93;font-size:11px}.reminder-link i{display:block;width:7px;height:7px;border-radius:50%;background:#9c9a93}.reminder-link.ok{color:#3b6d11}.reminder-link.ok i{background:#61a72b;box-shadow:0 0 0 4px rgba(97,167,43,.12)}.reminder-link.warn{color:#ba7517}.reminder-link.warn i{background:#d7932e}
 .todo-overview {
   padding: 14px 12px 12px;
   background: linear-gradient(180deg, #fff 0%, #faf9f5 100%);

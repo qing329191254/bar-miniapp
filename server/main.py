@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Optional
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -23,6 +23,7 @@ from seed_db import seed_all
 from settings import cloud_env_id, cos_public_base, host_for_log, in_cloud, is_loopback, mysql_url, redis_url
 import settlement_job as SJ
 import weixin
+import reminders
 
 app = FastAPI(title="玩咖桌游酒吧 API")
 app.add_middleware(
@@ -179,8 +180,8 @@ class PatchIn(BaseModel):
 
 
 @app.on_event("startup")
-def on_startup():
-    import time
+async def on_startup():
+    import asyncio
 
     db_url = mysql_url()
     if in_cloud() and is_loopback(db_url):
@@ -203,12 +204,18 @@ def on_startup():
                     db.rollback()
                     print(f"[settlement] bootstrap warning: {e}")
             SJ.start_settlement_scheduler()
+            reminders.start_listener()
             return
         except Exception as e:
             last = e
             print(f"MySQL not ready ({i + 1}/12): {e}")
-            time.sleep(5)
+            await asyncio.sleep(5)
     raise last
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    await reminders.stop_listener()
 
 
 def session_payload(db: Session, user: User) -> dict:
@@ -375,7 +382,9 @@ def products(db: Session = Depends(get_db)):
 @app.post("/api/orders")
 def create_order(body: OrderIn, user: dict = Depends(current_user), db: Session = Depends(get_db)):
     try:
-        return L.create_order(db, user["id"], body.items, body.payType, body.tableId, body.remark)
+        row = L.create_order(db, user["id"], body.items, body.payType, body.tableId, body.remark)
+        reminders.publish("order.created", row.get("id") or 0)
+        return row
     except ValueError as e:
         fail(e)
 
@@ -413,7 +422,9 @@ def list_recharges(user: dict = Depends(current_user), db: Session = Depends(get
 @app.post("/api/recharges")
 def create_recharge(body: RechargeIn, user: dict = Depends(current_user), db: Session = Depends(get_db)):
     try:
-        return L.create_recharge(db, user["id"], body.tierId)
+        row = L.create_recharge(db, user["id"], body.tierId)
+        reminders.publish("recharge.created", row.get("id") or 0)
+        return row
     except ValueError as e:
         fail(e)
 
@@ -439,7 +450,9 @@ def points(user: dict = Depends(current_user), db: Session = Depends(get_db)):
 @app.post("/api/withdrawals")
 def create_wdr(body: WithdrawIn, user: dict = Depends(current_user), db: Session = Depends(get_db)):
     try:
-        return L.create_withdraw(db, user["id"], body.pts)
+        row = L.create_withdraw(db, user["id"], body.pts)
+        reminders.publish("withdrawal.created", row.get("id") or 0)
+        return row
     except ValueError as e:
         fail(e)
 
@@ -592,6 +605,69 @@ def today_amt(db: Session) -> int:
     return (t.coin + t.offline) if t else 0
 
 
+def todo_summary_data(db: Session) -> dict:
+    L.expire_timeouts(db)
+    accept = [x[0] for x in db.query(Order.id).filter_by(status="PENDING_ACCEPT").order_by(Order.id).all()]
+    pay_orders = [x[0] for x in db.query(Order.id).filter_by(status="PENDING_PAY").order_by(Order.id).all()]
+    recharges = [x[0] for x in db.query(Recharge.id).filter_by(status="PENDING_PAY").order_by(Recharge.id).all()]
+    withdrawals = [x[0] for x in db.query(Withdrawal.id).filter_by(status="PENDING_CONFIRM").order_by(Withdrawal.id).all()]
+    making = [x[0] for x in db.query(Order.id).filter_by(status="MAKING").order_by(Order.id).all()]
+    reminder_cfg = L.setting(db, "push") or {}
+    return {
+        "accept": {"count": len(accept), "ids": accept},
+        "payOrder": {"count": len(pay_orders), "ids": pay_orders},
+        "recharge": {"count": len(recharges), "ids": recharges},
+        "withdrawal": {"count": len(withdrawals), "ids": withdrawals},
+        "making": {"count": len(making), "ids": making},
+        "total": len(accept) + len(pay_orders) + len(recharges) + len(withdrawals),
+        "serverTime": L.now_ms(),
+        "reminder": {
+            "enabled": reminder_cfg.get("enabled", True),
+            "order": reminder_cfg.get("order", True),
+            "pay": reminder_cfg.get("pay", True),
+            "recharge": reminder_cfg.get("recharge", True),
+            "withdrawal": reminder_cfg.get("withdrawal", True),
+            "pcVoice": reminder_cfg.get("pcVoice", True),
+            "miniVoice": reminder_cfg.get("miniVoice", True),
+            "miniVibrate": reminder_cfg.get("miniVibrate", True),
+            "miniBadge": reminder_cfg.get("miniBadge", True),
+            "repeatSeconds": int(reminder_cfg.get("repeatSeconds") or 60),
+            "repeatTimes": int(reminder_cfg.get("repeatTimes") or 5),
+        },
+    }
+
+
+@app.get("/api/staff/todo-summary")
+def staff_todo_summary(staff: dict = Depends(staff_user), db: Session = Depends(get_db)):
+    return todo_summary_data(db)
+
+
+@app.websocket("/ws/staff-reminders")
+async def staff_reminders_ws(websocket: WebSocket, token: str = Query("")):
+    uid = cache.session_get(token)
+    if not uid:
+        await websocket.close(code=4401)
+        return
+    with SessionLocal() as db:
+        user = L.u(db, uid)
+        if not user or user.status != "ACTIVE" or user.role not in ("STAFF", "MANAGER", "BOSS"):
+            await websocket.close(code=4403)
+            return
+    await reminders.connect(uid, websocket)
+    try:
+        await websocket.send_json({"type": "connected"})
+        while True:
+            # Clients send a small ping periodically. Receiving it also lets us
+            # discover closed sockets promptly.
+            message = await websocket.receive_text()
+            if message == "ping":
+                await websocket.send_text('{"type":"pong"}')
+    except WebSocketDisconnect:
+        pass
+    finally:
+        reminders.disconnect(uid, websocket)
+
+
 @app.get("/api/staff/todo")
 def staff_todo(staff: dict = Depends(staff_user), db: Session = Depends(get_db)):
     L.expire_timeouts(db)
@@ -614,7 +690,9 @@ def staff_todo(staff: dict = Depends(staff_user), db: Session = Depends(get_db))
 @app.post("/api/staff/orders/{oid}/accept")
 def api_accept(oid: int, staff: dict = Depends(staff_user), db: Session = Depends(get_db)):
     try:
-        return L.accept_order(db, oid, staff)
+        row = L.accept_order(db, oid, staff)
+        reminders.publish("order.accepted", oid)
+        return row
     except ValueError as e:
         fail(e)
 
@@ -622,7 +700,9 @@ def api_accept(oid: int, staff: dict = Depends(staff_user), db: Session = Depend
 @app.post("/api/staff/orders/{oid}/reject")
 def api_reject(oid: int, body: ReasonIn, staff: dict = Depends(staff_user), db: Session = Depends(get_db)):
     try:
-        return L.reject_order(db, oid, body.reason or "拒单", staff)
+        row = L.reject_order(db, oid, body.reason or "拒单", staff)
+        reminders.publish("order.rejected", oid)
+        return row
     except ValueError as e:
         fail(e)
 
@@ -630,7 +710,9 @@ def api_reject(oid: int, body: ReasonIn, staff: dict = Depends(staff_user), db: 
 @app.post("/api/staff/orders/{oid}/confirm-pay")
 def api_pay(oid: int, staff: dict = Depends(staff_user), db: Session = Depends(get_db)):
     try:
-        return L.confirm_pay_order(db, oid, staff)
+        row = L.confirm_pay_order(db, oid, staff)
+        reminders.publish("order.payment_confirmed", oid)
+        return row
     except ValueError as e:
         fail(e)
 
@@ -638,7 +720,9 @@ def api_pay(oid: int, staff: dict = Depends(staff_user), db: Session = Depends(g
 @app.post("/api/staff/orders/{oid}/finish")
 def api_finish(oid: int, staff: dict = Depends(staff_user), db: Session = Depends(get_db)):
     try:
-        return L.finish_order(db, oid)
+        row = L.finish_order(db, oid)
+        reminders.publish("order.finished", oid)
+        return row
     except ValueError as e:
         fail(e)
 
@@ -653,7 +737,9 @@ def api_rc_ok(rid: int, staff: dict = Depends(staff_user), db: Session = Depends
     except Exception:
         pass
     try:
-        return L.confirm_recharge(db, rid, staff)
+        row = L.confirm_recharge(db, rid, staff)
+        reminders.publish("recharge.confirmed", rid)
+        return row
     except ValueError as e:
         fail(e)
 
@@ -661,7 +747,9 @@ def api_rc_ok(rid: int, staff: dict = Depends(staff_user), db: Session = Depends
 @app.post("/api/staff/recharges/{rid}/reject")
 def api_rc_no(rid: int, body: ReasonIn, staff: dict = Depends(staff_user), db: Session = Depends(get_db)):
     try:
-        return L.reject_recharge(db, rid, body.reason or "拒绝", staff)
+        row = L.reject_recharge(db, rid, body.reason or "拒绝", staff)
+        reminders.publish("recharge.rejected", rid)
+        return row
     except ValueError as e:
         fail(e)
 
@@ -676,7 +764,9 @@ def api_wd_ok(wid: int, staff: dict = Depends(staff_user), db: Session = Depends
     except Exception:
         pass
     try:
-        return L.confirm_withdraw(db, wid, staff)
+        row = L.confirm_withdraw(db, wid, staff)
+        reminders.publish("withdrawal.confirmed", wid)
+        return row
     except ValueError as e:
         fail(e)
 
@@ -684,7 +774,9 @@ def api_wd_ok(wid: int, staff: dict = Depends(staff_user), db: Session = Depends
 @app.post("/api/staff/withdrawals/{wid}/reject")
 def api_wd_no(wid: int, body: ReasonIn, staff: dict = Depends(staff_user), db: Session = Depends(get_db)):
     try:
-        return L.reject_withdraw(db, wid, body.reason or "驳回", staff)
+        row = L.reject_withdraw(db, wid, body.reason or "驳回", staff)
+        reminders.publish("withdrawal.rejected", wid)
+        return row
     except ValueError as e:
         fail(e)
 

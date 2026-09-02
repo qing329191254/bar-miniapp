@@ -73,7 +73,7 @@ const clearDay = computed(() => {
     @retry="load"
   >
   <div v-if="d" class="dash-page">
-    <div class="hdr">数据看板 <em>{{ d.liability ? "老板工作台 · 含资产负债总览" : "店长工作台" }}</em></div>
+    <div class="hdr dash-hdr">数据看板 <em>{{ d.liability ? "老板工作台 · 含资产负债总览" : "店长工作台" }}</em><button class="btn sm gold dash-counter-btn" @click="go('counter')">打开吧台值守</button></div>
     <div class="card" v-if="d.block" style="background:#FCEBEB;border-color:#E24B4A;padding:10px 12px">
       <b style="font-size:13px;color:#A32D2D">门店资料尚未完善，暂不满足小程序发布要求</b>
       <button class="btn ghost" style="margin-left:12px" @click="go('shopinfo')">立即完善</button>
@@ -171,3 +171,8 @@ const clearDay = computed(() => {
   </div>
   </AppAsyncPage>
 </template>
+
+<style scoped>
+.dash-hdr{display:flex;align-items:center;gap:8px}
+.dash-counter-btn{margin-left:auto}
+</style>
