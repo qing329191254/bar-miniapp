@@ -136,26 +136,35 @@ function scheduleReconnect() {
 
 function connectSocket() {
   if (!running.value) return;
-  socket?.close();
-  socket = new WebSocket(wsUrl());
-  socket.onopen = () => {
+  const previous = socket;
+  if (previous) {
+    previous.onclose = null;
+    previous.close();
+  }
+  const current = new WebSocket(wsUrl());
+  socket = current;
+  current.onopen = () => {
+    if (socket !== current) return;
     connected.value = true;
     reconnectAttempt = 0;
     stopFallback();
     syncSummary(true);
     window.clearInterval(heartbeatTimer);
     heartbeatTimer = window.setInterval(() => {
-      if (socket?.readyState === WebSocket.OPEN) socket.send("ping");
+      if (current.readyState === WebSocket.OPEN) current.send("ping");
     }, 25000);
   };
-  socket.onmessage = async (event) => {
+  current.onmessage = async (event) => {
+    if (socket !== current) return;
     try {
       const message = JSON.parse(event.data);
       await syncSummary(message.event === "order.created");
     } catch { /* ignore malformed event */ }
   };
-  socket.onerror = () => socket?.close();
-  socket.onclose = () => {
+  current.onerror = () => current.close();
+  current.onclose = () => {
+    if (socket !== current) return;
+    socket = null;
     connected.value = false;
     window.clearInterval(heartbeatTimer);
     scheduleReconnect();
