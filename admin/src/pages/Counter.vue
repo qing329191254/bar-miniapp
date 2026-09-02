@@ -98,8 +98,10 @@ async function syncSummary(allowAlert = true) {
     summary.value = next;
     lastSync.value = new Date();
     err.value = "";
+    return next;
   } catch (e: any) {
     err.value = e?.message || "同步失败";
+    return null;
   }
 }
 
@@ -146,11 +148,9 @@ function connectSocket() {
   socket.onmessage = (event) => {
     try {
       const message = JSON.parse(event.data);
-      if (message.event === "order.created") {
-        repeatedTimes = 0;
-        speakNewOrder();
-      }
-      window.setTimeout(() => syncSummary(false), 250);
+      window.setTimeout(async () => {
+        await syncSummary(message.event === "order.created");
+      }, 250);
     } catch { /* ignore malformed event */ }
   };
   socket.onerror = () => socket?.close();
