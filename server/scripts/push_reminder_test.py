@@ -120,6 +120,10 @@ def test_todo_summary(s_tok: str, m_tok: str):
     rem = summary.get("reminder") or {}
     missing = [k for k in reminder_keys(rem) if k not in rem]
     ok("todo-summary.reminder fields", not missing, f"missing={missing}")
+
+    code, wait = req("GET", "/api/staff/todo-wait?timeout=1", token=s_tok)
+    ok("GET todo-wait long poll", code == 200 and wait.get("type") in ("timeout", "todo.changed"), f"type={wait.get('type')}")
+
     return summary
 
 

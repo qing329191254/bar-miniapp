@@ -659,6 +659,15 @@ def staff_todo_summary(staff: dict = Depends(staff_user), db: Session = Depends(
     return todo_summary_data(db)
 
 
+@app.get("/api/staff/todo-wait")
+async def staff_todo_wait(
+    timeout: int = Query(25, ge=5, le=55),
+    staff: dict = Depends(staff_user),
+):
+    # Long-poll over HTTP for mini programs using wx.cloud.callContainer (no socket domain).
+    return await reminders.wait_for_change(float(timeout))
+
+
 @app.websocket("/ws/staff-reminders")
 async def staff_reminders_ws(websocket: WebSocket, token: str = Query("")):
     uid = cache.session_get(token)

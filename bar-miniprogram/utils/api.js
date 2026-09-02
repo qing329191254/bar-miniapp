@@ -92,7 +92,7 @@ function detailMsg(data) {
   return "请求失败";
 }
 
-function canUseCloudContainer() {
+export function canUseCloudContainer() {
   return typeof wx !== "undefined" && wx.cloud && typeof wx.cloud.callContainer === "function";
 }
 

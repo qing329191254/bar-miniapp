@@ -1,8 +1,12 @@
 import { reactive } from "vue";
-import { api, BASE, savedUser, token } from "@/utils/api";
+import { api, BASE, canUseCloudContainer, savedUser, token } from "@/utils/api";
 
 const PREF_KEY = "wanka_staff_reminder_pref";
 const ALERT_EVENTS = new Set(["order.created", "recharge.created", "withdrawal.created"]);
+const LONG_POLL_TIMEOUT = 25;
+const CONNECTED_POLL_MS = 30000;
+const FALLBACK_POLL_MS = 5000;
+const CONNECT_TIMEOUT_MS = 8000;
 
 export const reminderState = reactive({
   running: false,
@@ -11,6 +15,7 @@ export const reminderState = reactive({
   total: 0,
   accept: 0,
   lastSync: 0,
+  syncSeq: 0,
   prefs: {
     voice: true,
     vibrate: true,
@@ -22,17 +27,40 @@ let socketTask = null;
 let pollTimer = null;
 let heartbeatTimer = null;
 let reconnectTimer = null;
+let connectTimeoutTimer = null;
 let reconnectAttempt = 0;
+let longPollToken = 0;
 let lastAcceptIds = null;
 let lastRechargeIds = null;
 let lastWithdrawalIds = null;
 let currentSummary = null;
 let audio = null;
 const handledEvents = new Set();
+const todoRefreshHandlers = new Set();
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function loadPrefs() {
   const saved = uni.getStorageSync(PREF_KEY);
   if (saved && typeof saved === "object") Object.assign(reminderState.prefs, saved);
+}
+
+export function registerTodoRefresh(fn) {
+  if (typeof fn === "function") todoRefreshHandlers.add(fn);
+}
+
+export function unregisterTodoRefresh(fn) {
+  todoRefreshHandlers.delete(fn);
+}
+
+function notifyTodoRefresh() {
+  todoRefreshHandlers.forEach((fn) => {
+    try {
+      fn();
+    } catch { /* keep badge/alerts working */ }
+  });
 }
 
 export function saveReminderPrefs(patch) {
@@ -64,7 +92,7 @@ function pruneHandledEvents() {
   keep.forEach((id) => handledEvents.add(id));
 }
 
-function noteWsEvent(message) {
+function noteEvent(message) {
   const eventId = `${message.event}:${message.id}`;
   if (handledEvents.has(eventId)) return false;
   handledEvents.add(eventId);
@@ -90,11 +118,26 @@ function playChime(volume = 1) {
   } catch { /* vibration and badge remain available */ }
 }
 
+function pulseVibrate(strong = false) {
+  const count = strong ? 3 : 2;
+  const gap = strong ? 130 : 90;
+  const pulse = (i) => {
+    if (i >= count) return;
+    uni.vibrateShort({
+      success: () => {
+        if (i + 1 < count) setTimeout(() => pulse(i + 1), gap);
+      },
+      fail: () => undefined,
+    });
+  };
+  pulse(0);
+}
+
 function alertStrong(summary) {
   if (!allow(summary, "order")) return;
   const cfg = summary && summary.reminder;
   if (reminderState.prefs.vibrate && (!cfg || cfg.miniVibrate !== false)) {
-    uni.vibrateLong({ fail: () => undefined });
+    pulseVibrate(true);
   }
   if (reminderState.prefs.voice && (!cfg || cfg.miniVoice !== false)) {
     playChime(1);
@@ -105,7 +148,7 @@ function alertWeak(summary, sceneKey) {
   if (!allow(summary, sceneKey)) return;
   const cfg = summary && summary.reminder;
   if (reminderState.prefs.vibrate && (!cfg || cfg.miniVibrate !== false)) {
-    uni.vibrateShort({ fail: () => undefined });
+    pulseVibrate(false);
   }
   if (reminderState.prefs.voice && (!cfg || cfg.miniVoice !== false)) {
     playChime(0.45);
@@ -134,6 +177,12 @@ function updateIdSnapshots(next) {
   lastWithdrawalIds = new Set((next.withdrawal && next.withdrawal.ids) || []);
 }
 
+function markSynced() {
+  reminderState.lastSync = Date.now();
+  reminderState.syncSeq = (reminderState.syncSeq || 0) + 1;
+  notifyTodoRefresh();
+}
+
 export async function syncReminderSummary(alert = true) {
   if (!isStaff()) return null;
   try {
@@ -143,7 +192,7 @@ export async function syncReminderSummary(alert = true) {
     updateIdSnapshots(next);
     reminderState.total = next.reminder?.enabled === false || next.reminder?.miniBadge === false || !reminderState.prefs.badge ? 0 : Number(next.total || 0);
     reminderState.accept = Number(next.accept?.count || 0);
-    reminderState.lastSync = Date.now();
+    markSynced();
     return next;
   } catch {
     return null;
@@ -155,22 +204,68 @@ function startPoll(ms) {
   pollTimer = setInterval(() => syncReminderSummary(true), ms);
 }
 
-function scheduleReconnect() {
-  if (!reminderState.running) return;
+function clearConnectTimeout() {
+  if (connectTimeoutTimer) {
+    clearTimeout(connectTimeoutTimer);
+    connectTimeoutTimer = null;
+  }
+}
+
+function enterFallbackPoll() {
   reminderState.connected = false;
   reminderState.fallback = true;
-  startPoll(5000);
+  startPoll(FALLBACK_POLL_MS);
+}
+
+function scheduleReconnect() {
+  if (!reminderState.running) return;
+  clearConnectTimeout();
+  enterFallbackPoll();
   const delay = Math.min(30000, 1000 * 2 ** Math.min(reconnectAttempt++, 5));
   clearTimeout(reconnectTimer);
   reconnectTimer = setTimeout(connectSocket, delay);
 }
 
+async function handleTodoChanged(message, alertDefault = true) {
+  const alert = ALERT_EVENTS.has(message.event) && alertDefault;
+  if (alert && !noteEvent(message)) return;
+  await syncReminderSummary(alert);
+}
+
+function handleWsMessage(message) {
+  if (message.type === "pong" || message.type === "connected") return;
+  if (message.type === "todo.changed") {
+    handleTodoChanged(message);
+    return;
+  }
+  if (ALERT_EVENTS.has(message.event)) {
+    if (noteEvent(message)) syncReminderSummary(true);
+    return;
+  }
+  setTimeout(() => syncReminderSummary(false), 300);
+}
+
 function connectSocket() {
   if (!reminderState.running || !isStaff()) return;
-  const url = `${BASE.replace(/^http/, "ws").replace(/\/$/, "")}/ws/staff-reminders?token=${encodeURIComponent(token())}`;
+
+  clearConnectTimeout();
+  reminderState.connected = false;
+  if (!pollTimer) startPoll(FALLBACK_POLL_MS);
+
+  connectTimeoutTimer = setTimeout(() => {
+    if (!reminderState.connected && reminderState.running) {
+      reminderState.fallback = true;
+      try {
+        socketTask?.close({ code: 4000, reason: "connect timeout" });
+      } catch { /* already closed */ }
+    }
+  }, CONNECT_TIMEOUT_MS);
+
+  const wsUrl = `${BASE.replace(/^http/, "ws").replace(/\/$/, "")}/ws/staff-reminders?token=${encodeURIComponent(token())}`;
+
   let task;
   try {
-    task = uni.connectSocket({ url, complete: () => undefined });
+    task = uni.connectSocket({ url: wsUrl, complete: () => undefined });
   } catch {
     scheduleReconnect();
     return;
@@ -182,26 +277,53 @@ function connectSocket() {
   }
   socketTask = task;
   task.onOpen(() => {
+    clearConnectTimeout();
     reminderState.connected = true;
     reminderState.fallback = false;
     reconnectAttempt = 0;
-    startPoll(60000);
+    startPoll(CONNECTED_POLL_MS);
     syncReminderSummary(true);
     clearInterval(heartbeatTimer);
     heartbeatTimer = setInterval(() => socketTask?.send({ data: "ping" }), 25000);
   });
   task.onMessage((event) => {
     try {
-      const message = JSON.parse(event.data);
-      if (ALERT_EVENTS.has(message.event)) {
-        if (noteWsEvent(message)) syncReminderSummary(true);
-        return;
-      }
-      setTimeout(() => syncReminderSummary(false), 300);
+      handleWsMessage(JSON.parse(event.data));
     } catch { /* ignore malformed event */ }
   });
-  task.onError(() => undefined);
-  task.onClose(scheduleReconnect);
+  task.onError(() => scheduleReconnect());
+  task.onClose(() => {
+    if (!reminderState.running) return;
+    scheduleReconnect();
+  });
+}
+
+async function runLongPollLoop() {
+  const token = ++longPollToken;
+  reminderState.connected = true;
+  reminderState.fallback = false;
+
+  while (reminderState.running && longPollToken === token) {
+    try {
+      const result = await api(`/staff/todo-wait?timeout=${LONG_POLL_TIMEOUT}`, { loading: false });
+      if (!reminderState.running || longPollToken !== token) return;
+
+      if (result?.type === "todo.changed") {
+        await handleTodoChanged(result);
+      } else {
+        await syncReminderSummary(false);
+      }
+    } catch {
+      if (!reminderState.running || longPollToken !== token) return;
+      reminderState.connected = false;
+      reminderState.fallback = true;
+      await sleep(3000);
+      if (reminderState.running && longPollToken === token) {
+        reminderState.connected = true;
+        reminderState.fallback = false;
+      }
+    }
+  }
 }
 
 export async function startStaffReminder() {
@@ -212,18 +334,28 @@ export async function startStaffReminder() {
   }
   loadPrefs();
   reminderState.running = true;
+  reminderState.connected = false;
+  reminderState.fallback = false;
   uni.setKeepScreenOn({ keepScreenOn: true, fail: () => undefined });
   await syncReminderSummary(false);
-  connectSocket();
+
+  if (canUseCloudContainer()) {
+    runLongPollLoop();
+  } else {
+    connectSocket();
+  }
 }
 
 export function stopStaffReminder() {
+  longPollToken += 1;
   reminderState.running = false;
   reminderState.connected = false;
   reminderState.fallback = false;
   clearInterval(pollTimer);
+  pollTimer = null;
   clearInterval(heartbeatTimer);
   clearTimeout(reconnectTimer);
+  clearConnectTimeout();
   socketTask?.close({ code: 1000, reason: "app hidden" });
   socketTask = null;
   currentSummary = null;
@@ -231,5 +363,5 @@ export function stopStaffReminder() {
 
 export function testStaffReminder() {
   playChime(1);
-  uni.vibrateShort({ fail: () => undefined });
+  pulseVibrate(true);
 }

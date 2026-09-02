@@ -1,8 +1,13 @@
 <script setup>
 import { computed, ref } from "vue";
-import { onShow } from "@dcloudio/uni-app";
+import { onShow, onUnload } from "@dcloudio/uni-app";
 import { api, go, loadGameDraft, toastText } from "@/utils/api";
-import { reminderState, syncReminderSummary } from "@/utils/staff-reminder";
+import {
+  reminderState,
+  registerTodoRefresh,
+  unregisterTodoRefresh,
+  syncReminderSummary,
+} from "@/utils/staff-reminder";
 
 const data = ref(null);
 const msg = ref("");
@@ -10,9 +15,12 @@ const tab = ref("accept");
 const rejectOrder = ref(null);
 const rejectReason = ref("");
 const rejecting = ref(false);
+let reloadTimer = null;
+let firstLoad = true;
 
-async function load() {
-  data.value = await api("/staff/todo");
+async function load(options = {}) {
+  const showLoading = options.loading ?? false;
+  data.value = await api("/staff/todo", { loading: showLoading });
   const counts = {
     accept: data.value.accept.length,
     pay: data.value.recharges.length + data.value.payOrders.length,
@@ -24,9 +32,21 @@ async function load() {
     if (next) tab.value = next;
   }
 }
+
+function scheduleReload() {
+  clearTimeout(reloadTimer);
+  reloadTimer = setTimeout(() => load({ loading: false }), 200);
+}
+
 onShow(() => {
-  load();
+  load({ loading: firstLoad });
+  firstLoad = false;
   syncReminderSummary(false);
+  registerTodoRefresh(scheduleReload);
+});
+
+onUnload(() => {
+  unregisterTodoRefresh(scheduleReload);
 });
 
 const defs = computed(() => {
@@ -57,7 +77,7 @@ async function act(path, reason = "店员操作", successText = "") {
   msg.value = "";
   try {
     await api(path, { method: "POST", body: { reason } });
-    await load();
+    await load({ loading: false });
     if (successText) toastText(successText);
     return true;
   } catch (e) {
@@ -98,7 +118,7 @@ async function confirmReject() {
   <view class="pbody" v-if="data">
     <view class="reminder-link" :class="{ ok: reminderState.connected, warn: reminderState.fallback }">
       <i />
-      <text>{{ reminderState.connected ? "实时提醒已连接" : reminderState.fallback ? "实时连接中断，已启用定时刷新" : "正在连接实时提醒" }}</text>
+      <text>{{ reminderState.connected ? (reminderState.fallback ? "实时连接中断，已启用定时刷新" : "实时提醒已连接（云通道）") : reminderState.fallback ? "实时连接中断，已启用定时刷新" : "正在连接实时提醒" }}</text>
     </view>
     <view class="todo-overview card" :class="{ clear: !total }">
       <view class="todo-overview-top">
