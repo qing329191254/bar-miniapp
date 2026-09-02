@@ -81,7 +81,7 @@ def bucket_ids(summary: dict, key: str) -> set[int]:
 def reminder_keys(cfg: dict) -> list[str]:
     return [
         "enabled", "order", "pay", "recharge", "withdrawal",
-        "pcVoice", "miniVoice", "miniVibrate", "miniBadge",
+        "pcVoice", "miniVoice", "miniBadge",
         "repeatEnabled", "repeatSeconds", "repeatTimes",
     ]
 

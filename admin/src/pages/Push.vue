@@ -13,7 +13,6 @@ const cfg = ref<any>({
   withdrawal: true,
   pcVoice: true,
   miniVoice: true,
-  miniVibrate: true,
   miniBadge: true,
   repeatEnabled: true,
   repeatSeconds: 60,
@@ -25,10 +24,10 @@ const err = ref("");
 const saving = ref(false);
 
 const scenes = [
-  { key: "order", label: "新订单", note: "强提醒：完整语音 + 震动，电脑端可重复催单" },
+  { key: "order", label: "新订单", note: "强提醒：完整语音，电脑端可重复催单" },
   { key: "pay", label: "待收款", note: "仅计入待办角标，不单独播报" },
-  { key: "recharge", label: "待确认充值", note: "弱提醒：短促提示音 + 短震动（不重复催单）" },
-  { key: "withdrawal", label: "待确认提分", note: "弱提醒：短促提示音 + 短震动（不重复催单）" },
+  { key: "recharge", label: "待确认充值", note: "弱提醒：短促提示音（不重复催单）" },
+  { key: "withdrawal", label: "待确认提分", note: "弱提醒：短促提示音（不重复催单）" },
 ] as const;
 
 async function load() {
@@ -44,7 +43,6 @@ async function load() {
       withdrawal: true,
       pcVoice: true,
       miniVoice: true,
-      miniVibrate: true,
       miniBadge: true,
       repeatEnabled: true,
       repeatSeconds: 60,
@@ -107,7 +105,6 @@ onMounted(load);
         <div class="st">提醒方式</div>
         <label class="push-row"><span class="gr"><b>电脑端语音播报</b><span class="mut">新单完整播报 + 语音；充值/提分短促提示音</span></span><input v-model="cfg.pcVoice" type="checkbox" class="ui-toggle" :disabled="!cfg.enabled" /></label>
         <label class="push-row"><span class="gr"><b>小程序前台语音</b><span class="mut">强提醒满音量；弱提醒较轻提示音</span></span><input v-model="cfg.miniVoice" type="checkbox" class="ui-toggle" :disabled="!cfg.enabled" /></label>
-        <label class="push-row"><span class="gr"><b>小程序震动</b><span class="mut">强提醒长震动；弱提醒短震动</span></span><input v-model="cfg.miniVibrate" type="checkbox" class="ui-toggle" :disabled="!cfg.enabled" /></label>
         <label class="push-row no-border"><span class="gr"><b>待办角标</b><span class="mut">员工端底部“待办”显示未处理数量</span></span><input v-model="cfg.miniBadge" type="checkbox" class="ui-toggle" :disabled="!cfg.enabled" /></label>
       </div>
 

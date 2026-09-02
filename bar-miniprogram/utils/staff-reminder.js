@@ -18,7 +18,6 @@ export const reminderState = reactive({
   syncSeq: 0,
   prefs: {
     voice: true,
-    vibrate: true,
     badge: true,
   },
 });
@@ -115,30 +114,12 @@ function playChime(volume = 1) {
     player.stop();
     player.seek(0);
     player.play();
-  } catch { /* vibration and badge remain available */ }
-}
-
-function pulseVibrate(strong = false) {
-  const count = strong ? 3 : 2;
-  const gap = strong ? 130 : 90;
-  const pulse = (i) => {
-    if (i >= count) return;
-    uni.vibrateShort({
-      success: () => {
-        if (i + 1 < count) setTimeout(() => pulse(i + 1), gap);
-      },
-      fail: () => undefined,
-    });
-  };
-  pulse(0);
+  } catch { /* badge remains available */ }
 }
 
 function alertStrong(summary) {
   if (!allow(summary, "order")) return;
   const cfg = summary && summary.reminder;
-  if (reminderState.prefs.vibrate && (!cfg || cfg.miniVibrate !== false)) {
-    pulseVibrate(true);
-  }
   if (reminderState.prefs.voice && (!cfg || cfg.miniVoice !== false)) {
     playChime(1);
   }
@@ -147,9 +128,6 @@ function alertStrong(summary) {
 function alertWeak(summary, sceneKey) {
   if (!allow(summary, sceneKey)) return;
   const cfg = summary && summary.reminder;
-  if (reminderState.prefs.vibrate && (!cfg || cfg.miniVibrate !== false)) {
-    pulseVibrate(false);
-  }
   if (reminderState.prefs.voice && (!cfg || cfg.miniVoice !== false)) {
     playChime(0.45);
   }
@@ -368,5 +346,4 @@ export function stopStaffReminder() {
 
 export function testStaffReminder() {
   playChime(1);
-  pulseVibrate(true);
 }

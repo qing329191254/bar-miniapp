@@ -32,7 +32,6 @@ const pushItems = computed(() => {
   const p = me.value.push || {};
   return [
     { key: "voice", icon: "bell", tone: "blue", title: "前台声音提醒", sub: "新单到达时播放提示音", enabled: p.enabled !== false && p.miniVoice !== false && reminderState.prefs.voice },
-    { key: "vibrate", icon: "accept", tone: "amber", title: "前台震动提醒", sub: "新单到达时同步震动", enabled: p.enabled !== false && p.miniVibrate !== false && reminderState.prefs.vibrate },
     { key: "badge", icon: "todo", tone: "purple", title: "待办角标", sub: "底部待办入口显示未处理数量", enabled: p.enabled !== false && p.miniBadge !== false && reminderState.prefs.badge },
   ];
 });
@@ -101,7 +100,7 @@ function toggleReminder(item) {
         </view>
         <view class="mini-toggle" :class="{ on: item.enabled }"><i /></view>
       </view>
-      <button class="btn ghost block reminder-test" @tap="testStaffReminder">测试声音和震动</button>
+      <button class="btn ghost block reminder-test" @tap="testStaffReminder">测试声音提醒</button>
     </view>
 
     <button class="btn ghost block foot-btn" @tap="logout">切换账号</button>

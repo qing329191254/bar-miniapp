@@ -620,14 +620,13 @@ def push_config_normalized(db: Session) -> dict:
         "withdrawal": True,
         "pcVoice": True,
         "miniVoice": True,
-        "miniVibrate": True,
         "miniBadge": True,
         "repeatEnabled": True,
         "repeatSeconds": 60,
         "repeatTimes": 5,
     }
     merged = {**defaults, **raw}
-    for legacy in ("todo", "settle", "tplOrder", "tplTodo", "tplSettle"):
+    for legacy in ("todo", "settle", "tplOrder", "tplTodo", "tplSettle", "miniVibrate"):
         merged.pop(legacy, None)
     merged["repeatSeconds"] = int(merged.get("repeatSeconds") or 60)
     merged["repeatTimes"] = int(merged.get("repeatTimes") or 5)
@@ -1708,7 +1707,12 @@ def admin_put(coll: str, body: PatchIn, admin: dict = Depends(admin_user), db: S
         raise HTTPException(403, "仅老板可改")
     if coll in ("config", "cfg", "content", "push", "agreements"):
         cur = dict(L.setting(db, coll) or {})
-        cur.update(body.data)
+        data = dict(body.data or {})
+        if coll == "push":
+            data.pop("miniVibrate", None)
+        cur.update(data)
+        if coll == "push":
+            cur.pop("miniVibrate", None)
         L.save_setting(db, coll, cur)
         if coll == "push":
             L.log(db, "CONFIG_CHANGE", "更新消息推送配置", None, admin)
