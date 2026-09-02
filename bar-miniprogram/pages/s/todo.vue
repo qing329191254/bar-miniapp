@@ -20,7 +20,12 @@ let firstLoad = true;
 
 async function load(options = {}) {
   const showLoading = options.loading ?? false;
-  data.value = await api("/staff/todo", { loading: showLoading });
+  try {
+    data.value = await api("/staff/todo", { loading: showLoading, silent: true });
+  } catch (e) {
+    msg.value = e.message || "加载失败";
+    return;
+  }
   const counts = {
     accept: data.value.accept.length,
     pay: data.value.recharges.length + data.value.payOrders.length,
@@ -115,6 +120,14 @@ async function confirmReject() {
 <template>
   <page-meta :page-style="`overflow:${rejectOrder ? 'hidden' : 'visible'}`" />
   <app-toast />
+  <view class="pbody empty" v-if="!data && msg">
+    <view class="reminder-link" :class="{ ok: reminderState.connected, warn: reminderState.fallback }">
+      <i />
+      <text>{{ reminderState.connected ? (reminderState.fallback ? "实时连接中断，已启用定时刷新" : "实时提醒已连接（云通道）") : reminderState.fallback ? "实时连接中断，已启用定时刷新" : "正在连接实时提醒" }}</text>
+    </view>
+    <view class="err">{{ msg }}</view>
+    <button class="btn block" @tap="load({ loading: true })">重新加载</button>
+  </view>
   <view class="pbody" v-if="data">
     <view class="reminder-link" :class="{ ok: reminderState.connected, warn: reminderState.fallback }">
       <i />

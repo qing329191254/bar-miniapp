@@ -186,13 +186,15 @@ function markSynced() {
 export async function syncReminderSummary(alert = true) {
   if (!isStaff()) return null;
   try {
-    const next = await api("/staff/todo-summary", { loading: false });
+    const next = await api("/staff/todo-summary", { loading: false, silent: true });
     currentSummary = next;
     if (alert) processAlerts(next);
     updateIdSnapshots(next);
     reminderState.total = next.reminder?.enabled === false || next.reminder?.miniBadge === false || !reminderState.prefs.badge ? 0 : Number(next.total || 0);
     reminderState.accept = Number(next.accept?.count || 0);
     markSynced();
+    reminderState.connected = true;
+    reminderState.fallback = false;
     return next;
   } catch {
     return null;
@@ -299,14 +301,17 @@ function connectSocket() {
 }
 
 async function runLongPollLoop() {
-  const token = ++longPollToken;
-  reminderState.connected = true;
+  const loopId = ++longPollToken;
+  reminderState.connected = false;
   reminderState.fallback = false;
 
-  while (reminderState.running && longPollToken === token) {
+  while (reminderState.running && longPollToken === loopId) {
     try {
-      const result = await api(`/staff/todo-wait?timeout=${LONG_POLL_TIMEOUT}`, { loading: false });
-      if (!reminderState.running || longPollToken !== token) return;
+      const result = await api(`/staff/todo-wait?timeout=${LONG_POLL_TIMEOUT}`, { loading: false, silent: true });
+      if (!reminderState.running || longPollToken !== loopId) return;
+
+      reminderState.connected = true;
+      reminderState.fallback = false;
 
       if (result?.type === "todo.changed") {
         await handleTodoChanged(result);
@@ -314,14 +319,10 @@ async function runLongPollLoop() {
         await syncReminderSummary(false);
       }
     } catch {
-      if (!reminderState.running || longPollToken !== token) return;
+      if (!reminderState.running || longPollToken !== loopId) return;
       reminderState.connected = false;
       reminderState.fallback = true;
       await sleep(3000);
-      if (reminderState.running && longPollToken === token) {
-        reminderState.connected = true;
-        reminderState.fallback = false;
-      }
     }
   }
 }
