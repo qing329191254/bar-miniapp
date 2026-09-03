@@ -27,6 +27,7 @@ const showAdd = ref(false);
 
 const roleDlg = ref<{ row: StaffRow; role: string; reason: string } | null>(null);
 const disableDlg = ref<StaffRow | null>(null);
+const pwdDlg = ref<{ row: StaffRow; password: string; password2: string } | null>(null);
 
 const ROLE_OPTS = [
   { value: "STAFF", label: "店员" },
@@ -156,6 +157,40 @@ async function confirmDisable() {
   }
 }
 
+function openResetPwd(row: StaffRow) {
+  if (row.status === "DISABLED") {
+    showToast("已停用账号无法重置密码", true);
+    return;
+  }
+  pwdDlg.value = { row, password: "", password2: "" };
+}
+
+async function confirmResetPwd() {
+  if (!pwdDlg.value) return;
+  const { row, password, password2 } = pwdDlg.value;
+  if (password.length < 6 || password.length > 32) {
+    showToast("后台登录密码需 6-32 位", true);
+    return;
+  }
+  if (password !== password2) {
+    showToast("两次输入的密码不一致", true);
+    return;
+  }
+  acting.value = true;
+  try {
+    await api(`/admin/staff/${row.id}/password`, {
+      method: "PUT",
+      body: { data: { password } },
+    });
+    pwdDlg.value = null;
+    showToast("密码已重置，请用新密码登录后台");
+  } catch (e: any) {
+    showToast(e?.message || "重置失败", true);
+  } finally {
+    acting.value = false;
+  }
+}
+
 onMounted(load);
 </script>
 
@@ -168,7 +203,7 @@ onMounted(load);
       </div>
       <div class="toolbar row">
         <button class="btn sm pri" @click="openAdd">＋ 新增员工</button>
-        <span class="tiny">添加时设置后台密码；小程序与后台均用手机号登录。同一手机号不会开两个账号</span>
+        <span class="tiny">可重置后台登录密码（看不到旧密码）；小程序与后台均用手机号登录</span>
       </div>
       <div class="card tb-wrap">
         <table class="tb2 staff-table" data-cols="llccccc">
@@ -207,7 +242,15 @@ onMounted(load);
               <td>{{ row.orders }}</td>
               <td>¥{{ fmt(row.amount) }}</td>
               <td>{{ row.verifies }}</td>
-              <td>
+              <td class="col-op">
+                <button
+                  v-if="row.status !== 'DISABLED'"
+                  class="btn sm"
+                  :disabled="acting"
+                  @click="openResetPwd(row)"
+                >
+                  重置密码
+                </button>
                 <button
                   v-if="row.status !== 'DISABLED' && row.role !== 'BOSS'"
                   class="btn sm"
@@ -266,6 +309,24 @@ onMounted(load);
     </Teleport>
 
     <Teleport to="body">
+      <div v-if="pwdDlg" class="dlg-mask" @click.self="pwdDlg = null">
+        <section class="dlg">
+          <div class="st">重置后台密码</div>
+          <p class="dlg-body">为「<b>{{ pwdDlg.row.nick }}</b>」设置新的后台登录密码。旧密码立即失效，无法查看。</p>
+          <div class="fld">新密码 *</div>
+          <input v-model="pwdDlg.password" class="inp" type="password" placeholder="6-32 位" autocomplete="new-password" />
+          <div class="fld">确认密码 *</div>
+          <input v-model="pwdDlg.password2" class="inp" type="password" placeholder="再次输入新密码" autocomplete="new-password" />
+          <p class="tiny add-pwd-hint">仅影响 Web 后台登录；小程序仍用手机号登录，无需此密码。</p>
+          <div class="dlg-actions">
+            <button class="btn ghost" @click="pwdDlg = null">取消</button>
+            <button class="btn pri" :disabled="acting" @click="confirmResetPwd">确认重置</button>
+          </div>
+        </section>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
       <div v-if="disableDlg" class="dlg-mask" @click.self="disableDlg = null">
         <section class="dlg dlg-confirm">
           <div class="st">停用员工</div>
@@ -284,15 +345,16 @@ onMounted(load);
 .staff-hdr .hdr-note{position:static;transform:none;margin-left:auto;text-align:right;pointer-events:auto;white-space:normal}
 .toolbar { gap: 8px; margin-bottom: 11px; align-items: center; }
 .add-pwd-hint { margin: 8px 0 0; color: #9c9a93; line-height: 1.45; }
-.staff-table { table-layout: fixed; min-width: 720px; }
-.staff-table :is(th,td):nth-child(1){width:16%}
-.staff-table :is(th,td):nth-child(2){width:16%}
-.staff-table :is(th,td):nth-child(3){width:14%}
-.staff-table :is(th,td):nth-child(4){width:10%}
-.staff-table :is(th,td):nth-child(5){width:12%}
-.staff-table :is(th,td):nth-child(6){width:10%}
-.staff-table :is(th,td):nth-child(7){width:14%}
+.staff-table { table-layout: fixed; min-width: 760px; }
+.staff-table :is(th,td):nth-child(1){width:14%}
+.staff-table :is(th,td):nth-child(2){width:14%}
+.staff-table :is(th,td):nth-child(3){width:12%}
+.staff-table :is(th,td):nth-child(4){width:9%}
+.staff-table :is(th,td):nth-child(5){width:11%}
+.staff-table :is(th,td):nth-child(6){width:9%}
+.staff-table :is(th,td):nth-child(7){width:18%}
 .staff-table td.col-op { white-space: nowrap; }
+.staff-table td.col-op .btn + .btn { margin-left: 6px; }
 .tb-wrap { padding: 0; overflow: auto; }
 .name { font-weight: 500; }
 .disabled-tag { margin-left: 6px; color: var(--red); font-size: 11px; font-weight: 400; }

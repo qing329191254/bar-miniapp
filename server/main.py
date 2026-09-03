@@ -1882,6 +1882,17 @@ def disable_staff(uid: int, admin: dict = Depends(admin_user), db: Session = Dep
         fail(e)
 
 
+@app.put("/api/admin/staff/{uid}/password")
+def reset_staff_password(uid: int, body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    if admin["role"] != "BOSS":
+        raise HTTPException(403, "仅老板可改")
+    data = body.data or {}
+    try:
+        return L.reset_staff_password(db, uid, str(data.get("password") or ""), admin)
+    except ValueError as e:
+        fail(e)
+
+
 @app.get("/api/admin/members/{uid}")
 def member_detail(uid: int, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
     try:

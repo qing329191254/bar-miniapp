@@ -2366,6 +2366,24 @@ def disable_staff(sess: Session, uid: int, admin: dict) -> dict:
     return {"ok": True}
 
 
+def reset_staff_password(sess: Session, uid: int, password: str, admin: dict) -> dict:
+    password = str(password or "")
+    if len(password) < 6 or len(password) > 32:
+        raise ValueError("后台登录密码需 6-32 位")
+    user = sess.get(User, uid)
+    if not user or user.role not in STAFF_ROLES:
+        raise ValueError("员工不存在")
+    if (user.status or "ACTIVE") == "DISABLED":
+        raise ValueError("该员工已停用")
+    if user.role == "BOSS" and admin.get("id") != uid:
+        raise ValueError("不可重置其他老板的密码")
+    user.pwd = hash_pwd(password)
+    who = "自己" if admin.get("id") == uid else user.nick
+    log(sess, "STAFF_PWD_RESET", f"重置 {who} 的后台登录密码", uid, admin)
+    sess.flush()
+    return {"ok": True}
+
+
 def member_detail(sess: Session, uid: int) -> dict:
     user = sess.get(User, uid)
     if not user or user.role != "CUSTOMER" or user.status != "ACTIVE":
