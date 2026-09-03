@@ -2391,21 +2391,6 @@ def disable_staff(sess: Session, uid: int, admin: dict) -> dict:
     return {"ok": True, "role": "CUSTOMER", "status": "ACTIVE"}
 
 
-def enable_staff(sess: Session, uid: int, admin: dict) -> dict:
-    """Restore a legacy DISABLED staff row to ACTIVE (same role)."""
-    user = sess.get(User, uid)
-    if not user or user.role not in STAFF_ROLES:
-        raise ValueError("员工不存在")
-    if user.role == "BOSS":
-        raise ValueError("老板账号无需恢复")
-    if (user.status or "ACTIVE") != "DISABLED":
-        raise ValueError("该员工未停用")
-    user.status = "ACTIVE"
-    log(sess, "STAFF_ROLE_CHANGE", f"恢复员工 {user.nick}（{ROLE_LABELS.get(user.role, user.role)}）", uid, admin)
-    sess.flush()
-    return public_user(sess, user)
-
-
 def reset_staff_password(sess: Session, uid: int, password: str, admin: dict) -> dict:
     password = str(password or "")
     if len(password) < 6 or len(password) > 32:

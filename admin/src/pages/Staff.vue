@@ -50,15 +50,11 @@ function canResetPwd(row: StaffRow) {
   return row.status !== "DISABLED" && (row.role === "MANAGER" || row.role === "BOSS");
 }
 
-function canRestore(row: StaffRow) {
-  return row.status === "DISABLED" && row.role !== "BOSS";
-}
-
 function canRevoke(row: StaffRow) {
   return row.role !== "BOSS";
 }
 
-/** Active: 撤销员工；旧版已停用：转为会员（同一动作，账号变为会员） */
+/** 旧版已停用行仍显示「转为会员」，与撤销同一动作 */
 function revokeLabel(row: StaffRow) {
   return row.status === "DISABLED" ? "转为会员" : "撤销员工";
 }
@@ -194,19 +190,6 @@ async function confirmRevoke() {
   }
 }
 
-async function enableStaff(row: StaffRow) {
-  acting.value = true;
-  try {
-    await api(`/admin/staff/${row.id}/enable`, { method: "POST" });
-    await load();
-    showToast("已恢复员工权限");
-  } catch (e: any) {
-    showToast(e?.message || "恢复失败", true);
-  } finally {
-    acting.value = false;
-  }
-}
-
 function openResetPwd(row: StaffRow) {
   if (!canResetPwd(row)) {
     showToast("仅店长/老板需要后台密码", true);
@@ -302,16 +285,6 @@ onMounted(load);
                       @click="openResetPwd(row)"
                     >
                       重置密码
-                    </button>
-                  </div>
-                  <div class="op-slot">
-                    <button
-                      v-if="canRestore(row)"
-                      class="btn sm"
-                      :disabled="acting"
-                      @click="enableStaff(row)"
-                    >
-                      恢复
                     </button>
                   </div>
                   <div class="op-slot">
@@ -432,11 +405,11 @@ onMounted(load);
 .staff-table :is(th,td):nth-child(4){width:9%}
 .staff-table :is(th,td):nth-child(5){width:11%}
 .staff-table :is(th,td):nth-child(6){width:9%}
-.staff-table :is(th,td):nth-child(7){width:22%}
+.staff-table :is(th,td):nth-child(7){width:18%}
 .staff-table td.col-op { white-space: nowrap; }
 .op-grid {
   display: grid;
-  grid-template-columns: 5.5rem 3.2rem 5.5rem;
+  grid-template-columns: 5.5rem 5.5rem;
   gap: 6px;
   justify-content: center;
   align-items: center;
