@@ -125,7 +125,9 @@
 		"navigationBarBackgroundColor": "#FFFFFF",
 		"backgroundColor": "#F5F4F0",
 		"mp-weixin": {
-			"homeButton": false
+			"homeButton": false,
+			"enableShareAppMessage": true,
+			"enableShareTimeline": true
 		}
 	},
 	"easycom": {

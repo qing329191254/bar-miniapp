@@ -161,7 +161,7 @@ onMounted(load);
 </script>
 
 <template>
-  <AppAsyncPage :loading="loading" :err="err" :skeleton="{ variant: 'table', showFilter: false, metrics: 0, tableCols: 7, showNote: false }" @retry="load">
+  <AppAsyncPage :loading="loading" :err="err" :skeleton="{ variant: 'table', showFilter: false, metrics: 0, tableCols: 8, showNote: false }" @retry="load">
     <div>
       <div class="hdr staff-hdr">
         <span class="hdr-title">员工与权限</span>
@@ -172,10 +172,11 @@ onMounted(load);
         <span class="tiny">添加时设置后台密码；小程序仍用手机号登录。同一手机号不会开两个账号</span>
       </div>
       <div class="card tb-wrap">
-        <table class="tb2 staff-table" data-cols="llccccc">
+        <table class="tb2 staff-table" data-cols="lllccccc">
           <thead>
             <tr>
               <th>姓名</th>
+              <th>工号</th>
               <th>手机号</th>
               <th>角色</th>
               <th>接单</th>
@@ -190,6 +191,7 @@ onMounted(load);
                 <b class="name">{{ row.nick }}</b>
                 <span v-if="row.status === 'DISABLED'" class="disabled-tag">已停用</span>
               </td>
+              <td class="staff-no">{{ row.no || "—" }}</td>
               <td>{{ row.phone }}</td>
               <td>
                 <span v-if="row.role === 'BOSS'" class="pill boss-pill">老板</span>
@@ -221,7 +223,7 @@ onMounted(load);
               </td>
             </tr>
             <tr v-if="!rows.length">
-              <td colspan="7" class="empty-row">暂无员工，可点击上方按钮添加</td>
+              <td colspan="8" class="empty-row">暂无员工，可点击上方按钮添加</td>
             </tr>
           </tbody>
         </table>
@@ -285,15 +287,21 @@ onMounted(load);
 .staff-hdr .hdr-note{position:static;transform:none;margin-left:auto;text-align:right;pointer-events:auto;white-space:normal}
 .toolbar { gap: 8px; margin-bottom: 11px; align-items: center; }
 .add-pwd-hint { margin: 8px 0 0; color: #9c9a93; line-height: 1.45; }
-.staff-table { table-layout: fixed; min-width: 720px; }
-.staff-table :is(th,td):nth-child(1){width:14%}
-.staff-table :is(th,td):nth-child(2){width:16%}
+.staff-table { table-layout: fixed; min-width: 780px; }
+.staff-table :is(th,td):nth-child(1){width:13%}
+.staff-table :is(th,td):nth-child(2){width:12%}
 .staff-table :is(th,td):nth-child(3){width:14%}
-.staff-table :is(th,td):nth-child(4){width:10%}
-.staff-table :is(th,td):nth-child(5){width:12%}
-.staff-table :is(th,td):nth-child(6){width:10%}
-.staff-table :is(th,td):nth-child(7){width:12%}
+.staff-table :is(th,td):nth-child(4){width:12%}
+.staff-table :is(th,td):nth-child(5){width:9%}
+.staff-table :is(th,td):nth-child(6){width:11%}
+.staff-table :is(th,td):nth-child(7){width:9%}
+.staff-table :is(th,td):nth-child(8){width:12%}
 .staff-table td.col-op { white-space: nowrap; }
+.staff-no {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  letter-spacing: 0.02em;
+}
 .tb-wrap { padding: 0; overflow: auto; }
 .name { font-weight: 500; }
 .disabled-tag { margin-left: 6px; color: var(--red); font-size: 11px; font-weight: 400; }
