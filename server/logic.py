@@ -2248,22 +2248,27 @@ def create_staff(sess: Session, data: dict, admin: dict) -> dict:
     phone_raw = str(data.get("phone") or "").strip()
     nick_in = str(data.get("nick") or "").strip()
     role = str(data.get("role") or "STAFF").upper()
+    password = str(data.get("password") or "")
     if role not in ("STAFF", "MANAGER"):
         raise ValueError("角色无效")
     if not is_cn_mobile(phone_raw):
         raise ValueError("请填写有效手机号")
+    if len(password) < 6 or len(password) > 32:
+        raise ValueError("后台登录密码需 6-32 位")
     d11 = phone_digits(phone_raw)
     masked, tail = mask_phone(d11)
     staff = next((u for u in users_by_phone(sess, d11) if u.role in STAFF_ROLES), None)
     if staff:
         raise ValueError("该手机号已绑定员工")
     customer = next((u for u in users_by_phone(sess, d11) if u.role == "CUSTOMER"), None)
+    hashed = hash_pwd(password)
     if customer:
         if customer.status == "DEACTIVATED":
             raise ValueError("该账号已注销，无法授权为员工")
         if customer.status == "DISABLED":
             raise ValueError("该账号已停用")
         customer.role = role
+        customer.pwd = hashed
         if nick_in:
             customer.nick = nick_in
         bind_wx_phone(sess, customer, d11)
@@ -2285,7 +2290,7 @@ def create_staff(sess: Session, data: dict, admin: dict) -> dict:
         gender=0,
         role=role,
         status="ACTIVE",
-        pwd="",
+        pwd=hashed,
     )
     sess.add(user)
     log(sess, "STAFF_ROLE_CHANGE", f"新增员工 {nick}（{ROLE_LABELS.get(role, role)}）", user.id, admin)

@@ -22,7 +22,7 @@ const loading = ref(true);
 const err = ref("");
 const acting = ref(false);
 
-const addForm = ref({ phone: "", nick: "", role: "STAFF" });
+const addForm = ref({ phone: "", nick: "", role: "STAFF", password: "", password2: "" });
 const showAdd = ref(false);
 
 const roleDlg = ref<{ row: StaffRow; role: string; reason: string } | null>(null);
@@ -54,20 +54,38 @@ async function load() {
 
 async function addStaff() {
   const phone = addForm.value.phone.trim();
+  const password = addForm.value.password;
+  const password2 = addForm.value.password2;
   if (!phone) {
     showToast("请填写手机号", true);
     return;
   }
+  if (password.length < 6 || password.length > 32) {
+    showToast("后台登录密码需 6-32 位", true);
+    return;
+  }
+  if (password !== password2) {
+    showToast("两次输入的密码不一致", true);
+    return;
+  }
   acting.value = true;
   try {
-    await api("/admin/staff", {
+    const created = await api<{ no?: string }>("/admin/staff", {
       method: "POST",
-      body: { data: { phone, nick: addForm.value.nick.trim(), role: addForm.value.role } },
+      body: {
+        data: {
+          phone,
+          nick: addForm.value.nick.trim(),
+          role: addForm.value.role,
+          password,
+        },
+      },
     });
-    addForm.value = { phone: "", nick: "", role: "STAFF" };
+    addForm.value = { phone: "", nick: "", role: "STAFF", password: "", password2: "" };
     showAdd.value = false;
     await load();
-    showToast("已保存，该手机号登录后为员工身份");
+    const no = created?.no ? `，工号 ${created.no}` : "";
+    showToast(`已保存${no}；小程序用手机号登录，后台用工号+密码（店长/老板）`);
   } catch (e: any) {
     showToast(e?.message || "添加失败", true);
   } finally {
@@ -76,7 +94,7 @@ async function addStaff() {
 }
 
 function openAdd() {
-  addForm.value = { phone: "", nick: "", role: "STAFF" };
+  addForm.value = { phone: "", nick: "", role: "STAFF", password: "", password2: "" };
   showAdd.value = true;
 }
 
@@ -151,7 +169,7 @@ onMounted(load);
       </div>
       <div class="toolbar row">
         <button class="btn sm pri" @click="openAdd">＋ 新增员工</button>
-        <span class="tiny">先添加手机号，或把已注册会员升级为员工；同一手机号不会开两个账号</span>
+        <span class="tiny">添加时设置后台密码；小程序仍用手机号登录。同一手机号不会开两个账号</span>
       </div>
       <div class="card tb-wrap">
         <table class="tb2 staff-table" data-cols="llccccc">
@@ -220,6 +238,11 @@ onMounted(load);
           <input v-model="addForm.nick" class="inp" placeholder="如 小玲" />
           <div class="fld">角色</div>
           <AppSelect v-model="addForm.role" :options="ROLE_OPTS" no-margin />
+          <div class="fld">后台登录密码 *</div>
+          <input v-model="addForm.password" class="inp" type="password" placeholder="6-32 位，店长/老板用于 Web 后台" autocomplete="new-password" />
+          <div class="fld">确认密码 *</div>
+          <input v-model="addForm.password2" class="inp" type="password" placeholder="再次输入密码" autocomplete="new-password" />
+          <p class="tiny add-pwd-hint">小程序用手机号登录；管理后台用工号 + 本密码（仅店长/老板可进后台）。</p>
           <div class="dlg-actions">
             <button class="btn ghost" @click="showAdd = false">取消</button>
             <button class="btn pri" :disabled="acting" @click="addStaff">添加员工</button>
@@ -261,6 +284,7 @@ onMounted(load);
 <style scoped>
 .staff-hdr .hdr-note{position:static;transform:none;margin-left:auto;text-align:right;pointer-events:auto;white-space:normal}
 .toolbar { gap: 8px; margin-bottom: 11px; align-items: center; }
+.add-pwd-hint { margin: 8px 0 0; color: #9c9a93; line-height: 1.45; }
 .staff-table { table-layout: fixed; min-width: 720px; }
 .staff-table :is(th,td):nth-child(1){width:14%}
 .staff-table :is(th,td):nth-child(2){width:16%}
