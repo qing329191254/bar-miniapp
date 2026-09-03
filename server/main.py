@@ -319,10 +319,10 @@ def login(body: LoginIn, db: Session = Depends(get_db)):
     raw = (body.account or "").strip()
     digits = "".join(ch for ch in raw if ch.isdigit())
     if not digits:
-        raise HTTPException(400, "请输入数字账号")
-    user = db.query(User).filter(User.no == digits).first()
-    if not user:
-        user = db.query(User).filter(User.no == digits.zfill(6)).first()
+        raise HTTPException(400, "请输入手机号")
+    user, err = L.resolve_password_login_user(db, digits)
+    if err == "customer":
+        raise HTTPException(403, "会员请使用微信一键登录或短信验证码")
     if not user:
         raise HTTPException(404, "账号或密码错误")
     reject_inactive(user)

@@ -15,7 +15,11 @@ async function submit() {
   const acc = account.value.trim();
   const pwd = password.value;
   if (!acc || !pwd) {
-    err.value = "请输入账号和密码";
+    err.value = "请输入手机号和密码";
+    return;
+  }
+  if (!/^1\d{10}$/.test(acc)) {
+    err.value = "请填写 11 位手机号";
     return;
   }
   loading.value = true;
@@ -60,14 +64,16 @@ function onKey(e: KeyboardEvent) {
       <div class="login-logo-wrap"><img class="login-logo" src="/logo.png" alt="玩咖桌游酒吧" /></div>
       <div class="login-kicker"><UiIcon name="sparkle" /> 门店运营中心</div>
       <h1 class="login-title">玩咖桌游酒吧 · 管理后台</h1>
-      <p class="login-sub">欢迎回来，请使用店长或老板账号登录。</p>
+      <p class="login-sub">欢迎回来，请使用店长或老板手机号登录。</p>
 
-      <label class="fld">账号</label>
+      <label class="fld">手机号</label>
       <input
         class="inp login-inp"
         v-model="account"
-        placeholder="员工账号，如 900002"
-        autocomplete="username"
+        placeholder="11 位手机号"
+        inputmode="numeric"
+        maxlength="11"
+        autocomplete="tel"
         @keyup="onKey"
       />
       <label class="fld">密码</label>

@@ -344,6 +344,34 @@ def find_user_by_phone(sess: Session, phone_full: str) -> User | None:
     return customers[0] if customers else users[0]
 
 
+def resolve_password_login_user(sess: Session, account: str) -> tuple[User | None, str | None]:
+    """Resolve staff for account+password login.
+
+    Prefer 11-digit mobile (admin UX). Legacy staff 工号 still works for scripts/compat.
+    Returns (user, error_code) where error_code is 'customer' | 'not_found' | None.
+    """
+    raw = (account or "").strip()
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if not digits:
+        return None, "not_found"
+    if is_cn_mobile(digits):
+        users = users_by_phone(sess, digits)
+        staff = [u for u in users if u.role in STAFF_ROLES]
+        if staff:
+            return staff[0], None
+        if any(u.role == "CUSTOMER" for u in users):
+            return None, "customer"
+        return None, "not_found"
+    user = sess.query(User).filter(User.no == digits).first()
+    if not user:
+        user = sess.query(User).filter(User.no == digits.zfill(6)).first()
+    if not user:
+        return None, "not_found"
+    if user.role == "CUSTOMER":
+        return None, "customer"
+    return user, None
+
+
 def register_or_bind_phone(sess: Session, phone_full: str, openid: str | None = None) -> User:
     d11 = phone_digits(phone_full)
     if len(d11) != 11:
