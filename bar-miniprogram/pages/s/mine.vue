@@ -1,9 +1,9 @@
 <script setup>
 import { computed, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
-import { api, clearSession, go, relaunch } from "@/utils/api";
+import { api, clearSession, go, relaunch, setPortal } from "@/utils/api";
 import { getStaffMineCache, setStaffMineCache } from "@/utils/staff-page-cache";
-import { reminderState, saveReminderPrefs, testStaffReminder } from "@/utils/staff-reminder";
+import { reminderState, saveReminderPrefs, stopStaffReminder, testStaffReminder } from "@/utils/staff-reminder";
 
 const cache = getStaffMineCache();
 const me = ref(cache.me);
@@ -55,6 +55,11 @@ onShow(() => load());
 function logout() {
   clearSession();
   relaunch("/pages/login/login");
+}
+function switchToCustomer() {
+  setPortal("customer");
+  stopStaffReminder();
+  relaunch("/pages/c/home");
 }
 function openDetail(kind) {
   go(`/pages/s/job-detail?kind=${kind}`);
@@ -134,6 +139,7 @@ function toggleReminder(item) {
       <button class="btn ghost block reminder-test" @tap="testStaffReminder">测试声音提醒</button>
     </view>
 
+    <button class="btn ghost block foot-btn" style="margin-bottom:10px" @tap="switchToCustomer">切换到会员端</button>
     <button class="btn ghost block foot-btn" @tap="logout">切换账号</button>
   </view>
   <tab-bar current="mine" />

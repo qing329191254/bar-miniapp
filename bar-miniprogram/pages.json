@@ -13,6 +13,14 @@
 			"style": { "navigationBarTitleText": "玩咖桌游酒吧" }
 		},
 		{
+			"path": "pages/login/portal",
+			"style": {
+				"navigationBarTitleText": "选择入口",
+				"navigationBarBackgroundColor": "#F5F4F0",
+				"backgroundColor": "#F5F4F0"
+			}
+		},
+		{
 			"path": "pages/login/account",
 			"style": { "navigationBarTitleText": "账号登录" }
 		},

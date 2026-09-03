@@ -17,6 +17,7 @@ export function media(url) {
 
 const TOKEN_KEY = "wanka_token";
 const USER_KEY = "wanka_user";
+const PORTAL_KEY = "wanka_portal";
 
 export function token() {
   return uni.getStorageSync(TOKEN_KEY) || "";
@@ -34,7 +35,54 @@ export function setSession(t, user) {
 export function clearSession() {
   uni.removeStorageSync(TOKEN_KEY);
   uni.removeStorageSync(USER_KEY);
+  clearPortal();
   clearStaffPageCache();
+}
+
+/** staff / manager / boss */
+export function isStaffRole(user = savedUser()) {
+  return !!(user && user.role && user.role !== "CUSTOMER");
+}
+
+/** current UI mode: staff | customer | "" */
+export function getPortal() {
+  return uni.getStorageSync(PORTAL_KEY) || "";
+}
+
+export function setPortal(portal) {
+  if (portal === "staff" || portal === "customer") {
+    uni.setStorageSync(PORTAL_KEY, portal);
+  } else {
+    uni.removeStorageSync(PORTAL_KEY);
+  }
+}
+
+export function clearPortal() {
+  uni.removeStorageSync(PORTAL_KEY);
+}
+
+/** Staff role + not in member portal → staff UI / reminders */
+export function isStaffPortal(user = savedUser()) {
+  return isStaffRole(user) && getPortal() !== "customer";
+}
+
+/**
+ * Where to send a logged-in user.
+ * forceChoose: after fresh login, staff must pick again.
+ */
+export function resolveHomeUrl({ forceChoose = false } = {}) {
+  const u = savedUser();
+  if (!u?.role) return "/pages/login/login";
+  if (u.role === "CUSTOMER") {
+    setPortal("customer");
+    return "/pages/c/home";
+  }
+  if (!forceChoose) {
+    const portal = getPortal();
+    if (portal === "customer") return "/pages/c/home";
+    if (portal === "staff") return "/pages/s/todo";
+  }
+  return "/pages/login/portal";
 }
 
 const CART_KEY = "wanka_cart";

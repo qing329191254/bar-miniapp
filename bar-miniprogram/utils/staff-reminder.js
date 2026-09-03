@@ -1,5 +1,5 @@
 import { reactive } from "vue";
-import { api, BASE, canUseCloudContainer, CLOUD_MAX_TIMEOUT_MS, savedUser, token } from "@/utils/api";
+import { api, BASE, canUseCloudContainer, CLOUD_MAX_TIMEOUT_MS, isStaffPortal, token } from "@/utils/api";
 
 const PREF_KEY = "wanka_staff_reminder_pref";
 const ALERT_EVENTS = new Set(["order.created", "recharge.created", "withdrawal.created"]);
@@ -70,8 +70,7 @@ export function saveReminderPrefs(patch) {
 }
 
 function isStaff() {
-  const user = savedUser();
-  return user && user.role && user.role !== "CUSTOMER" && token();
+  return isStaffPortal() && !!token();
 }
 
 function allow(summary, key) {

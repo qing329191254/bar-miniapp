@@ -1,7 +1,8 @@
 <script setup>
 import { computed, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
-import { api, clearSession, go, relaunch, toastText } from "@/utils/api";
+import { api, clearSession, go, isStaffRole, relaunch, setPortal, toastText } from "@/utils/api";
+import { startStaffReminder, stopStaffReminder } from "@/utils/staff-reminder";
 import { iconSrc } from "@/utils/icons";
 
 const chevSrc = iconSrc("chevron");
@@ -95,6 +96,11 @@ function fmt(n) {
 function logout() {
   clearSession();
   relaunch("/pages/login/login");
+}
+function switchToStaff() {
+  setPortal("staff");
+  startStaffReminder();
+  relaunch("/pages/s/todo");
 }
 function openEditProfile() {
   editNick.value = me.value?.user?.nick || "";
@@ -396,6 +402,12 @@ async function submitDeact() {
       <view class="tiny deact-foot">协议为常驻入口，可随时查看当前生效版本全文与你的同意记录。</view>
     </view>
 
+    <button
+      v-if="isStaffRole()"
+      class="btn ghost block foot-btn"
+      style="margin-bottom:10px"
+      @tap="switchToStaff"
+    >切换到员工端</button>
     <button class="btn ghost block foot-btn" @tap="logout">切换账号</button>
     <tab-bar current="mine" />
 

@@ -1,6 +1,6 @@
 <script setup>
 import { onLoad } from "@dcloudio/uni-app";
-import { savedUser, token } from "@/utils/api";
+import { resolveHomeUrl, savedUser, token } from "@/utils/api";
 
 onLoad(() => {
   const u = savedUser();
@@ -9,9 +9,7 @@ onLoad(() => {
     uni.reLaunch({ url: "/pages/login/login" });
     return;
   }
-  uni.reLaunch({
-    url: u.role === "CUSTOMER" ? "/pages/c/home" : "/pages/s/todo",
-  });
+  uni.reLaunch({ url: resolveHomeUrl() });
 });
 </script>
 

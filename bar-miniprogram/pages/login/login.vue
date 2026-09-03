@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
-import { api, savedUser, setSession, token, relaunch, toastText } from "@/utils/api";
+import { api, resolveHomeUrl, savedUser, setSession, token, relaunch, toastText } from "@/utils/api";
 
 const err = ref("");
 const wxLoading = ref(false);
@@ -24,7 +24,7 @@ const currentDoc = computed(() => agreements.value[openDoc.value] || {});
 onMounted(async () => {
   const u = savedUser();
   if (u?.role && token()) {
-    enter(u.role);
+    relaunch(resolveHomeUrl());
     return;
   }
   showLogin.value = true;
@@ -40,8 +40,9 @@ onMounted(async () => {
   }
 });
 
-function enter(role) {
-  relaunch(role === "CUSTOMER" ? "/pages/c/home" : "/pages/s/todo");
+/** After fresh login: customers go home; staff/manager/boss choose portal. */
+function enter() {
+  relaunch(resolveHomeUrl({ forceChoose: true }));
 }
 
 function ensureAgreed() {
@@ -86,7 +87,7 @@ function wxLogin(e) {
           },
         });
         setSession(r.token, r.user);
-        enter(r.user.role);
+        enter();
       } catch (e) {
         err.value = e.message;
       } finally {
@@ -181,7 +182,7 @@ async function smsLogin() {
       },
     });
     setSession(r.token, r.user);
-    enter(r.user.role);
+    enter();
   } catch (e) {
     err.value = e.message;
   } finally {

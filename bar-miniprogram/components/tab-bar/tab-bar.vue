@@ -1,14 +1,13 @@
 <script setup>
 import { onMounted } from "vue";
-import { savedUser, hideWxHomeButton } from "@/utils/api";
+import { isStaffPortal, hideWxHomeButton } from "@/utils/api";
 import { iconSrc as svgIcon } from "@/utils/icons";
 import { reminderState } from "@/utils/staff-reminder";
 
 const scanSrc = svgIcon("scan");
 
 const props = defineProps({ current: { type: String, default: "" } });
-const user = savedUser();
-const isStaff = user && user.role !== "CUSTOMER";
+const isStaff = isStaffPortal();
 const tabs = isStaff
   ? [
       { key: "todo", url: "/pages/s/todo", label: "待办", icon: "todo" },
