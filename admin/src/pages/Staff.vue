@@ -50,6 +50,19 @@ function canResetPwd(row: StaffRow) {
   return row.status !== "DISABLED" && (row.role === "MANAGER" || row.role === "BOSS");
 }
 
+function canRestore(row: StaffRow) {
+  return row.status === "DISABLED" && row.role !== "BOSS";
+}
+
+function canRevoke(row: StaffRow) {
+  return row.role !== "BOSS";
+}
+
+/** Active: 撤销员工；旧版已停用：转为会员（同一动作，账号变为会员） */
+function revokeLabel(row: StaffRow) {
+  return row.status === "DISABLED" ? "转为会员" : "撤销员工";
+}
+
 async function load() {
   loading.value = true;
   err.value = "";
@@ -240,7 +253,7 @@ onMounted(load);
       </div>
       <div class="toolbar row">
         <button class="btn sm pri" @click="openAdd">＋ 新增员工</button>
-        <span class="tiny">店员只用小程序；店长才设后台密码。撤销员工后仍可走会员端，手机号可再添加</span>
+        <span class="tiny">店员只用小程序；店长才设后台密码。撤销员工会自动变成会员，手机号可再添加</span>
       </div>
       <div class="card tb-wrap">
         <table class="tb2 staff-table" data-cols="llccccc">
@@ -280,26 +293,38 @@ onMounted(load);
               <td>¥{{ fmt(row.amount) }}</td>
               <td>{{ row.verifies }}</td>
               <td class="col-op">
-                <button
-                  v-if="canResetPwd(row)"
-                  class="btn sm"
-                  :disabled="acting"
-                  @click="openResetPwd(row)"
-                >
-                  重置密码
-                </button>
-                <template v-if="row.status === 'DISABLED'">
-                  <button class="btn sm" :disabled="acting" @click="enableStaff(row)">恢复</button>
-                  <button class="btn sm" :disabled="acting" @click="revokeDlg = row">转为会员</button>
-                </template>
-                <button
-                  v-else-if="row.role !== 'BOSS'"
-                  class="btn sm"
-                  :disabled="acting"
-                  @click="revokeDlg = row"
-                >
-                  撤销员工
-                </button>
+                <div class="op-grid">
+                  <div class="op-slot">
+                    <button
+                      v-if="canResetPwd(row)"
+                      class="btn sm"
+                      :disabled="acting"
+                      @click="openResetPwd(row)"
+                    >
+                      重置密码
+                    </button>
+                  </div>
+                  <div class="op-slot">
+                    <button
+                      v-if="canRestore(row)"
+                      class="btn sm"
+                      :disabled="acting"
+                      @click="enableStaff(row)"
+                    >
+                      恢复
+                    </button>
+                  </div>
+                  <div class="op-slot">
+                    <button
+                      v-if="canRevoke(row)"
+                      class="btn sm"
+                      :disabled="acting"
+                      @click="revokeDlg = row"
+                    >
+                      {{ revokeLabel(row) }}
+                    </button>
+                  </div>
+                </div>
               </td>
             </tr>
             <tr v-if="!rows.length">
@@ -381,9 +406,9 @@ onMounted(load);
           <div class="st">撤销员工权限</div>
           <p class="dlg-body">
             确认撤销「<b>{{ revokeDlg.nick }}</b>」的员工身份？
-            <br />· 对方会变为普通会员，小程序会员端可继续使用
+            <br />· 将自动变为普通会员（沿用原账号/手机号），小程序会员端可继续使用
             <br />· 员工端 / Web 后台不可再进
-            <br />· 将从本列表移除；同一手机号可再次添加为员工
+            <br />· 从本列表移除；同一手机号可再次添加为员工
             <br />· 历史接单等记录保留
           </p>
           <div class="dlg-actions">
@@ -407,9 +432,27 @@ onMounted(load);
 .staff-table :is(th,td):nth-child(4){width:9%}
 .staff-table :is(th,td):nth-child(5){width:11%}
 .staff-table :is(th,td):nth-child(6){width:9%}
-.staff-table :is(th,td):nth-child(7){width:18%}
+.staff-table :is(th,td):nth-child(7){width:22%}
 .staff-table td.col-op { white-space: nowrap; }
-.staff-table td.col-op .btn + .btn { margin-left: 6px; }
+.op-grid {
+  display: grid;
+  grid-template-columns: 5.5rem 3.2rem 5.5rem;
+  gap: 6px;
+  justify-content: center;
+  align-items: center;
+  min-height: 28px;
+}
+.op-slot {
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+}
+.op-slot .btn {
+  margin: 0;
+  width: 100%;
+  padding-left: 0;
+  padding-right: 0;
+}
 .tb-wrap { padding: 0; overflow: auto; }
 .name { font-weight: 500; }
 .disabled-tag { margin-left: 6px; color: var(--red); font-size: 11px; font-weight: 400; }
