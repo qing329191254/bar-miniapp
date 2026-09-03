@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { api } from "../api";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
 import AppSelect from "../components/AppSelect.vue";
@@ -24,8 +24,15 @@ const acting = ref(false);
 
 const addForm = ref({ phone: "", nick: "", role: "STAFF", password: "", password2: "" });
 const showAdd = ref(false);
+const addNeedsPwd = computed(() => addForm.value.role === "MANAGER");
 
-const roleDlg = ref<{ row: StaffRow; role: string; reason: string } | null>(null);
+const roleDlg = ref<{
+  row: StaffRow;
+  role: string;
+  reason: string;
+  password: string;
+  password2: string;
+} | null>(null);
 const disableDlg = ref<StaffRow | null>(null);
 const pwdDlg = ref<{ row: StaffRow; password: string; password2: string } | null>(null);
 
@@ -37,6 +44,10 @@ const ROLE_NAME: Record<string, string> = { STAFF: "店员", MANAGER: "店长", 
 
 function fmt(n: number) {
   return Number(n || 0).toLocaleString("en-US");
+}
+
+function canResetPwd(row: StaffRow) {
+  return row.status !== "DISABLED" && (row.role === "MANAGER" || row.role === "BOSS");
 }
 
 async function load() {
@@ -55,37 +66,40 @@ async function load() {
 
 async function addStaff() {
   const phone = addForm.value.phone.trim();
+  const role = addForm.value.role;
   const password = addForm.value.password;
   const password2 = addForm.value.password2;
   if (!phone) {
     showToast("请填写手机号", true);
     return;
   }
-  if (password.length < 6 || password.length > 32) {
-    showToast("后台登录密码需 6-32 位", true);
-    return;
-  }
-  if (password !== password2) {
-    showToast("两次输入的密码不一致", true);
-    return;
+  if (role === "MANAGER") {
+    if (password.length < 6 || password.length > 32) {
+      showToast("店长需设置 6-32 位后台登录密码", true);
+      return;
+    }
+    if (password !== password2) {
+      showToast("两次输入的密码不一致", true);
+      return;
+    }
   }
   acting.value = true;
   try {
-    await api("/admin/staff", {
-      method: "POST",
-      body: {
-        data: {
-          phone,
-          nick: addForm.value.nick.trim(),
-          role: addForm.value.role,
-          password,
-        },
-      },
-    });
+    const data: Record<string, string> = {
+      phone,
+      nick: addForm.value.nick.trim(),
+      role,
+    };
+    if (role === "MANAGER") data.password = password;
+    await api("/admin/staff", { method: "POST", body: { data } });
     addForm.value = { phone: "", nick: "", role: "STAFF", password: "", password2: "" };
     showAdd.value = false;
     await load();
-    showToast("已保存；小程序与后台均用手机号登录（后台另需密码，仅店长/老板）");
+    showToast(
+      role === "MANAGER"
+        ? "已保存；店长可用手机号+密码登录 Web 后台"
+        : "已保存；店员仅用小程序手机号登录，无需后台密码",
+    );
   } catch (e: any) {
     showToast(e?.message || "添加失败", true);
   } finally {
@@ -104,7 +118,7 @@ function onRoleChange(row: StaffRow, role: string) {
     return;
   }
   if (role === row.role) return;
-  roleDlg.value = { row, role, reason: "" };
+  roleDlg.value = { row, role, reason: "", password: "", password2: "" };
 }
 
 function roleDlgBody() {
@@ -114,27 +128,37 @@ function roleDlgBody() {
   const to = ROLE_NAME[role] || role;
   const hint =
     role === "MANAGER"
-      ? "店长可见订单/充值/对局/结算等管理页，但资金规则仍归老板"
-      : "店员仅保留移动端待办、核销与录对局权限";
+      ? "店长可进 Web 后台；请在下方设置后台登录密码"
+      : "店员仅保留小程序待办、核销与录对局，不进 Web 后台";
   return `将「${row.nick}」的角色由【${from}】变更为【${to}】。\n· ${hint}\n· 变更即时生效，并记入操作日志`;
 }
 
 async function confirmRole() {
   if (!roleDlg.value) return;
-  const reason = roleDlg.value.reason.trim();
-  if (reason.length < 2) {
+  const { row, role, reason, password, password2 } = roleDlg.value;
+  const reasonTrim = reason.trim();
+  if (reasonTrim.length < 2) {
     showToast("请填写原因", true);
     return;
   }
+  if (role === "MANAGER") {
+    if (password.length < 6 || password.length > 32) {
+      showToast("升为店长需设置 6-32 位后台登录密码", true);
+      return;
+    }
+    if (password !== password2) {
+      showToast("两次输入的密码不一致", true);
+      return;
+    }
+  }
   acting.value = true;
   try {
-    await api(`/admin/staff/${roleDlg.value.row.id}/role`, {
-      method: "PUT",
-      body: { data: { role: roleDlg.value.role, reason } },
-    });
+    const data: Record<string, string> = { role, reason: reasonTrim };
+    if (role === "MANAGER") data.password = password;
+    await api(`/admin/staff/${row.id}/role`, { method: "PUT", body: { data } });
     roleDlg.value = null;
     await load();
-    showToast("角色已变更，已记入日志");
+    showToast(role === "MANAGER" ? "已升为店长并设置后台密码" : "角色已变更，已记入日志");
   } catch (e: any) {
     showToast(e?.message || "变更失败", true);
   } finally {
@@ -158,8 +182,8 @@ async function confirmDisable() {
 }
 
 function openResetPwd(row: StaffRow) {
-  if (row.status === "DISABLED") {
-    showToast("已停用账号无法重置密码", true);
+  if (!canResetPwd(row)) {
+    showToast("仅店长/老板需要后台密码", true);
     return;
   }
   pwdDlg.value = { row, password: "", password2: "" };
@@ -203,7 +227,7 @@ onMounted(load);
       </div>
       <div class="toolbar row">
         <button class="btn sm pri" @click="openAdd">＋ 新增员工</button>
-        <span class="tiny">可重置后台登录密码（看不到旧密码）；小程序与后台均用手机号登录</span>
+        <span class="tiny">店员只用小程序；店长/老板才设后台密码（手机号+密码）</span>
       </div>
       <div class="card tb-wrap">
         <table class="tb2 staff-table" data-cols="llccccc">
@@ -244,7 +268,7 @@ onMounted(load);
               <td>{{ row.verifies }}</td>
               <td class="col-op">
                 <button
-                  v-if="row.status !== 'DISABLED'"
+                  v-if="canResetPwd(row)"
                   class="btn sm"
                   :disabled="acting"
                   @click="openResetPwd(row)"
@@ -280,11 +304,14 @@ onMounted(load);
           <input v-model="addForm.nick" class="inp" placeholder="如 小玲" />
           <div class="fld">角色</div>
           <AppSelect v-model="addForm.role" :options="ROLE_OPTS" no-margin />
-          <div class="fld">后台登录密码 *</div>
-          <input v-model="addForm.password" class="inp" type="password" placeholder="6-32 位，店长/老板用手机号+密码进后台" autocomplete="new-password" />
-          <div class="fld">确认密码 *</div>
-          <input v-model="addForm.password2" class="inp" type="password" placeholder="再次输入密码" autocomplete="new-password" />
-          <p class="tiny add-pwd-hint">小程序用手机号登录；管理后台用手机号 + 本密码（仅店长/老板可进后台）。</p>
+          <template v-if="addNeedsPwd">
+            <div class="fld">后台登录密码 *</div>
+            <input v-model="addForm.password" class="inp" type="password" placeholder="6-32 位，手机号+密码进 Web 后台" autocomplete="new-password" />
+            <div class="fld">确认密码 *</div>
+            <input v-model="addForm.password2" class="inp" type="password" placeholder="再次输入密码" autocomplete="new-password" />
+            <p class="tiny add-pwd-hint">仅店长需要；用于管理后台登录。小程序仍用手机号登录。</p>
+          </template>
+          <p v-else class="tiny add-pwd-hint">店员只走小程序（手机号登录），不进 Web 后台，无需设密码。</p>
           <div class="dlg-actions">
             <button class="btn ghost" @click="showAdd = false">取消</button>
             <button class="btn pri" :disabled="acting" @click="addStaff">添加员工</button>
@@ -300,6 +327,12 @@ onMounted(load);
           <p class="dlg-body">{{ roleDlgBody() }}</p>
           <div class="fld">变更原因（必填）</div>
           <input v-model="roleDlg.reason" class="inp" placeholder="请填写原因" />
+          <template v-if="roleDlg.role === 'MANAGER'">
+            <div class="fld">后台登录密码 *</div>
+            <input v-model="roleDlg.password" class="inp" type="password" placeholder="6-32 位" autocomplete="new-password" />
+            <div class="fld">确认密码 *</div>
+            <input v-model="roleDlg.password2" class="inp" type="password" placeholder="再次输入密码" autocomplete="new-password" />
+          </template>
           <div class="dlg-actions">
             <button class="btn ghost" @click="roleDlg = null">取消</button>
             <button class="btn dan" :disabled="acting" @click="confirmRole">确认变更</button>
@@ -317,7 +350,7 @@ onMounted(load);
           <input v-model="pwdDlg.password" class="inp" type="password" placeholder="6-32 位" autocomplete="new-password" />
           <div class="fld">确认密码 *</div>
           <input v-model="pwdDlg.password2" class="inp" type="password" placeholder="再次输入新密码" autocomplete="new-password" />
-          <p class="tiny add-pwd-hint">仅影响 Web 后台登录；小程序仍用手机号登录，无需此密码。</p>
+          <p class="tiny add-pwd-hint">仅影响 Web 后台登录；小程序仍用手机号登录。</p>
           <div class="dlg-actions">
             <button class="btn ghost" @click="pwdDlg = null">取消</button>
             <button class="btn pri" :disabled="acting" @click="confirmResetPwd">确认重置</button>

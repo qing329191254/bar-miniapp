@@ -2281,22 +2281,27 @@ def create_staff(sess: Session, data: dict, admin: dict) -> dict:
         raise ValueError("角色无效")
     if not is_cn_mobile(phone_raw):
         raise ValueError("请填写有效手机号")
-    if len(password) < 6 or len(password) > 32:
-        raise ValueError("后台登录密码需 6-32 位")
+    # Only managers use Web admin (phone+password). Staff use mini program only.
+    need_pwd = role == "MANAGER"
+    if need_pwd and (len(password) < 6 or len(password) > 32):
+        raise ValueError("店长需设置 6-32 位后台登录密码")
+    if not need_pwd and password:
+        raise ValueError("店员无需后台密码")
     d11 = phone_digits(phone_raw)
     masked, tail = mask_phone(d11)
     staff = next((u for u in users_by_phone(sess, d11) if u.role in STAFF_ROLES), None)
     if staff:
         raise ValueError("该手机号已绑定员工")
     customer = next((u for u in users_by_phone(sess, d11) if u.role == "CUSTOMER"), None)
-    hashed = hash_pwd(password)
+    hashed = hash_pwd(password) if need_pwd else ""
     if customer:
         if customer.status == "DEACTIVATED":
             raise ValueError("该账号已注销，无法授权为员工")
         if customer.status == "DISABLED":
             raise ValueError("该账号已停用")
         customer.role = role
-        customer.pwd = hashed
+        if need_pwd:
+            customer.pwd = hashed
         if nick_in:
             customer.nick = nick_in
         bind_wx_phone(sess, customer, d11)
@@ -2326,7 +2331,9 @@ def create_staff(sess: Session, data: dict, admin: dict) -> dict:
     return public_user(sess, user)
 
 
-def change_staff_role(sess: Session, uid: int, role: str, reason: str, admin: dict) -> dict:
+def change_staff_role(
+    sess: Session, uid: int, role: str, reason: str, admin: dict, password: str = "",
+) -> dict:
     reason = (reason or "").strip()
     if len(reason) < 2:
         raise ValueError("请填写变更原因")
@@ -2342,10 +2349,18 @@ def change_staff_role(sess: Session, uid: int, role: str, reason: str, admin: di
         return public_user(sess, user)
     if (user.status or "ACTIVE") == "DISABLED":
         raise ValueError("该员工已停用")
+    password = str(password or "")
+    if role == "MANAGER":
+        if len(password) < 6 or len(password) > 32:
+            raise ValueError("升为店长需设置 6-32 位后台登录密码")
+        user.pwd = hash_pwd(password)
     old = ROLE_LABELS.get(user.role, user.role)
     new = ROLE_LABELS.get(role, role)
     user.role = role
-    log(sess, "STAFF_ROLE_CHANGE", f"{user.nick} 角色 {old} → {new} · 原因：{reason}", uid, admin)
+    detail = f"{user.nick} 角色 {old} → {new} · 原因：{reason}"
+    if role == "MANAGER":
+        detail += " · 已设置后台密码"
+    log(sess, "STAFF_ROLE_CHANGE", detail, uid, admin)
     sess.flush()
     return public_user(sess, user)
 
@@ -2373,6 +2388,8 @@ def reset_staff_password(sess: Session, uid: int, password: str, admin: dict) ->
     user = sess.get(User, uid)
     if not user or user.role not in STAFF_ROLES:
         raise ValueError("员工不存在")
+    if user.role == "STAFF":
+        raise ValueError("店员不使用后台，无需密码；升为店长后再设置")
     if (user.status or "ACTIVE") == "DISABLED":
         raise ValueError("该员工已停用")
     if user.role == "BOSS" and admin.get("id") != uid:

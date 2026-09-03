@@ -1867,7 +1867,14 @@ def change_staff_role(uid: int, body: PatchIn, admin: dict = Depends(admin_user)
         raise HTTPException(403, "仅老板可改")
     data = body.data or {}
     try:
-        return L.change_staff_role(db, uid, str(data.get("role") or ""), str(data.get("reason") or ""), admin)
+        return L.change_staff_role(
+            db,
+            uid,
+            str(data.get("role") or ""),
+            str(data.get("reason") or ""),
+            admin,
+            str(data.get("password") or ""),
+        )
     except ValueError as e:
         fail(e)
 
