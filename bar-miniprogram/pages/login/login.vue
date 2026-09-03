@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
 import { api, hideWxHomeButton, resolveHomeUrl, savedUser, setSession, token, relaunch, toastText } from "@/utils/api";
+import { LOGO_URL } from "@/utils/assets";
 
 const err = ref("");
 const wxLoading = ref(false);
@@ -197,7 +198,7 @@ async function smsLogin() {
   <view v-if="!showLogin" class="login-boot" />
   <view v-else class="login-page">
     <view class="profile-hd login-hd">
-      <image class="login-logo" src="/static/logo.png" mode="aspectFit" />
+      <image class="login-logo" :src="LOGO_URL" mode="aspectFit" />
       <view class="login-name">玩咖桌游酒吧</view>
     </view>
 

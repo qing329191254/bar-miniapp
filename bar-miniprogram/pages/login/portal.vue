@@ -8,6 +8,7 @@ import {
   setPortal,
   token,
 } from "@/utils/api";
+import { LOGO_URL } from "@/utils/assets";
 import { startStaffReminder, stopStaffReminder } from "@/utils/staff-reminder";
 
 onLoad(() => {
@@ -42,7 +43,7 @@ function pick(mode) {
 <template>
   <view class="portal-page">
     <view class="portal-hd">
-      <image class="portal-logo" src="/static/logo.png" mode="aspectFit" />
+      <image class="portal-logo" :src="LOGO_URL" mode="aspectFit" />
       <view class="portal-name">玩咖桌游酒吧</view>
       <view class="portal-sub">请选择本次进入的端</view>
     </view>

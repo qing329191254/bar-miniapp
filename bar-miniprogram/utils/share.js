@@ -1,10 +1,11 @@
 /** 微信小程序分享：发给朋友 / 朋友圈 */
+import { SHARE_COVER_URL } from "./assets.js";
 
 export const SHARE_TITLE = "玩咖桌游酒吧";
 export const SHARE_DESC = "点单 · 充值 · 积分 · 桌游对局";
 /** 分享落地走 boot，由会话决定进登录 / 会员 / 选端 */
 export const SHARE_PATH = "/pages/boot/boot";
-export const SHARE_IMAGE = "/static/share-cover.png";
+export const SHARE_IMAGE = SHARE_COVER_URL;
 
 export function shareAppMessage() {
   return {
