@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
-import { api, clearSession, go, relaunch, setPortal } from "@/utils/api";
+import { api, clearSession, go, hideWxHomeButton, relaunch, setPortal } from "@/utils/api";
 import { getStaffMineCache, setStaffMineCache } from "@/utils/staff-page-cache";
 import { reminderState, saveReminderPrefs, stopStaffReminder, testStaffReminder } from "@/utils/staff-reminder";
 
@@ -50,7 +50,10 @@ async function load() {
   setStaffMineCache(meRes, todoRes);
 }
 
-onShow(() => load());
+onShow(() => {
+  hideWxHomeButton();
+  load();
+});
 
 function logout() {
   clearSession();

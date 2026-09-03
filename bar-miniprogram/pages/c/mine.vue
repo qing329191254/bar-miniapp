@@ -1,15 +1,17 @@
 <script setup>
 import { computed, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
-import { api, clearSession, go, isStaffRole, relaunch, setPortal, toastText } from "@/utils/api";
+import { api, clearSession, go, hideWxHomeButton, isStaffRole, relaunch, setPortal, toastText } from "@/utils/api";
+import { getMemberMineCache, setMemberMineCache } from "@/utils/staff-page-cache";
 import { startStaffReminder, stopStaffReminder } from "@/utils/staff-reminder";
 import { iconSrc } from "@/utils/icons";
 
 const chevSrc = iconSrc("chevron");
 
-const me = ref(null);
-const champs = ref({ list: [], total: 0, month: 0 });
-const team = ref(null);
+const cache = getMemberMineCache();
+const me = ref(cache.me);
+const champs = ref(cache.champs || { list: [], total: 0, month: 0 });
+const team = ref(cache.team);
 const showShop = ref(false);
 const showFaq = ref(false);
 const showTerms = ref(false);
@@ -78,14 +80,23 @@ const FAQ_DEFAULT = {
 };
 
 onShow(async () => {
-  me.value = await api("/me");
+  hideWxHomeButton();
+  const hasCache = !!me.value;
   try {
-    champs.value = await api("/champions");
-  } catch (e) {}
-  if (me.value?.user?.teamId) {
+    me.value = await api("/me", { loading: !hasCache, silent: hasCache });
     try {
-      team.value = await api("/teams/" + me.value.user.teamId);
+      champs.value = await api("/champions", { loading: false, silent: true });
     } catch (e) {}
+    if (me.value?.user?.teamId) {
+      try {
+        team.value = await api("/teams/" + me.value.user.teamId, { loading: false, silent: true });
+      } catch (e) {}
+    } else {
+      team.value = null;
+    }
+    setMemberMineCache({ me: me.value, champs: champs.value, team: team.value });
+  } catch (e) {
+    if (!me.value) toastText(e.message || "加载失败");
   }
 });
 

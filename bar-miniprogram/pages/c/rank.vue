@@ -1,19 +1,37 @@
 <script setup>
 import { computed, ref, watch } from "vue";
 import { onShow } from "@dcloudio/uni-app";
-import { api, savedUser } from "@/utils/api";
+import { api, hideWxHomeButton, savedUser } from "@/utils/api";
+import { getMemberRankCache, setMemberRankCache } from "@/utils/staff-page-cache";
 
 const kind = ref("SHARD");
 const subject = ref("TEAM");
 const dim = ref("WEEK");
 const showMetric = ref(false);
-const data = ref({ rows: [], mine: null });
+const cached = getMemberRankCache();
+const data = ref(cached?.data || { rows: [], mine: null });
+if (cached?.kind) kind.value = cached.kind;
+if (cached?.subject) subject.value = cached.subject;
+if (cached?.dim) dim.value = cached.dim;
 const me = savedUser();
 
 async function load() {
-  data.value = await api(`/rank?kind=${kind.value}&dim=${dim.value}&subject=${subject.value}`);
+  const hasCache = !!(data.value?.rows?.length || data.value?.mine);
+  try {
+    const next = await api(`/rank?kind=${kind.value}&dim=${dim.value}&subject=${subject.value}`, {
+      loading: !hasCache,
+      silent: hasCache,
+    });
+    data.value = next;
+    setMemberRankCache({ kind: kind.value, subject: subject.value, dim: dim.value, data: next });
+  } catch (e) {
+    if (!hasCache) throw e;
+  }
 }
-onShow(load);
+onShow(() => {
+  hideWxHomeButton();
+  load();
+});
 watch([kind, subject, dim], load);
 
 function fmt(n) {

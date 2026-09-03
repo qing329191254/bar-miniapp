@@ -1,6 +1,7 @@
 <script setup>
-import { onLoad } from "@dcloudio/uni-app";
+import { onLoad, onShow } from "@dcloudio/uni-app";
 import {
+  hideWxHomeButton,
   isStaffRole,
   relaunch,
   savedUser,
@@ -10,6 +11,7 @@ import {
 import { startStaffReminder, stopStaffReminder } from "@/utils/staff-reminder";
 
 onLoad(() => {
+  hideWxHomeButton();
   const u = savedUser();
   if (!u?.role || !token()) {
     relaunch("/pages/login/login");
@@ -19,6 +21,10 @@ onLoad(() => {
     setPortal("customer");
     relaunch("/pages/c/home");
   }
+});
+
+onShow(() => {
+  hideWxHomeButton();
 });
 
 function pick(mode) {
@@ -42,9 +48,12 @@ function pick(mode) {
     </view>
 
     <view class="portal-card card">
-      <button class="btn block portal-btn" @tap="pick('staff')">进入员工端</button>
-      <button class="btn ghost block portal-btn" @tap="pick('customer')">进入会员端</button>
-      <view class="tiny portal-tip">会员端可点单、充值与查看资产；员工端处理待办与核销。可在「我的」随时切换。</view>
+      <button class="btn block portal-btn" @tap="pick('staff')"><text>进入员工端</text></button>
+      <button class="btn ghost block portal-btn" @tap="pick('customer')"><text>进入会员端</text></button>
+      <view class="tiny portal-tip">
+        <text>会员端可点单、充值与查看资产；</text>
+        <text class="portal-tip-line">员工端处理待办与核销。可在「我的」随时切换。</text>
+      </view>
     </view>
   </view>
 </template>
@@ -82,7 +91,16 @@ function pick(mode) {
 }
 .portal-btn {
   height: 44px;
+  padding: 0 !important;
   margin-left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  line-height: 44px;
+  box-sizing: border-box;
+}
+.portal-btn text {
   line-height: 44px;
 }
 .portal-card .btn + .btn {
@@ -94,5 +112,8 @@ function pick(mode) {
   text-align: center;
   color: #9c9a93;
   line-height: 1.5;
+}
+.portal-tip-line {
+  display: block;
 }
 </style>

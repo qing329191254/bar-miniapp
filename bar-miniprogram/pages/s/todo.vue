@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from "vue";
 import { onShow, onUnload } from "@dcloudio/uni-app";
-import { api, go, loadGameDraft, toastText } from "@/utils/api";
+import { api, go, hideWxHomeButton, loadGameDraft, toastText } from "@/utils/api";
 import { getStaffTodoListCache, setStaffTodoListCache } from "@/utils/staff-page-cache";
 import {
   reminderState,
@@ -52,6 +52,7 @@ function scheduleReload() {
 }
 
 onShow(() => {
+  hideWxHomeButton();
   if (data.value) applyTabFromCounts(data.value);
   load();
   syncReminderSummary(false);

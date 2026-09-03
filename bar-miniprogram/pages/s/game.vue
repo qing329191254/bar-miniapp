@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { onBackPress } from "@dcloudio/uni-app";
-import { api, clearGameDraft, go, loadGameDraft, saveGameDraft, toastText } from "@/utils/api";
+import { api, clearGameDraft, go, hideWxHomeButton, loadGameDraft, saveGameDraft, toastText } from "@/utils/api";
 
 const meta = ref({ projects: [], tables: [], busy: [] });
 const members = ref([]);
@@ -33,6 +33,7 @@ const wiz = reactive({
 });
 
 onMounted(async () => {
+  hideWxHomeButton();
   meta.value = await api("/staff/projects");
   members.value = await api("/staff/members");
 });

@@ -27,6 +27,7 @@ function iconSrc(t) {
 
 function tap(t) {
   if (t.key === props.current) return;
+  hideWxHomeButton();
   uni.redirectTo({ url: t.url });
 }
 function scan() {

@@ -1,4 +1,5 @@
 <script>
+import { hideWxHomeButton } from "@/utils/api";
 import { startStaffReminder, stopStaffReminder } from "@/utils/staff-reminder";
 
 export default {
@@ -8,6 +9,7 @@ export default {
 		}
 	},
 	onShow() {
+		hideWxHomeButton();
 		startStaffReminder();
 	},
 	onHide() {
@@ -79,7 +81,8 @@ button::after { border: none; }
 .btn + .btn { margin-left: 8px; }
 .row > .btn + .btn,
 .g2 > .btn + .btn,
-.g3 > .btn + .btn { margin-left: 0; }
+.g3 > .btn + .btn,
+.foot-btn + .foot-btn { margin-left: 0; }
 .g2 { display: flex; flex-wrap: wrap; gap: 10px; }
 .g2 > .card, .g2 > .btn { width: calc(50% - 5px); box-sizing: border-box; }
 .g3 { display: flex; gap: 8px; }

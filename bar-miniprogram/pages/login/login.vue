@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
-import { api, resolveHomeUrl, savedUser, setSession, token, relaunch, toastText } from "@/utils/api";
+import { api, hideWxHomeButton, resolveHomeUrl, savedUser, setSession, token, relaunch, toastText } from "@/utils/api";
 
 const err = ref("");
 const wxLoading = ref(false);
@@ -22,6 +22,7 @@ const openDoc = ref("");
 const currentDoc = computed(() => agreements.value[openDoc.value] || {});
 
 onMounted(async () => {
+  hideWxHomeButton();
   const u = savedUser();
   if (u?.role && token()) {
     relaunch(resolveHomeUrl());

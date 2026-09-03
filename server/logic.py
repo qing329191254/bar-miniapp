@@ -283,6 +283,12 @@ def alloc_member_no(sess: Session) -> str:
 
 
 STAFF_ROLES = ("STAFF", "MANAGER", "BOSS")
+# Staff may use the member portal (same account) to order/recharge for themselves.
+MEMBER_COMMERCE_ROLES = ("CUSTOMER",) + STAFF_ROLES
+
+
+def can_use_member_commerce(user: User | None) -> bool:
+    return bool(user and user.status == "ACTIVE" and user.role in MEMBER_COMMERCE_ROLES)
 
 
 def phone_digits(full: str) -> str:
@@ -552,7 +558,8 @@ def issue_card(sess: Session, uid: int, tm: CardTpl, src: str, src_desc: str) ->
 
 def create_order(sess: Session, uid: int, items: list, pay_type: str, table_id, remark: str) -> dict:
     user = u(sess, uid)
-    if not user or user.role != "CUSTOMER":
+    # Staff/manager/boss share one account: member portal can place orders for themselves.
+    if not can_use_member_commerce(user):
         err("请先注册会员")
     if not items:
         err("购物车为空")

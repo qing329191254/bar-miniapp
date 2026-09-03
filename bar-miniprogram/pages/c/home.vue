@@ -1,14 +1,15 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
-import { api, go, media, toastText } from "@/utils/api";
+import { api, go, hideWxHomeButton, media, toastText } from "@/utils/api";
+import { getMemberHomeCache, setMemberHomeCache } from "@/utils/staff-page-cache";
 import { iconSrc } from "@/utils/icons";
 
 const chevSrc = iconSrc("chevron");
 
 const WEEK_HEAD = ["一", "二", "三", "四", "五", "六", "日"];
 
-const data = ref(null);
+const data = ref(getMemberHomeCache());
 const bannerIdx = ref(0);
 const msg = ref("");
 const showGallery = ref(false);
@@ -28,10 +29,21 @@ function fmt(n) {
 }
 
 async function load() {
-  data.value = await api("/home");
+  const hasCache = !!data.value;
+  try {
+    const next = await api("/home", { loading: !hasCache, silent: hasCache });
+    data.value = next;
+    setMemberHomeCache(next);
+    msg.value = "";
+  } catch (e) {
+    if (!data.value) msg.value = e.message || "加载失败";
+  }
 }
 
-onShow(load);
+onShow(() => {
+  hideWxHomeButton();
+  load();
+});
 onMounted(() => {
   timer = setInterval(() => {
     const n = gallery.value.length;
