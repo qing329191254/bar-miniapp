@@ -1,10 +1,13 @@
 <script setup>
-import { computed, onMounted, ref } from "vue";
+import { computed, ref } from "vue";
+import { onShow } from "@dcloudio/uni-app";
 import { api, clearSession, go, relaunch } from "@/utils/api";
+import { getStaffMineCache, setStaffMineCache } from "@/utils/staff-page-cache";
 import { reminderState, saveReminderPrefs, testStaffReminder } from "@/utils/staff-reminder";
 
-const me = ref(null);
-const todo = ref(null);
+const cache = getStaffMineCache();
+const me = ref(cache.me);
+const todo = ref(cache.todo);
 const roleMap = { STAFF: "店员", MANAGER: "店长", BOSS: "老板" };
 const weekNames = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 
@@ -36,10 +39,18 @@ const pushItems = computed(() => {
   ];
 });
 
-onMounted(async () => {
-  me.value = await api("/me");
-  todo.value = await api("/staff/todo");
-});
+async function load() {
+  const hasCache = me.value && todo.value;
+  const [meRes, todoRes] = await Promise.all([
+    api("/me", { loading: !hasCache, silent: hasCache }),
+    api("/staff/todo", { loading: false, silent: true }),
+  ]);
+  me.value = meRes;
+  todo.value = todoRes;
+  setStaffMineCache(meRes, todoRes);
+}
+
+onShow(() => load());
 
 function logout() {
   clearSession();
@@ -92,20 +103,40 @@ function toggleReminder(item) {
 
     <view class="card">
       <view class="sec-head"><view class="h2 sec-title">前台值守提醒</view><text class="sec-hint">仅小程序前台生效</text></view>
-      <view v-for="(item, i) in pushItems" :key="item.title" class="job-stat reminder-item" :class="{ 'job-stat-last': i === pushItems.length - 1 }" @tap="toggleReminder(item)">
-        <app-icon :name="item.icon" :tone="item.tone" size="sm" shape="soft" />
-        <view class="gr">
-          <view style="font-weight:500">{{ item.title }}</view>
-          <view class="li-sub">{{ item.sub }}</view>
+      <view
+        v-for="(item, i) in pushItems"
+        :key="item.title"
+        class="reminder-row"
+        :class="{ 'reminder-row-last': i === pushItems.length - 1 }"
+      >
+        <view
+          class="reminder-row-main"
+          hover-class="reminder-row-main-hover"
+          :hover-stay-time="0"
+          @tap="toggleReminder(item)"
+        >
+          <app-icon :name="item.icon" :tone="item.tone" size="sm" shape="soft" />
+          <view class="gr">
+            <view style="font-weight:500">{{ item.title }}</view>
+            <view class="li-sub">{{ item.sub }}</view>
+          </view>
         </view>
-        <view class="mini-toggle" :class="{ on: item.enabled }"><i /></view>
+        <view
+          class="mini-toggle"
+          :class="{ on: item.enabled }"
+          hover-class="mini-toggle-press"
+          :hover-stay-time="0"
+          @tap="toggleReminder(item)"
+        >
+          <view class="mini-toggle-thumb" />
+        </view>
       </view>
       <button class="btn ghost block reminder-test" @tap="testStaffReminder">测试声音提醒</button>
     </view>
 
     <button class="btn ghost block foot-btn" @tap="logout">切换账号</button>
-    <tab-bar current="mine" />
   </view>
+  <tab-bar current="mine" />
 </template>
 
 <style scoped>
@@ -130,7 +161,75 @@ function toggleReminder(item) {
   margin-top: 2px;
   line-height: 1.45;
 }
-.reminder-item{cursor:pointer}.mini-toggle{position:relative;width:40px;height:22px;flex:none;border:1px solid rgba(82,59,32,.16);border-radius:99px;background:#ded4c6;box-sizing:border-box}.mini-toggle i{position:absolute;left:2px;top:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 4px rgba(74,52,28,.18);transition:transform .18s}.mini-toggle.on{background:linear-gradient(135deg,#c8862a,#e8b45a);border-color:rgba(185,120,34,.42)}.mini-toggle.on i{transform:translateX(18px)}.reminder-test{margin-top:12px}
+.reminder-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 0;
+  border-bottom: 1px solid rgba(28, 27, 25, 0.08);
+  background: #fff;
+}
+.reminder-row-last {
+  border-bottom: none;
+}
+.reminder-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+.reminder-row-main:active {
+  opacity: 1;
+  background: transparent;
+}
+.reminder-row-main-hover {
+  opacity: 1 !important;
+  background-color: transparent !important;
+}
+.reminder-row .mini-toggle {
+  flex: none;
+}
+.mini-toggle-press {
+  opacity: 1;
+  background: linear-gradient(180deg, #ece6dc, #ded4c6);
+}
+.mini-toggle.on.mini-toggle-press {
+  background: linear-gradient(135deg, #d8a356 0%, #b87320 55%, #965614 100%);
+}
+.mini-toggle {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  border: 1px solid rgba(82, 59, 32, 0.16);
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ece6dc, #ded4c6);
+  box-shadow: inset 0 1px 2px rgba(74, 52, 28, 0.08);
+  box-sizing: border-box;
+  transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+.mini-toggle-thumb {
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(74, 52, 28, 0.16);
+  transition: transform 0.18s ease;
+}
+.mini-toggle.on {
+  border-color: rgba(185, 120, 34, 0.42);
+  background: linear-gradient(135deg, #d8a356 0%, #b87320 55%, #965614 100%);
+  box-shadow: inset 0 1px 2px rgba(116, 74, 20, 0.14);
+}
+.mini-toggle.on .mini-toggle-thumb {
+  transform: translateX(18px);
+}
+.reminder-test {
+  margin-top: 12px;
+}
 .li-val {
   font-weight: 600;
   flex-shrink: 0;

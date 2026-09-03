@@ -67,7 +67,7 @@ async function addStaff() {
     addForm.value = { phone: "", nick: "", role: "STAFF" };
     showAdd.value = false;
     await load();
-    showToast("已添加，该手机号登录后自动识别为员工");
+    showToast("已保存，该手机号登录后为员工身份");
   } catch (e: any) {
     showToast(e?.message || "添加失败", true);
   } finally {
@@ -151,7 +151,7 @@ onMounted(load);
       </div>
       <div class="toolbar row">
         <button class="btn sm pri" @click="openAdd">＋ 新增员工</button>
-        <span class="tiny">该手机号登录后自动识别为员工</span>
+        <span class="tiny">先添加手机号，或把已注册会员升级为员工；同一手机号不会开两个账号</span>
       </div>
       <div class="card tb-wrap">
         <table class="tb2 staff-table" data-cols="llccccc">

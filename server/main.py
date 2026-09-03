@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 from pathlib import Path
 from typing import Optional
 from uuid import uuid4
@@ -13,6 +14,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import cache
 import logic as L
+import sms
 from database import SessionLocal, get_db
 from models import (
     AgreeLog, Card, CardTpl, Category, Champ, CoinAdjust, DailyBiz, Deactivation,
@@ -109,9 +111,15 @@ class LoginIn(BaseModel):
     password: str = ""
     code: str = ""
     phoneCode: str = ""
+    phone: str = ""
+    smsCode: str = ""
     agreed: bool = False
     termsVersion: int = 0
     privacyVersion: int = 0
+
+
+class SmsSendIn(BaseModel):
+    phone: str = ""
 
 
 class WxLoginIn(BaseModel):
@@ -223,8 +231,7 @@ def session_payload(db: Session, user: User) -> dict:
     return {"token": token, "user": L.public_user(db, user)}
 
 
-def login_with_wx(code: str, phone_code: str, agreed: bool, terms_version: int,
-                  privacy_version: int, db: Session) -> dict:
+def require_login_agreements(db: Session, agreed: bool, terms_version: int, privacy_version: int) -> tuple[int, int]:
     agreements = L.setting(db, "agreements") or {}
     current_terms = int((agreements.get("terms") or {}).get("ver") or 1)
     current_privacy = int((agreements.get("privacy") or {}).get("ver") or 1)
@@ -232,6 +239,19 @@ def login_with_wx(code: str, phone_code: str, agreed: bool, terms_version: int,
         raise HTTPException(400, "请先阅读并同意协议")
     if terms_version != current_terms or privacy_version != current_privacy:
         raise HTTPException(409, "协议已更新，请重新阅读并同意")
+    return current_terms, current_privacy
+
+
+def reject_inactive(user: User) -> None:
+    if user.status == "DEACTIVATED":
+        raise HTTPException(401, "账号不可用")
+    if user.status == "DISABLED":
+        raise HTTPException(401, "账号已停用")
+
+
+def login_with_wx(code: str, phone_code: str, agreed: bool, terms_version: int,
+                  privacy_version: int, db: Session) -> dict:
+    current_terms, current_privacy = require_login_agreements(db, agreed, terms_version, privacy_version)
     if not (phone_code or "").strip():
         raise HTTPException(400, "请授权手机号")
     try:
@@ -240,17 +260,62 @@ def login_with_wx(code: str, phone_code: str, agreed: bool, terms_version: int,
     except ValueError as e:
         raise HTTPException(401, str(e))
     user = L.register_wx(db, openid, phone_full)
-    if user.status == "DEACTIVATED":
-        raise HTTPException(401, "账号不可用")
+    reject_inactive(user)
     L.record_agreement(db, user, current_terms, current_privacy)
     return session_payload(db, user)
 
 
+def login_with_sms(phone: str, sms_code: str, agreed: bool, terms_version: int,
+                   privacy_version: int, wx_code: str, db: Session) -> dict:
+    current_terms, current_privacy = require_login_agreements(db, agreed, terms_version, privacy_version)
+    d11 = L.phone_digits(phone)
+    if not L.is_cn_mobile(d11):
+        raise HTTPException(400, "请填写有效手机号")
+    if not (sms_code or "").strip():
+        raise HTTPException(400, "请输入验证码")
+    if not cache.sms_verify(d11, sms_code.strip()):
+        raise HTTPException(401, "验证码错误或已过期")
+    openid = None
+    if (wx_code or "").strip():
+        try:
+            openid = weixin.code2openid(wx_code)
+        except ValueError:
+            openid = None
+    user = L.register_or_bind_phone(db, d11, openid)
+    reject_inactive(user)
+    L.record_agreement(db, user, current_terms, current_privacy)
+    return session_payload(db, user)
+
+
+@app.post("/api/auth/sms/send")
+def sms_send(body: SmsSendIn):
+    d11 = L.phone_digits(body.phone)
+    if not L.is_cn_mobile(d11):
+        raise HTTPException(400, "请填写有效手机号")
+    blocked = cache.sms_send_guard(d11)
+    if blocked:
+        raise HTTPException(429, blocked)
+    code = f"{random.randint(0, 999999):06d}"
+    try:
+        result = sms.send_code(d11, code)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    cache.sms_store(d11, code)
+    out = {"ok": True, "ttl": cache.SMS_TTL}
+    if result.get("mock"):
+        out["mock"] = True
+        out["debugCode"] = code
+    return out
+
+
 @app.post("/api/auth/login")
 def login(body: LoginIn, db: Session = Depends(get_db)):
-    if (body.code or "").strip():
+    if (body.phoneCode or "").strip():
         return login_with_wx(body.code, body.phoneCode, body.agreed, body.termsVersion,
                              body.privacyVersion, db)
+    if (body.phone or "").strip() or (body.smsCode or "").strip():
+        return login_with_sms(body.phone, body.smsCode, body.agreed, body.termsVersion,
+                              body.privacyVersion, body.code, db)
     raw = (body.account or "").strip()
     digits = "".join(ch for ch in raw if ch.isdigit())
     if not digits:
@@ -260,12 +325,9 @@ def login(body: LoginIn, db: Session = Depends(get_db)):
         user = db.query(User).filter(User.no == digits.zfill(6)).first()
     if not user:
         raise HTTPException(404, "账号或密码错误")
-    if user.status == "DEACTIVATED":
-        raise HTTPException(401, "账号不可用")
-    if user.status == "DISABLED":
-        raise HTTPException(401, "账号已停用")
+    reject_inactive(user)
     if user.role == "CUSTOMER":
-        raise HTTPException(403, "会员请使用一键登录")
+        raise HTTPException(403, "会员请使用微信一键登录或短信验证码")
     if not L.check_pwd(user, body.password):
         raise HTTPException(401, "账号或密码错误")
     return session_payload(db, user)

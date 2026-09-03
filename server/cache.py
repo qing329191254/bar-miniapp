@@ -70,6 +70,60 @@ def unlock_pending(kind: str, uid: int) -> None:
     _local_locks.pop(f"lock:{kind}:{uid}", None)
 
 
+_sms_codes: dict[str, dict] = {}
+SMS_TTL = 300
+SMS_COOLDOWN = 60
+SMS_DAY_LIMIT = 8
+SMS_MAX_TRIES = 5
+
+
+def sms_send_guard(phone: str) -> str | None:
+    """Return an error message if this number cannot receive a new code yet."""
+    now = time.time()
+    rec = _sms_codes.get(phone)
+    if not rec:
+        return None
+    if rec.get("sent_at", 0) + SMS_COOLDOWN > now:
+        wait = int(rec["sent_at"] + SMS_COOLDOWN - now)
+        return f"请 {max(wait, 1)} 秒后再获取验证码"
+    day = time.strftime("%Y-%m-%d", time.localtime(now))
+    if rec.get("day") == day and int(rec.get("day_count") or 0) >= SMS_DAY_LIMIT:
+        return "该手机号今日获取次数已达上限"
+    return None
+
+
+def sms_store(phone: str, code: str) -> None:
+    now = time.time()
+    day = time.strftime("%Y-%m-%d", time.localtime(now))
+    rec = _sms_codes.get(phone) or {}
+    day_count = int(rec.get("day_count") or 0) + 1 if rec.get("day") == day else 1
+    _sms_codes[phone] = {
+        "code": code,
+        "exp": now + SMS_TTL,
+        "tries": 0,
+        "sent_at": now,
+        "day": day,
+        "day_count": day_count,
+    }
+
+
+def sms_verify(phone: str, code: str) -> bool:
+    rec = _sms_codes.get(phone)
+    if not rec:
+        return False
+    if rec.get("exp", 0) <= time.time():
+        _sms_codes.pop(phone, None)
+        return False
+    rec["tries"] = int(rec.get("tries") or 0) + 1
+    if rec["tries"] > SMS_MAX_TRIES:
+        _sms_codes.pop(phone, None)
+        return False
+    if not hmac.compare_digest(str(rec.get("code") or ""), str(code or "").strip()):
+        return False
+    _sms_codes.pop(phone, None)
+    return True
+
+
 def idem_begin(key: str, ttl: int = 60) -> bool:
     store_key = f"idem:{key}"
     ttl = max(ttl, 1)

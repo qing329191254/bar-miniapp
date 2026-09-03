@@ -1,6 +1,14 @@
 {
 	"pages": [
 		{
+			"path": "pages/boot/boot",
+			"style": {
+				"navigationBarTitleText": "玩咖桌游酒吧",
+				"navigationBarBackgroundColor": "#F5F4F0",
+				"backgroundColor": "#F5F4F0"
+			}
+		},
+		{
 			"path": "pages/login/login",
 			"style": { "navigationBarTitleText": "玩咖桌游酒吧" }
 		},

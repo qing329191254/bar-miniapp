@@ -1,4 +1,5 @@
 import { reactive } from "vue";
+import { clearStaffPageCache } from "@/utils/staff-page-cache";
 
 /** 微信云托管 API 公网地址（小程序与 Web 后台均对接此云端数据） */
 export const BASE = "https://api-303869-11-1476141553.sh.run.tcloudbase.com";
@@ -33,6 +34,7 @@ export function setSession(t, user) {
 export function clearSession() {
   uni.removeStorageSync(TOKEN_KEY);
   uni.removeStorageSync(USER_KEY);
+  clearStaffPageCache();
 }
 
 const CART_KEY = "wanka_cart";

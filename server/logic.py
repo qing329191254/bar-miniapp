@@ -282,8 +282,25 @@ def alloc_member_no(sess: Session) -> str:
     return f"{n:06d}"
 
 
-def mask_phone(full: str) -> tuple[str, str]:
+STAFF_ROLES = ("STAFF", "MANAGER", "BOSS")
+
+
+def phone_digits(full: str) -> str:
     digits = "".join(ch for ch in (full or "") if ch.isdigit())
+    if digits.startswith("86") and len(digits) >= 13:
+        digits = digits[-11:]
+    if len(digits) >= 11:
+        return digits[-11:]
+    return digits
+
+
+def is_cn_mobile(full: str) -> bool:
+    d11 = phone_digits(full)
+    return len(d11) == 11 and d11.startswith("1")
+
+
+def mask_phone(full: str) -> tuple[str, str]:
+    digits = phone_digits(full)
     if len(digits) >= 11:
         d = digits[-11:]
         return f"{d[:3]}****{d[-4:]}", d[-4:]
@@ -299,31 +316,47 @@ def bind_wx_phone(sess: Session, user: User, phone_full: str) -> None:
     user.tail = tail
 
 
-def register_wx(sess: Session, openid: str, phone_full: str | None = None) -> User:
-    found = sess.query(User).filter(User.wx_openid == openid).first()
-    if found:
-        if phone_full:
-            bind_wx_phone(sess, found, phone_full)
-        return found
-    if phone_full:
-        digits = "".join(ch for ch in phone_full if ch.isdigit())
-        if len(digits) >= 11:
-            d11 = digits[-11:]
-            masked, tail = mask_phone(d11)
-            by_phone = sess.query(User).filter(
-                User.role == "CUSTOMER",
-                User.tail == tail,
-                User.phone.in_([d11, masked, f"{d11[:3]}****{d11[-4:]}"]),
-            ).first()
-            if by_phone:
-                by_phone.wx_openid = openid
-                bind_wx_phone(sess, by_phone, d11)
-                return by_phone
-    if phone_full:
-        masked, tail = mask_phone(phone_full)
-    else:
-        tail = rand_digits(4)
-        masked = f"1******{tail}"
+def users_by_phone(sess: Session, phone_full: str) -> list[User]:
+    d11 = phone_digits(phone_full)
+    if len(d11) != 11:
+        return []
+    masked, tail = mask_phone(d11)
+    return sess.query(User).filter(
+        User.tail == tail,
+        User.phone.in_([d11, masked, f"{d11[:3]}****{d11[-4:]}"]),
+    ).all()
+
+
+def find_user_by_phone(sess: Session, phone_full: str) -> User | None:
+    users = users_by_phone(sess, phone_full)
+    if not users:
+        return None
+    staff = [u for u in users if u.role in STAFF_ROLES]
+    if staff:
+        return staff[0]
+    customers = [u for u in users if u.role == "CUSTOMER"]
+    return customers[0] if customers else users[0]
+
+
+def register_or_bind_phone(sess: Session, phone_full: str, openid: str | None = None) -> User:
+    d11 = phone_digits(phone_full)
+    if len(d11) != 11:
+        raise ValueError("请填写有效手机号")
+
+    if openid:
+        found = sess.query(User).filter(User.wx_openid == openid).first()
+        if found:
+            bind_wx_phone(sess, found, d11)
+            return found
+
+    user = find_user_by_phone(sess, d11)
+    if user:
+        if openid and not user.wx_openid:
+            user.wx_openid = openid
+        bind_wx_phone(sess, user, d11)
+        return user
+
+    masked, tail = mask_phone(d11)
     user = User(
         id=new_id(sess, User),
         no=alloc_member_no(sess),
@@ -335,16 +368,22 @@ def register_wx(sess: Session, openid: str, phone_full: str | None = None) -> Us
         status="ACTIVE",
         agreed_version=0,
         pwd="",
-        wx_openid=openid,
+        wx_openid=openid or "",
     )
     sess.add(user)
     sess.flush()
-    sess.add(Wallet(user_id=user.id))
+    wallet_of(sess, user.id)
     grant_demo_points(sess, user.id)
     grant_demo_coins(sess, user.id)
     grant_demo_cards(sess, user.id)
     grant_demo_sign(sess, user.id)
     return user
+
+
+def register_wx(sess: Session, openid: str, phone_full: str | None = None) -> User:
+    if not (phone_full or "").strip():
+        raise ValueError("请授权手机号")
+    return register_or_bind_phone(sess, phone_full, openid)
 
 
 def record_agreement(sess: Session, user: User, terms_ver: int, privacy_ver: int) -> None:
@@ -2200,18 +2239,36 @@ def staff_page(sess: Session) -> dict:
 
 def create_staff(sess: Session, data: dict, admin: dict) -> dict:
     phone_raw = str(data.get("phone") or "").strip()
-    nick = str(data.get("nick") or "").strip() or "员工"
+    nick_in = str(data.get("nick") or "").strip()
     role = str(data.get("role") or "STAFF").upper()
     if role not in ("STAFF", "MANAGER"):
         raise ValueError("角色无效")
-    digits = "".join(ch for ch in phone_raw if ch.isdigit())
-    if len(digits) < 11:
+    if not is_cn_mobile(phone_raw):
         raise ValueError("请填写有效手机号")
-    d11 = digits[-11:]
+    d11 = phone_digits(phone_raw)
     masked, tail = mask_phone(d11)
-    dup = sess.query(User).filter(User.role != "CUSTOMER", User.tail == tail).first()
-    if dup:
+    staff = next((u for u in users_by_phone(sess, d11) if u.role in STAFF_ROLES), None)
+    if staff:
         raise ValueError("该手机号已绑定员工")
+    customer = next((u for u in users_by_phone(sess, d11) if u.role == "CUSTOMER"), None)
+    if customer:
+        if customer.status == "DEACTIVATED":
+            raise ValueError("该账号已注销，无法授权为员工")
+        if customer.status == "DISABLED":
+            raise ValueError("该账号已停用")
+        customer.role = role
+        if nick_in:
+            customer.nick = nick_in
+        bind_wx_phone(sess, customer, d11)
+        log(
+            sess, "STAFF_ROLE_CHANGE",
+            f"将会员 {customer.nick} 授权为{ROLE_LABELS.get(role, role)}",
+            customer.id, admin,
+        )
+        sess.flush()
+        return public_user(sess, customer)
+
+    nick = nick_in or "员工"
     user = User(
         id=new_id(sess, User),
         no=alloc_staff_no(sess),

@@ -2,6 +2,7 @@
 import { computed, ref } from "vue";
 import { onShow, onUnload } from "@dcloudio/uni-app";
 import { api, go, loadGameDraft, toastText } from "@/utils/api";
+import { getStaffTodoListCache, setStaffTodoListCache } from "@/utils/staff-page-cache";
 import {
   reminderState,
   registerTodoRefresh,
@@ -9,32 +10,39 @@ import {
   syncReminderSummary,
 } from "@/utils/staff-reminder";
 
-const data = ref(null);
+const data = ref(getStaffTodoListCache());
 const msg = ref("");
 const tab = ref("accept");
 const rejectOrder = ref(null);
 const rejectReason = ref("");
 const rejecting = ref(false);
 let reloadTimer = null;
-let firstLoad = true;
 
-async function load(options = {}) {
-  const showLoading = options.loading ?? false;
-  try {
-    data.value = await api("/staff/todo", { loading: showLoading, silent: true });
-  } catch (e) {
-    msg.value = e.message || "加载失败";
-    return;
-  }
+function applyTabFromCounts(payload) {
+  if (!payload) return;
   const counts = {
-    accept: data.value.accept.length,
-    pay: data.value.recharges.length + data.value.payOrders.length,
-    wdr: data.value.withdrawals.length,
-    making: data.value.making.length,
+    accept: payload.accept.length,
+    pay: payload.recharges.length + payload.payOrders.length,
+    wdr: payload.withdrawals.length,
+    making: payload.making.length,
   };
   if (!counts[tab.value]) {
     const next = Object.keys(counts).find((key) => counts[key] > 0);
     if (next) tab.value = next;
+  }
+}
+
+async function load(options = {}) {
+  const hasCache = !!data.value;
+  const showLoading = options.loading === true || (!hasCache && options.loading !== false);
+  try {
+    const next = await api("/staff/todo", { loading: showLoading, silent: !showLoading });
+    data.value = next;
+    setStaffTodoListCache(next);
+    msg.value = "";
+    applyTabFromCounts(next);
+  } catch (e) {
+    if (!data.value) msg.value = e.message || "加载失败";
   }
 }
 
@@ -44,8 +52,8 @@ function scheduleReload() {
 }
 
 onShow(() => {
-  load({ loading: firstLoad });
-  firstLoad = false;
+  if (data.value) applyTabFromCounts(data.value);
+  load();
   syncReminderSummary(false);
   registerTodoRefresh(scheduleReload);
 });
@@ -257,7 +265,6 @@ async function confirmReject() {
         <text class="gold" style="font-weight:700">¥{{ data.shopAmt }}</text>
       </view>
     </view>
-    <tab-bar current="todo" />
 
     <view v-if="rejectOrder" class="reject-mask" @tap="closeReject" @touchmove.stop.prevent>
       <view class="reject-dialog" @tap.stop>
@@ -281,6 +288,7 @@ async function confirmReject() {
       </view>
     </view>
   </view>
+  <tab-bar current="todo" />
 </template>
 
 <style scoped>

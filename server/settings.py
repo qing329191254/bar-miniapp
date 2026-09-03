@@ -62,6 +62,48 @@ def cos_public_base() -> str:
     ).strip().rstrip("/")
 
 
+def sms_secret_id() -> str:
+    return (os.getenv("SMS_SECRET_ID") or "").strip()
+
+
+def sms_secret_key() -> str:
+    return (os.getenv("SMS_SECRET_KEY") or "").strip()
+
+
+def sms_sdk_app_id() -> str:
+    return (os.getenv("SMS_SDK_APP_ID") or "").strip()
+
+
+def sms_sign_name() -> str:
+    return (os.getenv("SMS_SIGN_NAME") or "").strip()
+
+
+def sms_template_id() -> str:
+    return (os.getenv("SMS_TEMPLATE_ID") or "").strip()
+
+
+def sms_region() -> str:
+    return (os.getenv("SMS_REGION") or "ap-guangzhou").strip() or "ap-guangzhou"
+
+
+def sms_template_param_count() -> int:
+    try:
+        n = int(os.getenv("SMS_TEMPLATE_PARAM_COUNT") or "2")
+    except ValueError:
+        n = 2
+    return 1 if n <= 1 else 2
+
+
+def sms_configured() -> bool:
+    return bool(
+        sms_secret_id()
+        and sms_secret_key()
+        and sms_sdk_app_id()
+        and sms_sign_name()
+        and sms_template_id()
+    )
+
+
 def session_secret() -> str:
     value = (
         os.getenv("SESSION_SECRET")
