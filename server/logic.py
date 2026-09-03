@@ -2366,19 +2366,44 @@ def change_staff_role(
 
 
 def disable_staff(sess: Session, uid: int, admin: dict) -> dict:
+    """Revoke employee access: demote to active CUSTOMER.
+
+    They keep the same account/phone and can use the member mini program.
+    They leave the staff list; the phone can be re-added as staff later.
+    """
     user = sess.get(User, uid)
     if not user or user.role == "CUSTOMER":
         raise ValueError("员工不存在")
     if user.role == "BOSS":
-        raise ValueError("不可停用老板账号")
+        raise ValueError("不可撤销老板账号")
     if admin.get("id") == uid:
-        raise ValueError("不可停用自己")
-    if (user.status or "ACTIVE") == "DISABLED":
-        return {"ok": True}
-    user.status = "DISABLED"
-    log(sess, "STAFF_ROLE_CHANGE", f"停用 {user.nick}", uid, admin)
+        raise ValueError("不可撤销自己")
+    old = ROLE_LABELS.get(user.role, user.role)
+    user.role = "CUSTOMER"
+    user.status = "ACTIVE"
+    user.pwd = ""
+    log(
+        sess, "STAFF_ROLE_CHANGE",
+        f"撤销员工 {user.nick}（原{old}）→ 会员；会员端可继续使用",
+        uid, admin,
+    )
     sess.flush()
-    return {"ok": True}
+    return {"ok": True, "role": "CUSTOMER", "status": "ACTIVE"}
+
+
+def enable_staff(sess: Session, uid: int, admin: dict) -> dict:
+    """Restore a legacy DISABLED staff row to ACTIVE (same role)."""
+    user = sess.get(User, uid)
+    if not user or user.role not in STAFF_ROLES:
+        raise ValueError("员工不存在")
+    if user.role == "BOSS":
+        raise ValueError("老板账号无需恢复")
+    if (user.status or "ACTIVE") != "DISABLED":
+        raise ValueError("该员工未停用")
+    user.status = "ACTIVE"
+    log(sess, "STAFF_ROLE_CHANGE", f"恢复员工 {user.nick}（{ROLE_LABELS.get(user.role, user.role)}）", uid, admin)
+    sess.flush()
+    return public_user(sess, user)
 
 
 def reset_staff_password(sess: Session, uid: int, password: str, admin: dict) -> dict:

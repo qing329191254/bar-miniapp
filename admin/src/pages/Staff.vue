@@ -33,7 +33,7 @@ const roleDlg = ref<{
   password: string;
   password2: string;
 } | null>(null);
-const disableDlg = ref<StaffRow | null>(null);
+const revokeDlg = ref<StaffRow | null>(null);
 const pwdDlg = ref<{ row: StaffRow; password: string; password2: string } | null>(null);
 
 const ROLE_OPTS = [
@@ -166,16 +166,29 @@ async function confirmRole() {
   }
 }
 
-async function confirmDisable() {
-  if (!disableDlg.value) return;
+async function confirmRevoke() {
+  if (!revokeDlg.value) return;
   acting.value = true;
   try {
-    await api(`/admin/staff/${disableDlg.value.id}/disable`, { method: "POST" });
-    disableDlg.value = null;
+    await api(`/admin/staff/${revokeDlg.value.id}/disable`, { method: "POST" });
+    revokeDlg.value = null;
     await load();
-    showToast("已停用，立即失效，历史记录保留");
+    showToast("已撤销员工权限；对方可继续用小程序会员端，也可再次添加为员工");
   } catch (e: any) {
-    showToast(e?.message || "停用失败", true);
+    showToast(e?.message || "操作失败", true);
+  } finally {
+    acting.value = false;
+  }
+}
+
+async function enableStaff(row: StaffRow) {
+  acting.value = true;
+  try {
+    await api(`/admin/staff/${row.id}/enable`, { method: "POST" });
+    await load();
+    showToast("已恢复员工权限");
+  } catch (e: any) {
+    showToast(e?.message || "恢复失败", true);
   } finally {
     acting.value = false;
   }
@@ -227,7 +240,7 @@ onMounted(load);
       </div>
       <div class="toolbar row">
         <button class="btn sm pri" @click="openAdd">＋ 新增员工</button>
-        <span class="tiny">店员只用小程序；店长/老板才设后台密码（手机号+密码）</span>
+        <span class="tiny">店员只用小程序；店长才设后台密码。撤销员工后仍可走会员端，手机号可再添加</span>
       </div>
       <div class="card tb-wrap">
         <table class="tb2 staff-table" data-cols="llccccc">
@@ -275,15 +288,18 @@ onMounted(load);
                 >
                   重置密码
                 </button>
+                <template v-if="row.status === 'DISABLED'">
+                  <button class="btn sm" :disabled="acting" @click="enableStaff(row)">恢复</button>
+                  <button class="btn sm" :disabled="acting" @click="revokeDlg = row">转为会员</button>
+                </template>
                 <button
-                  v-if="row.status !== 'DISABLED' && row.role !== 'BOSS'"
+                  v-else-if="row.role !== 'BOSS'"
                   class="btn sm"
                   :disabled="acting"
-                  @click="disableDlg = row"
+                  @click="revokeDlg = row"
                 >
-                  停用
+                  撤销员工
                 </button>
-                <span v-else-if="row.status === 'DISABLED'" class="mut">—</span>
               </td>
             </tr>
             <tr v-if="!rows.length">
@@ -360,13 +376,19 @@ onMounted(load);
     </Teleport>
 
     <Teleport to="body">
-      <div v-if="disableDlg" class="dlg-mask" @click.self="disableDlg = null">
+      <div v-if="revokeDlg" class="dlg-mask" @click.self="revokeDlg = null">
         <section class="dlg dlg-confirm">
-          <div class="st">停用员工</div>
-          <p class="dlg-body">确认停用「<b>{{ disableDlg.nick }}</b>」？停用后立即无法登录，历史记录保留。</p>
+          <div class="st">撤销员工权限</div>
+          <p class="dlg-body">
+            确认撤销「<b>{{ revokeDlg.nick }}</b>」的员工身份？
+            <br />· 对方会变为普通会员，小程序会员端可继续使用
+            <br />· 员工端 / Web 后台不可再进
+            <br />· 将从本列表移除；同一手机号可再次添加为员工
+            <br />· 历史接单等记录保留
+          </p>
           <div class="dlg-actions">
-            <button class="btn ghost" @click="disableDlg = null">取消</button>
-            <button class="btn dan" :disabled="acting" @click="confirmDisable">确认停用</button>
+            <button class="btn ghost" @click="revokeDlg = null">取消</button>
+            <button class="btn dan" :disabled="acting" @click="confirmRevoke">确认撤销</button>
           </div>
         </section>
       </div>
@@ -399,7 +421,7 @@ onMounted(load);
   width: min(480px, 100%); background: #fff; border-radius: 14px; padding: 20px 22px;
   border: 1px solid var(--line); box-shadow: 0 20px 60px rgba(28, 27, 25, 0.24);
 }
-.dlg-confirm { width: min(400px, 100%); }
+.dlg-confirm { width: min(440px, 100%); }
 .dlg .st { margin-bottom: 12px; }
 .fld { color: var(--ink2); font-size: 12px; margin: 8px 0 4px; }
 .dlg .inp { width: 100%; margin-bottom: 4px; }
