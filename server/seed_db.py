@@ -109,14 +109,13 @@ def seed_all(reset: bool = False):
                 User.role != "CUSTOMER",
                 (User.pwd == None) | (User.pwd == ""),
             ).update({User.pwd: hashed}, synchronize_session=False)
-            # Test-data login: keep boss phone + default password in sync with seed.json
+            # Test-data login: keep boss phone in sync with seed.json (one-shot when tail differs)
             boss_seed = next((x for x in (SEED.get("users") or []) if x.get("role") == "BOSS"), None)
             if boss_seed and boss_seed.get("tail"):
                 want_tail = str(boss_seed.get("tail") or "")
-                # seed.json keeps masked phone; known test mapping for full mobile
                 full_by_tail = {"9366": "13121309366"}
                 for boss in db.query(User).filter(User.role == "BOSS").all():
-                    if boss.tail == want_tail and (boss.pwd or "") == hashed:
+                    if boss.tail == want_tail:
                         continue
                     full = full_by_tail.get(want_tail, "")
                     if len(full) == 11:
