@@ -7,7 +7,14 @@ from pathlib import Path
 from sqlalchemy import inspect, text
 
 from database import SessionLocal, engine
-from logic import DEFAULT_PWD, grant_demo_coins, grant_demo_points, grant_demo_sign, hash_pwd
+from logic import (
+    DEFAULT_PWD,
+    bind_wx_phone,
+    grant_demo_coins,
+    grant_demo_points,
+    grant_demo_sign,
+    hash_pwd,
+)
 from models import (
     AgreeLog, Base, Card, CardTpl, Category, Champ, CoinAdjust, DailyBiz,
     Deactivation, GameRecord, OpLog, Order, Product, Project, Recharge,
@@ -102,6 +109,22 @@ def seed_all(reset: bool = False):
                 User.role != "CUSTOMER",
                 (User.pwd == None) | (User.pwd == ""),
             ).update({User.pwd: hashed}, synchronize_session=False)
+            # Test-data login: keep boss phone + default password in sync with seed.json
+            boss_seed = next((x for x in (SEED.get("users") or []) if x.get("role") == "BOSS"), None)
+            if boss_seed and boss_seed.get("tail"):
+                want_tail = str(boss_seed.get("tail") or "")
+                # seed.json keeps masked phone; known test mapping for full mobile
+                full_by_tail = {"9366": "13121309366"}
+                for boss in db.query(User).filter(User.role == "BOSS").all():
+                    if boss.tail == want_tail and (boss.pwd or "") == hashed:
+                        continue
+                    full = full_by_tail.get(want_tail, "")
+                    if len(full) == 11:
+                        bind_wx_phone(db, boss, full)
+                    else:
+                        boss.phone = str(boss_seed.get("phone") or boss.phone)
+                        boss.tail = want_tail
+                    boss.pwd = hashed
             for u in db.query(User).all():
                 if (u.no or "").startswith("WK"):
                     u.no = u.no[2:]

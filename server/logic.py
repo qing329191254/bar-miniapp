@@ -2411,6 +2411,38 @@ def reset_staff_password(sess: Session, uid: int, password: str, admin: dict) ->
     return {"ok": True}
 
 
+def set_staff_login_phone(sess: Session, uid: int, phone: str, admin: dict, password: str = "") -> dict:
+    """Boss-only: change a manager/boss login mobile (masked storage)."""
+    if admin.get("role") != "BOSS":
+        raise ValueError("仅老板可改登录手机号")
+    phone = phone_digits(phone)
+    if not is_cn_mobile(phone):
+        raise ValueError("请填写有效手机号")
+    user = sess.get(User, uid)
+    if not user or user.role not in ("BOSS", "MANAGER"):
+        raise ValueError("只能改老板或店长的登录手机号")
+    if (user.status or "ACTIVE") == "DISABLED":
+        raise ValueError("该账号已停用")
+    if user.role == "BOSS" and admin.get("id") != uid:
+        raise ValueError("不可修改其他老板的手机号")
+    clash = next(
+        (u for u in users_by_phone(sess, phone) if u.role in STAFF_ROLES and u.id != uid),
+        None,
+    )
+    if clash:
+        raise ValueError("该手机号已绑定其他员工")
+    old = user.phone
+    bind_wx_phone(sess, user, phone)
+    pwd = str(password or "").strip()
+    if pwd:
+        if len(pwd) < 6 or len(pwd) > 32:
+            raise ValueError("后台登录密码需 6-32 位")
+        user.pwd = hash_pwd(pwd)
+    log(sess, "STAFF_PHONE_CHANGE", f"登录手机 {old} → {user.phone}", uid, admin)
+    sess.flush()
+    return public_user(sess, user)
+
+
 def member_detail(sess: Session, uid: int) -> dict:
     user = sess.get(User, uid)
     if not user or user.role != "CUSTOMER" or user.status != "ACTIVE":

@@ -18,7 +18,8 @@ async function submit() {
     err.value = "请输入手机号和密码";
     return;
   }
-  if (!/^1\d{10}$/.test(acc)) {
+  // 11-digit mobile, or staff 工号 (e.g. 900003) for recovery / scripts
+  if (!/^1\d{10}$/.test(acc) && !/^\d{6,8}$/.test(acc)) {
     err.value = "请填写 11 位手机号";
     return;
   }
@@ -70,7 +71,7 @@ function onKey(e: KeyboardEvent) {
       <input
         class="inp login-inp"
         v-model="account"
-        placeholder="11 位手机号"
+        placeholder="11 位手机号（紧急可用工号）"
         inputmode="numeric"
         maxlength="11"
         autocomplete="tel"

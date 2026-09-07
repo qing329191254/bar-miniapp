@@ -1900,6 +1900,19 @@ def reset_staff_password(uid: int, body: PatchIn, admin: dict = Depends(admin_us
         fail(e)
 
 
+@app.put("/api/admin/staff/{uid}/phone")
+def set_staff_login_phone(uid: int, body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    if admin["role"] != "BOSS":
+        raise HTTPException(403, "仅老板可改")
+    data = body.data or {}
+    try:
+        return L.set_staff_login_phone(
+            db, uid, str(data.get("phone") or ""), admin, str(data.get("password") or ""),
+        )
+    except ValueError as e:
+        fail(e)
+
+
 @app.get("/api/admin/members/{uid}")
 def member_detail(uid: int, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
     try:
