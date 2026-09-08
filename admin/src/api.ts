@@ -1,23 +1,41 @@
+import { ref } from "vue";
+
 const TOKEN_KEY = "wanka_admin_token";
 const USER_KEY = "wanka_admin_user";
 
+function readStoredUser(): any {
+  try {
+    const raw = localStorage.getItem(USER_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Reactive session — App sidebar/menus depend on this updating after login. */
+export const sessionToken = ref(localStorage.getItem(TOKEN_KEY) || "");
+export const sessionUser = ref<any>(readStoredUser());
+
 export function token() {
-  return localStorage.getItem(TOKEN_KEY) || "";
+  return sessionToken.value || localStorage.getItem(TOKEN_KEY) || "";
 }
 
 export function savedUser() {
-  const raw = localStorage.getItem(USER_KEY);
-  return raw ? JSON.parse(raw) : null;
+  return sessionUser.value;
 }
 
 export function setSession(t: string, user: unknown) {
   localStorage.setItem(TOKEN_KEY, t);
   localStorage.setItem(USER_KEY, JSON.stringify(user));
+  sessionToken.value = t;
+  sessionUser.value = user;
 }
 
 export function clearSession() {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
+  sessionToken.value = "";
+  sessionUser.value = null;
 }
 
 export async function api<T = any>(

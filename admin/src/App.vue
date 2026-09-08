@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, reactive, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { clearSession, savedUser } from "./api";
+import { clearSession, sessionUser } from "./api";
 import AppToast from "./components/AppToast.vue";
 import UiIcon from "./components/UiIcon.vue";
 
 const route = useRoute();
 const router = useRouter();
-const user = computed(() => savedUser());
+const user = sessionUser;
 const isBoss = computed(() => user.value?.role === "BOSS");
 
 const BOSS_ONLY = new Set(["staff", "logs", "settlecfg"]);
