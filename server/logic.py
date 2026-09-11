@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 import cache
+from settings import demo_starter_enabled, in_cloud
 from models import (
     AgreeLog, Card, CardTpl, Category, Champ, CoinAdjust, DailyBiz, Deactivation,
     GameRecord, OpLog, Order, Product, Project, Recharge, Setting, SettleLog,
@@ -152,6 +153,9 @@ def check_pwd(user: User, raw: str) -> bool:
         return False
     stored = (user.pwd or "").strip()
     if not stored:
+        # Empty password: local demo only. Cloud accounts must have a hashed password.
+        if in_cloud():
+            return False
         return raw == DEFAULT_PWD
     return stored == hash_pwd(raw) or stored == raw
 
@@ -228,6 +232,31 @@ def remain(expire_at) -> str | None:
     return f"{m} 分 {s} 秒"
 
 
+def _withdraw_created_day(w: Withdrawal) -> str:
+    for raw in (w.created, w.at, getattr(w, "time", None)):
+        text = str(raw or "").strip()
+        if len(text) >= 10 and text[4] == "-":
+            return text[:10]
+    return ""
+
+
+def restore_withdraw_frozen(sess: Session, w: Withdrawal) -> None:
+    """Unfreeze withdraw points. After a monthly clear that already wiped the old month,
+    do not resurrect those points into available balance."""
+    pt = wallet_of(sess, w.uid)
+    pts = int(w.pts or 0)
+    pt.point_fz = max(0, int(pt.point_fz or 0) - pts)
+    last = setting(sess, "pointClearLast") or {}
+    clear_day = str(last.get("period") or "")[:10]
+    created_day = _withdraw_created_day(w)
+    if clear_day and created_day and created_day < clear_day:
+        # Cleared month's frozen points expire with the clear; absorb without restoring.
+        pt.point_pd = 0 if pt.point_av >= 0 else -pt.point_av
+        return
+    pt.point_av += pts
+    pt.point_pd = 0 if pt.point_av >= 0 else -pt.point_av
+
+
 def expire_timeouts(sess: Session):
     now = now_ms()
     for r in sess.query(Recharge).filter(Recharge.status == "PENDING_PAY").all():
@@ -248,10 +277,7 @@ def expire_timeouts(sess: Session):
             w.status = "CLOSED_TIMEOUT"
             w.closed_at = f"{today_str()} {clock()}"
             w.pending_uid = None
-            pt = wallet_of(sess, w.uid)
-            pt.point_fz = max(0, pt.point_fz - w.pts)
-            pt.point_av += w.pts
-            pt.point_pd = 0 if pt.point_av >= 0 else -pt.point_av
+            restore_withdraw_frozen(sess, w)
             try:
                 cache.unlock_pending("withdraw", w.uid)
             except Exception:
@@ -420,10 +446,11 @@ def register_or_bind_phone(sess: Session, phone_full: str, openid: str | None = 
     sess.add(user)
     sess.flush()
     wallet_of(sess, user.id)
-    grant_demo_points(sess, user.id)
-    grant_demo_coins(sess, user.id)
-    grant_demo_cards(sess, user.id)
-    grant_demo_sign(sess, user.id)
+    if demo_starter_enabled():
+        grant_demo_points(sess, user.id)
+        grant_demo_coins(sess, user.id)
+        grant_demo_cards(sess, user.id)
+        grant_demo_sign(sess, user.id)
     return user
 
 
@@ -735,13 +762,10 @@ def cancel_withdraw(sess: Session, uid: int) -> dict:
     w = sess.query(Withdrawal).filter_by(uid=uid, status="PENDING_CONFIRM").first()
     if not w:
         err("无待确认提分单")
-    pt = wallet_of(sess, uid)
     w.status = "CANCELLED"
     w.closed_at = f"{today_str()} {clock()}"
     w.pending_uid = None
-    pt.point_fz = max(0, pt.point_fz - w.pts)
-    pt.point_av += w.pts
-    pt.point_pd = 0 if pt.point_av >= 0 else -pt.point_av
+    restore_withdraw_frozen(sess, w)
     try:
         cache.unlock_pending("withdraw", uid)
     except Exception:
@@ -996,15 +1020,12 @@ def reject_withdraw(sess: Session, wid: int, reason: str, staff: dict) -> dict:
     w = sess.get(Withdrawal, wid)
     if not w or w.status != "PENDING_CONFIRM":
         err("该提分单已处理")
-    pt = wallet_of(sess, w.uid)
     w.status = "REJECTED"
     w.reject_by = staff["id"]
     w.reject_remark = reason
     w.closed_at = f"{today_str()} {clock()}"
     w.pending_uid = None
-    pt.point_fz = max(0, pt.point_fz - w.pts)
-    pt.point_av += w.pts
-    pt.point_pd = 0 if pt.point_av >= 0 else -pt.point_av
+    restore_withdraw_frozen(sess, w)
     try:
         cache.unlock_pending("withdraw", w.uid)
     except Exception:
@@ -1107,11 +1128,20 @@ def submit_game(sess: Session, staff: dict, pid: int, table_id, players: list, w
         if bad:
             err(f"超出单笔碎片上限 {lim}")
     pj = sess.get(Project, pid)
+    if not pj:
+        err("对局项目不存在")
+    if pj.disabled:
+        err("该对局项目已停用")
     tbl = sess.get(TableSeat, table_id) if table_id else None
-    pname = pj.name if pj else ""
+    pname = pj.name
+    win_uids = [int(x) for x in (winners or [])]
+    win_set = set(win_uids)
+    ev = (event or "").strip()
     prepared = []
     for p in players:
         usr = u(sess, int(p["uid"]))
+        if not usr or usr.role != "CUSTOMER" or usr.status != "ACTIVE":
+            err("玩家不存在或不可用")
         gifts = _normalize_game_gift_cards(sess, p.get("cards"))
         prepared.append({
             "uid": usr.id,
@@ -1119,6 +1149,7 @@ def submit_game(sess: Session, staff: dict, pid: int, table_id, players: list, w
             "pts": int(p.get("pts") or 0),
             "sh": int(p.get("sh") or 0),
             "gifts": gifts,
+            "win": usr.id in win_set,
         })
     # Create record first so gift cards can reference game id in src_desc.
     rec = GameRecord(
@@ -1144,15 +1175,18 @@ def submit_game(sess: Session, staff: dict, pid: int, table_id, players: list, w
             sess, row["uid"], row["gifts"], pname=pname or "对局", game_id=rec.id,
         )
         total_gift += len(card_ids)
-        entry = {"uid": row["uid"], "nick": row["nick"], "pts": row["pts"], "sh": row["sh"]}
+        entry = {
+            "uid": row["uid"], "nick": row["nick"], "pts": row["pts"], "sh": row["sh"],
+            "win": bool(row["win"]),
+        }
+        if ev:
+            entry["event"] = ev
         if row["gifts"]:
             entry["cards"] = [{"tpl": g["tpl"], "qty": g["qty"], "name": g["name"]} for g in row["gifts"]]
             entry["cardIds"] = card_ids
         rec_players.append(entry)
     rec.players = rec_players
     flag_modified(rec, "players")
-    win_uids = [int(x) for x in (winners or [])]
-    ev = (event or "").strip()
     if ev and win_uids:
         for uid in win_uids:
             x = u(sess, uid)
@@ -1712,12 +1746,27 @@ def void_game(sess: Session, gid: int, reason: str, void_cards: bool, admin: dic
             tm = tpl(sess, c.tpl)
             if tm and tm.stock >= 0:
                 tm.stock = int(tm.stock or 0) + 1
+    # Remove champion records created by this game (win+event stamped on players JSON).
+    champ_removed = 0
+    game_date = (g.time or "")[:10]
+    event_name = next((str(p.get("event") or "") for p in (g.players or []) if p.get("event")), "")
+    win_uids = [int(p["uid"]) for p in (g.players or []) if p.get("win") and p.get("uid")]
+    if event_name and game_date and win_uids:
+        q = sess.query(Champ).filter(
+            Champ.event == event_name,
+            Champ.date == game_date,
+            Champ.uid.in_(win_uids),
+        )
+        champ_removed = q.count()
+        q.delete(synchronize_session=False)
     g.status = "VOID"
     total_pts = sum(int(p.get("pts") or 0) for p in g.players or [])
     uid0 = int(g.players[0]["uid"]) if g.players else None
     detail = f"{g.pname} · {len(g.players or [])} 人 · 积分 {total_pts}"
     if gift_voided:
         detail += f" · 回滚赠卡 {gift_voided}"
+    if champ_removed:
+        detail += f" · 撤销冠军 {champ_removed}"
     detail += f" · {reason}"
     log(sess, "GAME_VOID", detail, uid0, admin)
     sess.flush()

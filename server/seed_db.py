@@ -15,6 +15,7 @@ from logic import (
     grant_demo_sign,
     hash_pwd,
 )
+from settings import demo_starter_enabled
 from models import (
     AgreeLog, Base, Card, CardTpl, Category, Champ, CoinAdjust, DailyBiz,
     Deactivation, GameRecord, OpLog, Order, Product, Project, Recharge,
@@ -142,9 +143,11 @@ def seed_all(reset: bool = False):
                     continue
                 db.add(Tier(id=t["id"], amount=t["amount"], bonus=t.get("bonus") or 0, rec=bool(t.get("rec"))))
             for w in db.query(Wallet).all():
-                grant_demo_points(db, w.user_id)
-                grant_demo_coins(db, w.user_id)
-                grant_demo_sign(db, w.user_id)
+                # Never rehydrate demo balances on WeChat Cloud Hosting (would undo monthly clear).
+                if demo_starter_enabled():
+                    grant_demo_points(db, w.user_id)
+                    grant_demo_coins(db, w.user_id)
+                    grant_demo_sign(db, w.user_id)
             if not db.get(Setting, "settleMeta") and SEED.get("settleMeta"):
                 db.add(Setting(k="settleMeta", v=SEED["settleMeta"]))
             seed_week = SEED.get("settleWeek") or {}

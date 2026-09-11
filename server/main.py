@@ -388,6 +388,8 @@ def me(user: dict = Depends(current_user), db: Session = Depends(get_db)):
 
 @app.post("/api/register")
 def register(body: RegisterIn, db: Session = Depends(get_db)):
+    if in_cloud():
+        raise HTTPException(404, "Not found")
     try:
         user = L.register(db, body.nick, body.agreed)
         return session_payload(db, user)

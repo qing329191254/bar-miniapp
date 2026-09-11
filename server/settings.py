@@ -14,6 +14,16 @@ def in_cloud() -> bool:
     return bool(os.getenv("CBR_ENV_ID"))
 
 
+def demo_starter_enabled() -> bool:
+    """Demo wallet/card grants for local/dev only. Never on WeChat Cloud Hosting unless forced."""
+    flag = (os.getenv("DEMO_STARTER") or "").strip().lower()
+    if flag in ("1", "true", "yes", "on"):
+        return True
+    if flag in ("0", "false", "no", "off"):
+        return False
+    return not in_cloud()
+
+
 def mysql_url() -> str:
     addr = (os.getenv("MYSQL_ADDRESS") or "").strip()
     user = os.getenv("MYSQL_USERNAME")

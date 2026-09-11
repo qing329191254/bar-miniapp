@@ -26,7 +26,7 @@ function localDateTimeValue(date = new Date()) {
 }
 
 const form = reactive({
-  pid: 1,
+  pid: null as number | null,
   tid: null as number | null,
   round: "",
   time: localDateTimeValue(),
@@ -49,6 +49,7 @@ async function load() {
     const r = await api<any>("/staff/projects");
     meta.value = r;
     if (r.projects[0]) form.pid = r.projects[0].id;
+    else form.pid = null;
     members.value = await api("/admin/members?pageSize=0");
     if (!form.eventTouched) form.event = defaultEvent();
     loaded.value = true;
@@ -195,6 +196,14 @@ function confirmGift() {
   closeGift();
 }
 async function submit() {
+  if (!form.pid) {
+    showToast("请选择对局项目", true);
+    return;
+  }
+  if (!form.players.length) {
+    showToast("请至少添加 1 位玩家", true);
+    return;
+  }
   try {
     await api("/staff/games", {
       method: "POST",
@@ -317,7 +326,7 @@ async function submit() {
           <div class="row" style="margin-top:11px">
             <button class="btn ghost" @click="form.players=[];form.winners={}">清空</button>
             <span class="tiny gift-hint">卡券发放后 C 端卡包立即可见 · 作废时未使用赠卡一并回滚</span>
-            <button class="btn pri submit-btn" style="margin-left:auto" :disabled="!form.players.length" @click="submit">提交并入账</button>
+            <button class="btn pri submit-btn" style="margin-left:auto" :disabled="!form.players.length || !form.pid" @click="submit">提交并入账</button>
           </div>
         </div>
       </div>
