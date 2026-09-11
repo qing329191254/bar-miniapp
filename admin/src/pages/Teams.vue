@@ -207,7 +207,10 @@ onMounted(load);
         <div class="team-head">
           <div class="team-head-main">
             <span class="team-name">无战队会员</span>
-            <em class="team-stats">{{ unassigned.length }} 人 · 可加入启用中的战队</em>
+            <em class="team-stats">
+              {{ unassigned.length }} 人 · 可加入启用中的战队
+              <template v-if="filteredUnassigned.length > 8"> · 列表已限高，可滚动或搜索</template>
+            </em>
           </div>
           <input
             v-if="unassigned.length"
@@ -216,7 +219,7 @@ onMounted(load);
             placeholder="搜索昵称 / 会员号"
           />
         </div>
-        <div class="tb-wrap">
+        <div class="tb-wrap unassigned-scroll" :class="{ capped: filteredUnassigned.length > 8 }">
           <table class="tb2 team-member-table">
             <thead>
               <tr>
@@ -401,6 +404,20 @@ onMounted(load);
 .toolbar { gap: 8px; margin-bottom: 11px; align-items: center; }
 .team-card { margin-bottom: 12px; padding-bottom: 0; overflow: hidden; }
 .unassigned-card { border-color: #D8D5CC; background: #FAF9F5; }
+.unassigned-scroll.capped {
+  max-height: 360px;
+  overflow: auto;
+  margin: 0 -14px;
+  padding: 0 14px 10px;
+  border-top: 1px solid rgba(28, 27, 25, 0.06);
+}
+.unassigned-scroll.capped .team-member-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #FAF9F5;
+  box-shadow: 0 1px 0 rgba(28, 27, 25, 0.08);
+}
 .team-head {
   display: flex;
   align-items: center;
