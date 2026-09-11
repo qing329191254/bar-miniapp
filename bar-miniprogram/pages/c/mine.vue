@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
-import { api, clearSession, go, hideWxHomeButton, isStaffRole, relaunch, setPortal, toastText } from "@/utils/api";
+import { api, clearSession, go, hideWxHomeButton, isStaffRole, relaunch, savedUser, setPortal, toastText } from "@/utils/api";
 import { getMemberMineCache, setMemberMineCache } from "@/utils/staff-page-cache";
 import { startStaffReminder, stopStaffReminder } from "@/utils/staff-reminder";
 import { iconSrc } from "@/utils/icons";
@@ -12,6 +12,7 @@ const cache = getMemberMineCache();
 const me = ref(cache.me);
 const champs = ref(cache.champs || { list: [], total: 0, month: 0 });
 const team = ref(cache.team);
+const showStaffSwitch = ref(isStaffRole(savedUser()));
 const showShop = ref(false);
 const showFaq = ref(false);
 const showTerms = ref(false);
@@ -27,7 +28,7 @@ const deactMsg = ref("");
 const TERMS_TEXT_DEFAULT = `一、协议主体与适用范围：您与玩咖桌游酒吧就使用本店微信小程序会员服务达成的协议。
 二、账号注册与信息收集：收集微信昵称头像（展示身份）、手机号（绑定会员与订单）、性别/姓名（选填，姓名仅线下核销核对）。存储至注销后 6 个月。
 三、金币规则：1 元=1 金币；本金金币可退，赠送金币不可退/提现/转让；消费优先扣本金；充值需到吧台付款由店员确认后到账，30 分钟未付自动关闭。
-四、积分规则：对局与签到获得；每月最后一日 24:00 清零不结转；不可兑换现金。积分提取需生成提分单并由店员当面确认发放：30 分钟未确认自动关闭，冻结积分全额退回可用、不予没收；同一用户 24 小时内达到 3 次超时未确认的，暂停其提交提分单，随时间自然恢复、无需申请；提分单冻结期间的积分不参与月末清零，待单据终结后再按当时规则处理。
+四、积分规则：对局与签到获得；每月 1 日 12:00 清零不结转；不可兑换现金。积分提取需生成提分单并由店员当面确认发放：30 分钟未确认自动关闭，冻结积分全额退回可用、不予没收；同一用户 24 小时内达到 3 次超时未确认的，暂停其提交提分单，随时间自然恢复、无需申请；提分单冻结期间的积分不参与月清零，待单据终结后再按当时规则处理。
 五、碎片规则：荣誉值，仅用于周榜排名与周奖励评定。
 六、卡券规则：游戏卡/酒水卡 30 天有效，宝箱卡 7 天有效，过期作废不补偿；核销码 5 分钟有效。
 七、订单与消费：金币支付订单店员接单时扣款，拒单全额退回；到吧台付款 30 分钟超时关闭。
@@ -62,7 +63,7 @@ const FAQ_DEFAULT = {
     },
     {
       q: "积分什么时候清零？",
-      a: "积分有效期为自然月，每月最后一日 24:00 清零，不结转到下月。请在月底前兑换卡券或到吧台提取。",
+      a: "积分有效期为自然月，每月 1 日 12:00 清零，不结转到下月。请在清零前兑换卡券或到吧台提取。",
     },
     {
       q: "卡券过期了还能用吗？",
@@ -84,6 +85,7 @@ onShow(async () => {
   const hasCache = !!me.value;
   try {
     me.value = await api("/me", { loading: !hasCache, silent: hasCache });
+    showStaffSwitch.value = isStaffRole(me.value?.user || savedUser());
     try {
       champs.value = await api("/champions", { loading: false, silent: true });
     } catch (e) {}
@@ -96,6 +98,7 @@ onShow(async () => {
     }
     setMemberMineCache({ me: me.value, champs: champs.value, team: team.value });
   } catch (e) {
+    showStaffSwitch.value = isStaffRole(savedUser());
     if (!me.value) toastText(e.message || "加载失败");
   }
 });
@@ -109,6 +112,11 @@ function logout() {
   relaunch("/pages/login/login");
 }
 function switchToStaff() {
+  if (!isStaffRole(me.value?.user || savedUser())) {
+    showStaffSwitch.value = false;
+    toastText("当前账号无员工权限");
+    return;
+  }
   setPortal("staff");
   startStaffReminder();
   relaunch("/pages/s/todo");
@@ -414,7 +422,7 @@ async function submitDeact() {
     </view>
 
     <button
-      v-if="isStaffRole()"
+      v-if="showStaffSwitch"
       class="btn ghost block foot-btn"
       style="margin-bottom:10px"
       @tap="switchToStaff"

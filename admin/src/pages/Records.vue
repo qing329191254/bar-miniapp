@@ -160,7 +160,7 @@ const pendingWdr = computed(() =>
       </table>
       <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
     </div>
-    <div v-if="coll === 'gameRecords'" class="note rd records-note"><b>作废规则：</b>余额充足时将直接扣减；余额不足会记为负数，并在顾客端显示「待抵扣」；已兑换但未核销的卡券将优先作废。跨月记录因积分已清零，不再重复扣减。作废原因必填并记入操作日志。</div>
+    <div v-if="coll === 'gameRecords'" class="note rd records-note"><b>作废规则：</b>余额充足时将直接扣减；余额不足会记为负数，并在顾客端显示「待抵扣」；已兑换但未核销的卡券将优先作废。本局赠送且未使用的卡券一并作废回滚；已核销的赠卡不回滚。跨月记录因积分已清零，不再重复扣减。作废原因必填并记入操作日志。</div>
 
     <Teleport to="body">
     <div v-if="voidPreview" class="void-mask" @click.self="closeVoid">
@@ -176,6 +176,10 @@ const pendingWdr = computed(() =>
                 <span v-else-if="!item.pts" class="pill">无积分变动</span>
                 <template v-else-if="item.neg"><span class="pill void-pill-warn">将产生负余额</span><label v-if="item.relCards" class="tiny void-card-opt"><input v-model="voidCards" type="checkbox" /> 同时作废未核销卡券 {{ item.relCards }} 张（推荐）</label></template>
                 <span v-else class="pill void-pill-ok">直接扣减</span>
+                <div v-if="item.giftUnused || item.giftUsed" class="tiny" style="margin-top:4px">
+                  <span v-if="item.giftUnused">回滚赠卡 {{ item.giftUnused }} 张</span>
+                  <span v-if="item.giftUsed" style="color:var(--ink3)">{{ item.giftUnused ? " · " : "" }}已用 {{ item.giftUsed }} 张不回滚</span>
+                </div>
               </td>
             </tr>
           </tbody>

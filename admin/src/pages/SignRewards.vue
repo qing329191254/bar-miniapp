@@ -92,7 +92,7 @@ onMounted(load);
             <span class="daily-unit">分</span>
           </div>
         </div>
-        <div class="tiny daily-hint">签到积分同样受月底清零约束，与对局积分同池。</div>
+        <div class="tiny daily-hint">签到积分同样受每月 1 日 12:00 清零约束，与对局积分同池。</div>
       </section>
       <section class="card"><div class="list-title"><b>连续签到奖励</b><span class="tiny">达标当天在每日积分之外额外发放</span><button class="btn" @click="openNew">＋ 新增档位</button></div><div class="tb-wrap sign-rules-wrap"><table class="tb2"><thead><tr><th>门槛</th><th>额外积分</th><th>额外卡券</th><th>当前达标</th><th>状态</th><th>操作</th></tr></thead><tbody><tr v-for="rule in sortedRules" :key="rule.id" :style="rule.enabled === false ? 'opacity:.55' : ''"><td><b>连续 {{ rule.days }} 天</b></td><td><b class="blue">{{ rule.pts ? `+${rule.pts} 分` : "—" }}</b></td><td class="tiny">{{ (rule.cards || []).map((x:any) => `${tplName(x.tpl)} ×${x.qty}`).join("、") || "—" }}</td><td>{{ rule.qualified ?? 0 }} 人已达标</td><td><span class="pill" :class="rule.enabled !== false ? 'on' : ''">{{ rule.enabled !== false ? "启用中" : "已停用" }}</span></td><td class="ops"><button class="btn ghost mini" @click="openEdit(rule)">编辑</button><button class="btn ghost mini" @click="toggle(rule)">{{ rule.enabled !== false ? "停用" : "启用" }}</button><button class="btn danger mini" @click="remove(rule)">删除</button></td></tr><tr v-if="!sortedRules.length"><td colspan="6" class="table-empty">暂无连续签到档位，可点击右上角新增</td></tr></tbody></table></div><div class="tiny rule-note">门槛不可重复；奖励可以只给积分、只给卡券，或两者兼有。天数与奖励内容均可自定义，不限于 7 / 30 天。</div></section>
       <section class="side-note multi sign-tips">

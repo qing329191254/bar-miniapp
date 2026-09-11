@@ -3,7 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from "vue";
 import { onBackPress } from "@dcloudio/uni-app";
 import { api, clearGameDraft, go, hideWxHomeButton, loadGameDraft, saveGameDraft, toastText } from "@/utils/api";
 
-const meta = ref({ projects: [], tables: [], busy: [] });
+const meta = ref({ projects: [], tables: [], busy: [], cardTpls: [] });
 const members = ref([]);
 const search = ref("");
 const splitTotal = ref("");
@@ -15,8 +15,11 @@ const confirmTime = ref("");
 const showDraftDlg = ref(false);
 const showExitDlg = ref(false);
 const showZeroRewardDlg = ref(false);
+const showGiftDlg = ref(false);
+const giftUid = ref(null);
+const giftDraft = ref({});
 
-const dlgOpen = computed(() => showDraftDlg.value || showCustomDlg.value || showExitDlg.value || showZeroRewardDlg.value);
+const dlgOpen = computed(() => showDraftDlg.value || showCustomDlg.value || showExitDlg.value || showZeroRewardDlg.value || showGiftDlg.value);
 
 const wiz = reactive({
   step: 0,
@@ -25,6 +28,7 @@ const wiz = reactive({
   players: [],
   shr: {},
   pts: {},
+  gifts: {},
   winners: {},
   event: "",
   eventTouched: false,
@@ -69,7 +73,19 @@ const activeQuickShard = computed(() => {
 });
 const totalPts = computed(() => wiz.players.reduce((s, id) => s + Number(wiz.pts[id] || 0), 0));
 const totalSh = computed(() => wiz.players.reduce((s, id) => s + Number(wiz.shr[id] || 0), 0));
+const totalGifts = computed(() => wiz.players.reduce((s, id) => s + giftCount(id), 0));
 const winCount = computed(() => wiz.players.filter((id) => wiz.winners[id]).length);
+const giftTplGroups = computed(() => {
+  const CAT = { GAME: "游戏卡", FOOD: "酒水小食卡", OTHER: "其他卡券" };
+  const groups = {};
+  for (const t of meta.value.cardTpls || []) {
+    const key = t.cat || "OTHER";
+    if (!groups[key]) groups[key] = { key, label: CAT[key] || key, items: [] };
+    groups[key].items.push(t);
+  }
+  return Object.values(groups);
+});
+const giftTarget = computed(() => members.value.find((m) => m.id === giftUid.value) || null);
 const peopleWarn = computed(() => {
   const pj = project.value;
   if (!pj || !pj.min) return "";
@@ -121,6 +137,7 @@ function resetWiz(step = 0) {
     players: [],
     shr: {},
     pts: {},
+    gifts: {},
     winners: {},
     event: "",
     eventTouched: false,
@@ -131,6 +148,9 @@ function resetWiz(step = 0) {
   splitTotal.value = "";
   customShard.value = "";
   showCustomDlg.value = false;
+  showGiftDlg.value = false;
+  giftUid.value = null;
+  giftDraft.value = {};
   confirmTime.value = "";
   msg.value = "";
 }
@@ -154,6 +174,7 @@ function restoreDraft() {
   if (!d) return;
   clearGameDraft();
   Object.assign(wiz, d);
+  if (!wiz.gifts) wiz.gifts = {};
   if (wiz.step === 4 && !confirmTime.value) confirmTime.value = nowTimeLabel();
 }
 function combo(pid, tid) {
@@ -164,6 +185,7 @@ function combo(pid, tid) {
     players: [],
     shr: {},
     pts: {},
+    gifts: {},
     winners: {},
     event: "",
     eventTouched: false,
@@ -228,6 +250,7 @@ onBackPress(() => {
     showCustomDlg.value = false;
     showExitDlg.value = false;
     showZeroRewardDlg.value = false;
+    showGiftDlg.value = false;
     return true;
   }
   if (wiz.step >= 1 && wiz.step <= 4) {
@@ -236,18 +259,58 @@ onBackPress(() => {
   }
   return false;
 });
+function giftCount(uid) {
+  const bag = wiz.gifts[uid] || {};
+  return Object.values(bag).reduce((s, n) => s + Number(n || 0), 0);
+}
+function giftList(uid) {
+  const bag = wiz.gifts[uid] || {};
+  return Object.entries(bag)
+    .filter(([, q]) => Number(q) > 0)
+    .map(([tpl, qty]) => ({ tpl: Number(tpl), qty: Number(qty) }));
+}
 function toggle(id) {
   const i = wiz.players.indexOf(id);
   if (i >= 0) {
     wiz.players.splice(i, 1);
     delete wiz.shr[id];
     delete wiz.pts[id];
+    delete wiz.gifts[id];
     delete wiz.winners[id];
   } else {
     wiz.players.push(id);
     wiz.shr[id] = 0;
     wiz.pts[id] = 0;
+    wiz.gifts[id] = {};
   }
+}
+function openGiftDlg(user) {
+  giftUid.value = user.id;
+  giftDraft.value = { ...(wiz.gifts[user.id] || {}) };
+  showGiftDlg.value = true;
+}
+function closeGiftDlg() {
+  showGiftDlg.value = false;
+  giftUid.value = null;
+  giftDraft.value = {};
+}
+function draftQty(tplId) {
+  return Number(giftDraft.value[tplId] || 0);
+}
+function setDraftQty(tplId, next) {
+  const n = Math.max(0, Math.min(99, Number(next) || 0));
+  if (n <= 0) {
+    const copy = { ...giftDraft.value };
+    delete copy[tplId];
+    giftDraft.value = copy;
+  } else {
+    giftDraft.value = { ...giftDraft.value, [tplId]: n };
+  }
+}
+function confirmGiftDlg() {
+  if (giftUid.value == null) return;
+  wiz.gifts[giftUid.value] = { ...giftDraft.value };
+  closeGiftDlg();
 }
 function shardAll(v) {
   wiz.players.forEach((id) => {
@@ -290,7 +353,7 @@ function split() {
 }
 async function submit() {
   msg.value = "";
-  if (totalPts.value === 0 && totalSh.value === 0) {
+  if (totalPts.value === 0 && totalSh.value === 0 && totalGifts.value === 0) {
     showZeroRewardDlg.value = true;
     return;
   }
@@ -315,6 +378,7 @@ async function doSubmit() {
           uid: id,
           pts: Number(wiz.pts[id] || 0),
           sh: Number(wiz.shr[id] || 0),
+          cards: giftList(id),
         })),
         winners: wiz.players.filter((id) => wiz.winners[id]),
         event: wiz.event,
@@ -329,6 +393,7 @@ async function doSubmit() {
       n: wiz.players.length,
       tp: totalPts.value,
       ts: totalSh.value,
+      tg: totalGifts.value,
       champ: !!(wiz.event && winCount.value),
       pname: rec.pname,
     };
@@ -349,9 +414,11 @@ function reuse() {
   const players = [...(last?.players?.length ? last.players : wiz.players)];
   const shr = {};
   const pts = {};
+  const gifts = {};
   players.forEach((id) => {
     shr[id] = 0;
     pts[id] = 0;
+    gifts[id] = {};
   });
   Object.assign(wiz, {
     step: 3,
@@ -360,6 +427,7 @@ function reuse() {
     players,
     shr,
     pts,
+    gifts,
     winners: {},
     event: "",
     eventTouched: false,
@@ -395,7 +463,7 @@ function hasDraft() {
       <view class="payok">
         <view class="ring">✓</view>
         <view style="font-size:17px;font-weight:600">提交成功，奖励已发放</view>
-        <view class="tiny" style="margin-top:4px">{{ wiz.last.n }} 人 · 积分 {{ fmt(wiz.last.tp) }} · 碎片 {{ fmt(wiz.last.ts) }}</view>
+        <view class="tiny" style="margin-top:4px">{{ wiz.last.n }} 人 · 积分 {{ fmt(wiz.last.tp) }} · 碎片 {{ fmt(wiz.last.ts) }}<text v-if="wiz.last.tg"> · 赠卡 {{ fmt(wiz.last.tg) }}</text></view>
         <view class="tiny">会员立即可见<text v-if="wiz.last.champ"> · 冠军已记入荣誉</text></view>
       </view>
       <button class="btn block" style="margin-top:14px" @tap="reuse">再录一局（沿用项目、桌台与玩家）</button>
@@ -538,8 +606,8 @@ function hasDraft() {
           </view>
         </view>
         <view class="sec-head">
-          <text>玩家分数</text>
-          <text class="hint">所有玩家可填积分 · 点奖杯标记冠军</text>
+          <text>玩家奖励</text>
+          <text class="hint">奖杯 = 标记冠军</text>
         </view>
         <view
           v-for="x in pickedUsers"
@@ -547,33 +615,38 @@ function hasDraft() {
           class="card player-score-card"
           :class="{ champ: wiz.winners[x.id] }"
         >
-          <view class="player-score-row">
+          <view class="player-score-top">
             <view class="av player-score-av" :class="{ champ: wiz.winners[x.id] }">{{ x.av }}</view>
             <view class="player-score-name">
               <view class="player-score-nick">{{ x.nick }}</view>
               <view class="tiny gold" v-if="wiz.winners[x.id]">冠军</view>
             </view>
-            <view class="player-score-actions">
-              <view class="player-score-field">
-                <view class="tiny field-label">碎片</view>
-                <input
-                  class="wiz-num-input"
-                  type="number"
-                  :value="wiz.shr[x.id] || 0"
-                  @input="wiz.shr[x.id] = Number($event.detail.value || 0)"
-                />
-              </view>
-              <view class="player-score-field wide">
-                <view class="tiny field-label">积分</view>
-                <input
-                  class="wiz-num-input"
-                  type="number"
-                  :value="wiz.pts[x.id] || 0"
-                  @input="wiz.pts[x.id] = Number($event.detail.value || 0)"
-                />
-              </view>
-              <view class="cup-btn" :class="{ on: wiz.winners[x.id] }" @tap="toggleWin(x.id)">🏆</view>
+            <view class="cup-btn" :class="{ on: wiz.winners[x.id] }" @tap="toggleWin(x.id)">🏆</view>
+          </view>
+          <view class="player-score-fields">
+            <view class="player-score-field">
+              <view class="tiny field-label">碎片</view>
+              <input
+                class="wiz-num-input"
+                type="number"
+                :value="wiz.shr[x.id] || 0"
+                @input="wiz.shr[x.id] = Number($event.detail.value || 0)"
+              />
             </view>
+            <view class="player-score-field wide">
+              <view class="tiny field-label">积分</view>
+              <input
+                class="wiz-num-input"
+                type="number"
+                :value="wiz.pts[x.id] || 0"
+                @input="wiz.pts[x.id] = Number($event.detail.value || 0)"
+              />
+            </view>
+            <button
+              class="gift-btn"
+              :class="{ on: giftCount(x.id) > 0 }"
+              @tap="openGiftDlg(x)"
+            >{{ giftCount(x.id) > 0 ? "卡 " + giftCount(x.id) : "赠卡" }}</button>
           </view>
         </view>
         <view class="card split-card">
@@ -612,7 +685,7 @@ function hasDraft() {
             <view class="av" style="width:24px;height:24px;font-size:11px" :style="wiz.winners[x.id] ? 'background:#BA7517;color:#fff' : ''">{{ x.av }}</view>
             <view class="gr">
               <view style="font-weight:500">{{ x.nick }}</view>
-              <view class="tiny">{{ wiz.winners[x.id] ? "冠军 · " : "" }}{{ x.teamName || "无战队" }}</view>
+              <view class="tiny">{{ wiz.winners[x.id] ? "冠军 · " : "" }}{{ x.teamName || "无战队" }}<text v-if="giftCount(x.id)"> · 赠卡 {{ giftCount(x.id) }} 张</text></view>
             </view>
             <view style="text-align:right">
               <view style="font-size:12px;font-weight:600">{{ wiz.pts[x.id] ? "+" + fmt(wiz.pts[x.id]) + " 分" : "0 分" }}</view>
@@ -621,7 +694,7 @@ function hasDraft() {
           </view>
         </view>
         <view class="card" style="background:#FCEBEB;border-color:#E24B4A;padding:10px 12px">
-          <view class="tiny" style="color:#A32D2D;line-height:1.7"><text style="font-weight:600">提交后会员立即可见。</text>录错需店长在管理后台撤销。</view>
+          <view class="tiny" style="color:#A32D2D;line-height:1.7"><text style="font-weight:600">提交后立即入账，用户可见。</text>录错需由店长在电脑端作废，作废记入日志（赠卡未使用部分一并回滚）。</view>
         </view>
         <button class="btn block wiz-primary" style="margin-bottom:8px" :disabled="submitting" @tap="submit">确认提交</button>
         <view class="wiz-nav">
@@ -669,6 +742,33 @@ function hasDraft() {
         <view class="draft-actions">
           <button class="btn ghost draft-btn" @tap="closeExitDlg">继续录入</button>
           <button class="btn draft-btn" @tap="confirmExitWiz">返回首页</button>
+        </view>
+      </view>
+    </view>
+
+    <view v-if="showGiftDlg" class="draft-mask" @tap="closeGiftDlg" @touchmove.stop.prevent>
+      <view class="gift-dialog" @tap.stop>
+        <view class="draft-title">赠送卡券{{ giftTarget ? " · " + giftTarget.nick : "" }}</view>
+        <scroll-view scroll-y class="gift-scroll">
+          <view v-if="!giftTplGroups.length" class="tiny" style="padding:20px 0;text-align:center">暂无可用卡券模板</view>
+          <view v-for="g in giftTplGroups" :key="g.key" class="gift-group">
+            <view class="gift-cat">{{ g.label }}</view>
+            <view v-for="t in g.items" :key="t.id" class="gift-row">
+              <view class="gr" style="min-width:0;flex:1">
+                <view class="gift-name">{{ t.name }}</view>
+                <view class="tiny">有效期 {{ t.days || 30 }} 天</view>
+              </view>
+              <view class="gift-stepper">
+                <view class="gift-step" @tap="setDraftQty(t.id, draftQty(t.id) - 1)">−</view>
+                <text class="gift-qty">{{ draftQty(t.id) }}</text>
+                <view class="gift-step" @tap="setDraftQty(t.id, draftQty(t.id) + 1)">+</view>
+              </view>
+            </view>
+          </view>
+        </scroll-view>
+        <view class="draft-actions">
+          <button class="btn ghost draft-btn" @tap="closeGiftDlg">取消</button>
+          <button class="btn draft-btn" @tap="confirmGiftDlg">确定</button>
         </view>
       </view>
     </view>
@@ -1005,10 +1105,11 @@ button.shard-btn.on {
   border-color: #ba7517;
   background: #faeeda;
 }
-.player-score-row {
+.player-score-top {
   display: flex;
   align-items: center;
   gap: 9px;
+  margin-bottom: 10px;
 }
 .player-score-av {
   width: 32px;
@@ -1029,19 +1130,17 @@ button.shard-btn.on {
   font-weight: 600;
   line-height: 1.3;
 }
-.player-score-actions {
+.player-score-fields {
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  flex-shrink: 0;
-  margin-left: auto;
 }
 .player-score-field {
-  width: 50px;
+  width: 58px;
   flex-shrink: 0;
 }
 .player-score-field.wide {
-  width: 62px;
+  width: 72px;
 }
 .field-label {
   display: block;
@@ -1053,9 +1152,9 @@ button.shard-btn.on {
   font-size: 11px;
 }
 .cup-btn {
-  width: 26px;
-  height: 26px;
-  margin-bottom: 3px;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
   border-radius: 7px;
   background: #fff;
   border: 1px solid rgba(28, 27, 25, 0.24);
@@ -1071,6 +1170,86 @@ button.shard-btn.on {
   background: #ba7517;
   border-color: #ba7517;
   opacity: 1;
+}
+.gift-btn {
+  flex: 1;
+  min-width: 64px;
+  height: 34px;
+  line-height: 34px;
+  margin: 0;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(28, 27, 25, 0.18);
+  background: #fff;
+  color: #1c1b19;
+  font-size: 12px;
+  font-weight: 500;
+}
+.gift-btn.on {
+  border-color: #185fa5;
+  color: #185fa5;
+  background: #e6f1fb;
+}
+.gift-dialog {
+  width: 88%;
+  max-width: 360px;
+  max-height: 78vh;
+  box-sizing: border-box;
+  padding: 16px;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+}
+.gift-scroll {
+  max-height: 52vh;
+  margin: 10px 0 12px;
+}
+.gift-group {
+  margin-bottom: 10px;
+}
+.gift-cat {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b6a65;
+  margin-bottom: 6px;
+}
+.gift-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(28, 27, 25, 0.06);
+}
+.gift-name {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+.gift-stepper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.gift-step {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid rgba(28, 27, 25, 0.16);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+  background: #faf9f5;
+}
+.gift-qty {
+  min-width: 22px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
 }
 .wiz-num-input {
   display: block;

@@ -126,7 +126,7 @@ const idRows = computed(() => {
     ["期初余额", c.opening, "上期结转 · 账面起点"],
     ["本期获得", c.gain, "对局 + 签到发放"],
     ["本期消耗", -c.cost, `兑换卡券 ${fmt(c.costExch)} + 提分发放 ${fmt(c.costWdr)}`],
-    ["本期清零", -c.cleared, "月末 24:00 清零"],
+    ["本期清零", -c.cleared, "每月 1 日 12:00 清零"],
     ["期末余额", c.end, `可用 ${fmt(c.endAv)} + 冻结 ${fmt(c.endFz)}`],
   ];
 });

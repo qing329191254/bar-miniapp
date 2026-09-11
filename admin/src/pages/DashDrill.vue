@@ -71,8 +71,10 @@ function gamePlayers(g: any) {
 }
 function monthEnd(m: string) {
   const [y, mo] = String(m || "").split("-").map(Number);
-  if (!y || !mo) return "月底";
-  return `${mo}-${new Date(y, mo, 0).getDate()} 清零`;
+  if (!y || !mo) return "每月 1 日 12:00";
+  // Clear runs on the 1st of the *next* month at 12:00
+  const next = mo === 12 ? { y: y + 1, m: 1 } : { y, m: mo + 1 };
+  return `${next.m}-1 12:00 清零`;
 }
 function fmtDay(dt: Date) {
   const y = dt.getFullYear();
@@ -159,7 +161,7 @@ watch([tablePage, tablePageSize], () => load());
     <div class="hdr">
       <span class="hdr-title">{{ meta.title }}</span>
       <em v-if="kind === 'alert' && data" class="hdr-note">今日 {{ fmt(data.today) }} 分 · 历史日均 {{ fmt(data.avg) }} 分</em>
-      <em v-else-if="kind === 'point' && data" class="hdr-note">{{ data.summary?.month }} 月底清零 · 逐会员拆分</em>
+      <em v-else-if="kind === 'point' && data" class="hdr-note">{{ data.summary?.month }} · {{ monthEnd(data.summary?.month) }} · 逐会员拆分</em>
       <em v-else-if="kind === 'coin' && data" class="hdr-note">真实负债 · 逐会员拆分</em>
       <em v-else-if="kind === 'card' && data" class="hdr-note">{{ data.summary?.total }} 张待核销 · 按卡型与会员拆分</em>
       <button class="btn sm ghost hdr-back" @click="back">‹ 返回看板</button>
@@ -241,7 +243,7 @@ watch([tablePage, tablePageSize], () => load());
           </table>
           <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
         </div>
-        <div class="note"><b>清零规则：</b>每月最后一日 24:00 清零可用积分，待兑付的冻结积分不受影响，负余额会一并归零。月末兑换需求通常较高，请提前检查卡券库存和每人兑换上限。</div>
+        <div class="note"><b>清零规则：</b>每月 1 日 12:00 清零可用积分，待兑付的冻结积分不受影响，负余额会一并归零。清零前兑换需求通常较高，请提前检查卡券库存和每人兑换上限。</div>
       </template>
 
       <template v-else-if="kind === 'card'">

@@ -24,6 +24,7 @@ from models import (
 from seed_db import seed_all
 from settings import cloud_env_id, cos_public_base, host_for_log, in_cloud, is_loopback, mysql_url
 import settlement_job as SJ
+import point_clear_job as PCJ
 import weixin
 import reminders
 
@@ -212,6 +213,14 @@ async def on_startup():
                     db.rollback()
                     print(f"[settlement] bootstrap warning: {e}")
             SJ.start_settlement_scheduler()
+            with SessionLocal() as db:
+                try:
+                    PCJ.tick_point_clear(db)
+                    db.commit()
+                except Exception as e:
+                    db.rollback()
+                    print(f"[point-clear] bootstrap warning: {e}")
+            PCJ.start_point_clear_scheduler()
             reminders.start_listener()
             return
         except Exception as e:
@@ -905,6 +914,7 @@ def staff_projects(staff: dict = Depends(staff_user), db: Session = Depends(get_
         "projects": [p.to_dict() for p in db.query(Project).filter_by(disabled=False)],
         "tables": [t.to_dict() for t in db.query(TableSeat).all()],
         "busy": list(busy),
+        "cardTpls": [t.to_dict() for t in db.query(CardTpl).order_by(CardTpl.id).all()],
     }
 
 
@@ -1234,7 +1244,18 @@ def team_management(admin: dict = Depends(admin_user), db: Session = Depends(get
             "champions": sum(x["champions"] for x in members),
             "shard": sum(x["shard"] for x in members),
         })
-    return {"teams": teams}
+    unassigned = []
+    for user in db.query(User).filter(
+        User.role == "CUSTOMER",
+        User.status == "ACTIVE",
+        User.team_id.is_(None),
+    ).order_by(User.id).all():
+        wallet = L.wallet_of(db, user.id)
+        unassigned.append({
+            "id": user.id, "nick": user.nick, "no": user.no,
+            "champions": L.champ_count(db, user.id), "shard": int(wallet.shard_w or 0),
+        })
+    return {"teams": teams, "unassigned": unassigned}
 
 
 @app.post("/api/admin/teams")
@@ -1519,7 +1540,12 @@ def update_project(pid: int, body: PatchIn, admin: dict = Depends(admin_user), d
     if same_name:
         raise HTTPException(400, "该项目名称已存在")
     project.name, project.min, project.max, project.shard = name, min_people, max_people, shard
-    L.log(db, "CONFIG_CHANGE", f"更新对局项目 {name}", None, admin)
+    if "disabled" in data:
+        project.disabled = bool(data.get("disabled"))
+    if "sort" in data:
+        project.sort = int(data.get("sort") or 99)
+    status = "停用" if project.disabled else "启用"
+    L.log(db, "CONFIG_CHANGE", f"更新对局项目 {name} · {status}", None, admin)
     db.flush()
     return project.to_dict()
 

@@ -32,6 +32,14 @@ export function setSession(t, user) {
   uni.setStorageSync(USER_KEY, user);
 }
 
+/** Keep token; refresh cached user profile (role etc.). */
+export function syncSessionUser(user) {
+  if (!user || typeof user !== "object") return;
+  const t = token();
+  if (!t) return;
+  setSession(t, user);
+}
+
 export function clearSession() {
   uni.removeStorageSync(TOKEN_KEY);
   uni.removeStorageSync(USER_KEY);
@@ -42,6 +50,69 @@ export function clearSession() {
 /** staff / manager / boss */
 export function isStaffRole(user = savedUser()) {
   return !!(user && user.role && user.role !== "CUSTOMER");
+}
+
+let redirectingToCustomer = false;
+
+function stopReminderSafe() {
+  import("@/utils/staff-reminder")
+    .then((m) => {
+      try {
+        m.stopStaffReminder();
+      } catch {
+        /* ignore */
+      }
+    })
+    .catch(() => undefined);
+}
+
+/**
+ * Staff role revoked (or lost): stay logged in as member, leave staff UI.
+ * Does not clear token — revoke demotes to CUSTOMER by design.
+ */
+export function exitStaffToCustomer({ user, message } = {}) {
+  const next =
+    user && typeof user === "object"
+      ? user
+      : { ...(savedUser() || {}), role: "CUSTOMER" };
+  if (next.role !== "CUSTOMER") next.role = "CUSTOMER";
+  syncSessionUser(next);
+  setPortal("customer");
+  clearStaffPageCache();
+  stopReminderSafe();
+  const msg = String(message || "员工权限已撤销，已切换到会员端").trim();
+  if (msg) toastText(msg);
+  if (redirectingToCustomer) return;
+  redirectingToCustomer = true;
+  uni.reLaunch({
+    url: "/pages/c/home",
+    complete: () => {
+      redirectingToCustomer = false;
+    },
+  });
+}
+
+/** After /me: sync cache; if demoted while on staff portal, kick to member home. */
+export function applyMeUser(user) {
+  if (!user || typeof user !== "object") return false;
+  const hadStaff = isStaffRole(savedUser());
+  const onStaffUi = getPortal() === "staff" || (hadStaff && getPortal() !== "customer");
+  syncSessionUser(user);
+  if (hadStaff && user.role === "CUSTOMER" && onStaffUi) {
+    exitStaffToCustomer({ user, message: "员工权限已撤销，已切换到会员端" });
+    return true;
+  }
+  return false;
+}
+
+function isStaffApiPath(path) {
+  const p = String(path || "").split("?")[0];
+  return p === "/staff" || p.startsWith("/staff/");
+}
+
+function isMePath(path) {
+  const p = String(path || "").split("?")[0];
+  return p === "/me";
 }
 
 /** current UI mode: staff | customer | "" */
@@ -146,7 +217,7 @@ export function canUseCloudContainer() {
   return typeof wx !== "undefined" && wx.cloud && typeof wx.cloud.callContainer === "function";
 }
 
-function parseResponse(res, method, opts, finish, resolve, reject) {
+function parseResponse(res, path, method, opts, finish, resolve, reject) {
   let data = res.data;
   if (typeof data === "string") {
     try {
@@ -158,6 +229,9 @@ function parseResponse(res, method, opts, finish, resolve, reject) {
   data = data || {};
   const statusCode = res.statusCode;
   if (statusCode >= 200 && statusCode < 300) {
+    if (isMePath(path) && data.user) {
+      applyMeUser(data.user);
+    }
     finish();
     resolve(data);
     return;
@@ -173,6 +247,18 @@ function parseResponse(res, method, opts, finish, resolve, reject) {
     }
     finish();
     reject(new Error("登录已过期，请重新登录"));
+    return;
+  }
+  // Staff APIs return 403 after revoke (role demoted to CUSTOMER); keep member session.
+  if (statusCode === 403 && token() && isStaffApiPath(path) && isStaffRole()) {
+    const detail = detailMsg(data);
+    exitStaffToCustomer({
+      message: /店员|员工|权限/.test(detail)
+        ? "员工权限已撤销，已切换到会员端"
+        : detail || "员工权限已撤销，已切换到会员端",
+    });
+    finish();
+    reject(new Error("员工权限已撤销"));
     return;
   }
   const error = new Error(detailMsg(data));
@@ -201,7 +287,7 @@ function requestViaHttp(path, opts, method, finish, resolve, reject) {
     },
     timeout: 60000,
     success(res) {
-      parseResponse(res, method, opts, finish, resolve, reject);
+      parseResponse(res, path, method, opts, finish, resolve, reject);
     },
     fail(err) {
       const message = requestFailMessage(err);
@@ -239,7 +325,7 @@ function requestViaCloud(path, opts, method, finish, resolve, reject) {
     data: opts.body === undefined ? {} : opts.body,
     timeout: timeoutMs,
     success(res) {
-      parseResponse(res, method, opts, finish, resolve, reject);
+      parseResponse(res, path, method, opts, finish, resolve, reject);
     },
     fail(err) {
       // 真机无法配置测试公网域名，callContainer 失败后勿回退 HTTP

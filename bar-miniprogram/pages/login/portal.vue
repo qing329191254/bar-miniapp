@@ -26,9 +26,23 @@ onLoad(() => {
 
 onShow(() => {
   hideWxHomeButton();
+  const u = savedUser();
+  if (!u?.role || !token()) {
+    relaunch("/pages/login/login");
+    return;
+  }
+  if (!isStaffRole(u)) {
+    setPortal("customer");
+    relaunch("/pages/c/home");
+  }
 });
 
 function pick(mode) {
+  if (mode === "staff" && !isStaffRole(savedUser())) {
+    setPortal("customer");
+    relaunch("/pages/c/home");
+    return;
+  }
   setPortal(mode);
   if (mode === "customer") {
     stopStaffReminder();

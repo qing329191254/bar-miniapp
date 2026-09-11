@@ -46,13 +46,26 @@ def today_day() -> int:
     return business_today().day
 
 
+def next_point_clear_at() -> datetime:
+    """Next monthly points clear: 1st of month at 12:00 Asia/Shanghai."""
+    now = business_now()
+    candidate = now.replace(day=1, hour=12, minute=0, second=0, microsecond=0)
+    if now >= candidate:
+        if candidate.month == 12:
+            candidate = candidate.replace(year=candidate.year + 1, month=1)
+        else:
+            candidate = candidate.replace(month=candidate.month + 1)
+    return candidate
+
+
 def point_period() -> dict:
-    today = business_today()
-    next_month = (today.replace(day=28) + timedelta(days=4)).replace(day=1)
-    month_end = next_month - timedelta(days=1)
+    now = business_now()
+    clear_at = next_point_clear_at()
+    days_left = (clear_at.date() - now.date()).days
     return {
-        "clearLabel": f"{month_end.month} 月 {month_end.day} 日 24:00 清零",
-        "daysLeft": (month_end - today).days,
+        "clearLabel": f"{clear_at.month} 月 {clear_at.day} 日 12:00 清零",
+        "daysLeft": max(0, days_left),
+        "clearAt": clear_at.isoformat(),
     }
 
 
@@ -1030,6 +1043,47 @@ def verify_confirm(sess: Session, code: str, staff: dict) -> dict:
     return verify_code_dict(vc)
 
 
+def _normalize_game_gift_cards(sess: Session, cards_in) -> list[dict]:
+    """Merge [{tpl, qty}] for game gifts; empty / invalid entries dropped."""
+    merged: dict[int, int] = {}
+    for raw in cards_in or []:
+        try:
+            tid = int(raw.get("tpl") or 0)
+            qty = int(raw.get("qty") or 0)
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if tid < 1 or qty < 1:
+            continue
+        if qty > 99:
+            err("单种卡券赠送数量不能超过 99")
+        merged[tid] = merged.get(tid, 0) + qty
+    out = []
+    for tid, qty in merged.items():
+        tm = tpl(sess, tid)
+        if not tm:
+            err(f"卡券模板不存在（#{tid}）")
+        out.append({"tpl": tid, "qty": qty, "name": tm.name})
+    return out
+
+
+def _grant_game_gift_cards(sess: Session, uid: int, gifts: list[dict], *, pname: str, game_id: int) -> list[int]:
+    card_ids: list[int] = []
+    for g in gifts:
+        tm = tpl(sess, g["tpl"])
+        if not tm:
+            err(f"卡券模板不存在（#{g['tpl']}）")
+        qty = int(g["qty"])
+        stk = tm.stock
+        if stk >= 0 and stk < qty:
+            err(f"{tm.name} 库存不足")
+        if stk >= 0:
+            tm.stock = stk - qty
+        for _ in range(qty):
+            card = issue_card(sess, uid, tm, "GAME_GIFT", f"对局赠送 · {pname} #{game_id}")
+            card_ids.append(card.id)
+    return card_ids
+
+
 def submit_game(sess: Session, staff: dict, pid: int, table_id, players: list, winners: list, event: str, round: str = "", game_time: str = "") -> dict:
     if not players:
         err("请至少选择 1 位玩家")
@@ -1054,25 +1108,49 @@ def submit_game(sess: Session, staff: dict, pid: int, table_id, players: list, w
             err(f"超出单笔碎片上限 {lim}")
     pj = sess.get(Project, pid)
     tbl = sess.get(TableSeat, table_id) if table_id else None
-    rec_players = []
+    pname = pj.name if pj else ""
+    prepared = []
     for p in players:
         usr = u(sess, int(p["uid"]))
-        rec_players.append({"uid": usr.id, "nick": usr.nick, "pts": int(p.get("pts") or 0), "sh": int(p.get("sh") or 0)})
-        wlt = wallet_of(sess, usr.id)
-        if rec_players[-1]["pts"]:
-            wlt.point_av += rec_players[-1]["pts"]
-            wlt.point_wg += rec_players[-1]["pts"]
-            wlt.point_mg += rec_players[-1]["pts"]
-            wlt.point_pd = 0 if wlt.point_av >= 0 else -wlt.point_av
-        if rec_players[-1]["sh"]:
-            wlt.shard_w += rec_players[-1]["sh"]
-            wlt.shard_t += rec_players[-1]["sh"]
+        gifts = _normalize_game_gift_cards(sess, p.get("cards"))
+        prepared.append({
+            "uid": usr.id,
+            "nick": usr.nick,
+            "pts": int(p.get("pts") or 0),
+            "sh": int(p.get("sh") or 0),
+            "gifts": gifts,
+        })
+    # Create record first so gift cards can reference game id in src_desc.
     rec = GameRecord(
-        id=next_seq(sess, "rec"), pid=pid, pname=pj.name if pj else "",
+        id=next_seq(sess, "rec"), pid=pid, pname=pname,
         table=tbl.name if tbl else "", round=(round or "").strip()[:32], time=normalized_time,
-        op=staff["nick"], op_uid=staff["id"], players=rec_players,
+        op=staff["nick"], op_uid=staff["id"], players=[],
     )
     sess.add(rec)
+    sess.flush()
+    rec_players = []
+    total_gift = 0
+    for row in prepared:
+        wlt = wallet_of(sess, row["uid"])
+        if row["pts"]:
+            wlt.point_av += row["pts"]
+            wlt.point_wg += row["pts"]
+            wlt.point_mg += row["pts"]
+            wlt.point_pd = 0 if wlt.point_av >= 0 else -wlt.point_av
+        if row["sh"]:
+            wlt.shard_w += row["sh"]
+            wlt.shard_t += row["sh"]
+        card_ids = _grant_game_gift_cards(
+            sess, row["uid"], row["gifts"], pname=pname or "对局", game_id=rec.id,
+        )
+        total_gift += len(card_ids)
+        entry = {"uid": row["uid"], "nick": row["nick"], "pts": row["pts"], "sh": row["sh"]}
+        if row["gifts"]:
+            entry["cards"] = [{"tpl": g["tpl"], "qty": g["qty"], "name": g["name"]} for g in row["gifts"]]
+            entry["cardIds"] = card_ids
+        rec_players.append(entry)
+    rec.players = rec_players
+    flag_modified(rec, "players")
     win_uids = [int(x) for x in (winners or [])]
     ev = (event or "").strip()
     if ev and win_uids:
@@ -1084,7 +1162,10 @@ def submit_game(sess: Session, staff: dict, pid: int, table_id, players: list, w
                 team_id=x.team_id if x else None,
                 team_name=tm.name if tm else "无战队", op=staff["nick"],
             ))
-    log(sess, "GAME_INPUT", rec.pname, None, staff)
+    detail = rec.pname
+    if total_gift:
+        detail += f" · 赠卡 {total_gift} 张"
+    log(sess, "GAME_INPUT", detail, None, staff)
     sess.flush()
     return rec.to_dict()
 
@@ -1568,6 +1649,16 @@ def void_game_preview(sess: Session, gid: int) -> dict:
         rel_n = 0
         if neg:
             rel_n = sess.query(Card).filter_by(uid=uid, status="UNUSED", src="EXCHANGE").count()
+        gift_ids = [int(x) for x in (p.get("cardIds") or []) if x]
+        gift_unused = gift_used = 0
+        for cid in gift_ids:
+            c = sess.get(Card, cid)
+            if not c:
+                continue
+            if c.status == "UNUSED":
+                gift_unused += 1
+            elif c.status in ("USED", "LOCKED"):
+                gift_used += 1
         rows.append({
             "uid": uid,
             "nick": p.get("nick") or "—",
@@ -1576,6 +1667,9 @@ def void_game_preview(sess: Session, gid: int) -> dict:
             "neg": neg,
             "skipPts": skip_pts,
             "relCards": rel_n,
+            "giftCards": len(gift_ids),
+            "giftUnused": gift_unused,
+            "giftUsed": gift_used,
         })
     return {"id": g.id, "pname": g.pname, "time": g.time, "rows": rows}
 
@@ -1589,6 +1683,7 @@ def void_game(sess: Session, gid: int, reason: str, void_cards: bool, admin: dic
         err("作废原因至少 2 个字")
     game_month = (g.time or "")[:7]
     skip_pts = bool(game_month and game_month != current_month())
+    gift_voided = 0
     for p in g.players or []:
         uid = int(p.get("uid") or 0)
         pts = int(p.get("pts") or 0)
@@ -1606,10 +1701,25 @@ def void_game(sess: Session, gid: int, reason: str, void_cards: bool, admin: dic
         if sh > 0:
             w.shard_w = max(0, int(w.shard_w or 0) - sh)
             w.shard_t = max(0, int(w.shard_t or 0) - sh)
+        # Rollback unused cards gifted in this game; already used/locked ones stay.
+        for cid in p.get("cardIds") or []:
+            c = sess.get(Card, int(cid))
+            if not c or c.uid != uid or c.src != "GAME_GIFT" or c.status != "UNUSED":
+                continue
+            c.status = "VOID"
+            c.void_reason = f"对局作废 · {reason}"
+            gift_voided += 1
+            tm = tpl(sess, c.tpl)
+            if tm and tm.stock >= 0:
+                tm.stock = int(tm.stock or 0) + 1
     g.status = "VOID"
     total_pts = sum(int(p.get("pts") or 0) for p in g.players or [])
     uid0 = int(g.players[0]["uid"]) if g.players else None
-    log(sess, "GAME_VOID", f"{g.pname} · {len(g.players or [])} 人 · 积分 {total_pts} · {reason}", uid0, admin)
+    detail = f"{g.pname} · {len(g.players or [])} 人 · 积分 {total_pts}"
+    if gift_voided:
+        detail += f" · 回滚赠卡 {gift_voided}"
+    detail += f" · {reason}"
+    log(sess, "GAME_VOID", detail, uid0, admin)
     sess.flush()
     return g.to_dict()
 
@@ -3015,7 +3125,7 @@ def _report_liab(sess: Session, _preset: str, _date_from: str, _date_to: str, _t
     rows = [
         {"key": "coinP", "label": "未消费金币 · 本金", "display": f"¥{coin_p:,}", "color": "#A32D2D", "desc": "真实资金负债 · 顾客可要求退还", "link": "/liabCoin"},
         {"key": "coinB", "label": "未消费金币 · 赠送", "display": f"¥{coin_b:,}", "color": "#BA7517", "desc": "营销负债 · 不可退不可提现", "link": "/liabCoin"},
-        {"key": "ptAv", "label": "未清零积分 · 可用", "display": f"{ident['endAv']:,}", "color": "#185FA5", "desc": "月末 24:00 清零后归零", "link": "/liabPoint"},
+        {"key": "ptAv", "label": "未清零积分 · 可用", "display": f"{ident['endAv']:,}", "color": "#185FA5", "desc": "每月 1 日 12:00 清零后归零", "link": "/liabPoint"},
         {"key": "ptFz", "label": "未清零积分 · 冻结", "display": f"{ident['endFz']:,}", "color": "#BA7517", "desc": "提分单待确认占用 · 不参与清零", "link": "/liabPoint"},
         {"key": "cards", "label": "未核销卡券", "display": f"{len(unused)} 张", "color": "#534AB7", "desc": f"含 {treasure} 张宝箱卡（7 天有效）", "link": "/liabCard"},
     ]

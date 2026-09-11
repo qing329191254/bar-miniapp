@@ -20,7 +20,7 @@ const teamSubs=["TREASURE_TEAM","TREASURE_SILVER","TREASURE_DIAMOND"];
 
 const templateMap=computed(()=>Object.fromEntries(templates.value.map(t=>[t.sub,t])));
 const prizeRows=computed(()=>{const half=Math.ceil(cfg.value.rankRange/2);return Array.from({length:half},(_,i)=>[i+1,i+1+half<=cfg.value.rankRange?i+1+half:0])});
-const dimHint=computed(()=>cfg.value.rankDim==="WEEK"?"周一 00:00 重置 · 结算发宝箱卡":"按自然月累计 · 随月底清零归零");
+const dimHint=computed(()=>cfg.value.rankDim==="WEEK"?"周一 00:00 重置 · 结算发宝箱卡":"按自然月累计 · 随每月 1 日 12:00 清零归零");
 const personalOpts=computed(()=>personalSubs.map((sub)=>({value:sub,label:optionName(sub)})));
 const teamOpts=computed(()=>teamSubs.map((sub)=>({value:sub,label:optionName(sub)})));
 
@@ -75,7 +75,7 @@ onMounted(load);
       </section>
 
       <button class="btn pri save-btn" :disabled="saving" @click="save">{{ saving?'保存中…':'保存规则' }}</button>
-      <div class="note final-note"><b>口径说明：</b>碎片榜「历史」= 永久累计；积分榜「历史」= 当月累计（随清零归零）。<b>发奖以冻结快照为准</b>，结算后调队不影响已发放奖励；极端并列无上界，结算预览页会显示发放总量。</div>
+      <div class="note final-note"><b>口径说明：</b>碎片榜「历史」= 永久累计；积分榜「历史」= 当月累计（随每月 1 日 12:00 清零归零）。<b>发奖以冻结快照为准</b>，结算后调队不影响已发放奖励；极端并列无上界，结算预览页会显示发放总量。</div>
     </AppAsyncPage>
   </div>
 </template>

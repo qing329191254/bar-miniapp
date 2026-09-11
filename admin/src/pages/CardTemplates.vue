@@ -213,7 +213,7 @@ onMounted(load);
             <div class="st tips-title">兑换配置要点</div>
             <div class="tiny tips-body">
               · 设置积分价并开启「兑换页展示」后，顾客即可在小程序兑换<br />
-              · 月末清零前可集中兑换，需配置库存与每人上限防挤兑<br />
+              · 每月 1 日 12:00 清零前可集中兑换，需配置库存与每人上限防挤兑<br />
               · 宝箱卡积分价 0、不出现兑换页，仅奖励发放
             </div>
           </section>

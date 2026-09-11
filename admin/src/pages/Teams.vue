@@ -17,9 +17,11 @@ type Team = {
 };
 
 const teams = ref<Team[]>([]);
+const unassigned = ref<Member[]>([]);
 const loading = ref(true);
 const err = ref("");
 const acting = ref(false);
+const unassignedKw = ref("");
 
 const showNew = ref(false);
 const newForm = ref({ name: "", logo: "" });
@@ -27,10 +29,18 @@ const newForm = ref({ name: "", logo: "" });
 const editing = ref<Team | null>(null);
 const editForm = ref({ name: "", status: "ACTIVE" });
 
-const moveDlg = ref<{ member: Member; from: Team; to: Team } | null>(null);
+const moveDlg = ref<{ member: Member; from: Team | null; to: Team } | null>(null);
 const removeDlg = ref<Member | null>(null);
 
 const activeTeams = computed(() => teams.value.filter((t) => t.status !== "DISABLED"));
+const joinTeamOptions = computed(() => activeTeams.value.map((t) => ({ value: t.id, label: t.name })));
+const filteredUnassigned = computed(() => {
+  const kw = unassignedKw.value.trim().toLowerCase();
+  if (!kw) return unassigned.value;
+  return unassigned.value.filter(
+    (m) => m.nick.toLowerCase().includes(kw) || String(m.no || "").toLowerCase().includes(kw),
+  );
+});
 
 function fmt(n: number) {
   return Number(n || 0).toLocaleString("en-US");
@@ -40,11 +50,13 @@ async function load() {
   loading.value = true;
   err.value = "";
   try {
-    const data = await api<{ teams: Team[] }>("/admin/team-management");
+    const data = await api<{ teams: Team[]; unassigned?: Member[] }>("/admin/team-management");
     teams.value = data.teams || [];
+    unassigned.value = data.unassigned || [];
   } catch (e: any) {
     err.value = e?.message || "加载失败";
     teams.value = [];
+    unassigned.value = [];
   } finally {
     loading.value = false;
   }
@@ -117,12 +129,23 @@ function onMoveSelect(member: Member, from: Team, teamId: number) {
   moveDlg.value = { member, from, to };
 }
 
+function onJoinSelect(member: Member, teamId: number) {
+  const value = Number(teamId || 0);
+  if (!value) return;
+  const to = teams.value.find((t) => t.id === value);
+  if (!to || to.status === "DISABLED") {
+    showToast("目标战队不可用", true);
+    return;
+  }
+  moveDlg.value = { member, from: null, to };
+}
+
 function movePreview() {
   if (!moveDlg.value) return null;
   const { member, from, to } = moveDlg.value;
   return {
-    fromBefore: from.champions,
-    fromAfter: from.champions - member.champions,
+    fromBefore: from ? from.champions : null,
+    fromAfter: from ? from.champions - member.champions : null,
     toBefore: to.champions,
     toAfter: to.champions + member.champions,
   };
@@ -136,11 +159,12 @@ async function confirmMove() {
       method: "POST",
       body: { data: { uid: moveDlg.value.member.id, teamId: moveDlg.value.to.id } },
     });
+    const joined = !moveDlg.value.from;
     moveDlg.value = null;
     await load();
-    showToast("已调队");
+    showToast(joined ? "已加入战队" : "已调队");
   } catch (e: any) {
-    showToast(e?.message || "调队失败", true);
+    showToast(e?.message || "操作失败", true);
   } finally {
     acting.value = false;
   }
@@ -176,8 +200,65 @@ onMounted(load);
       </div>
       <div class="toolbar row">
         <button class="btn sm pri" @click="openNew">＋ 新增战队</button>
-        <span class="tiny">新增后成员可通过「调至」下拉选择加入</span>
+        <span class="tiny">无战队会员可在下方「加入」战队；已有成员可用「调至」换队</span>
       </div>
+
+      <section class="card team-card unassigned-card">
+        <div class="team-head">
+          <div class="team-head-main">
+            <span class="team-name">无战队会员</span>
+            <em class="team-stats">{{ unassigned.length }} 人 · 可加入启用中的战队</em>
+          </div>
+          <input
+            v-if="unassigned.length"
+            v-model="unassignedKw"
+            class="inp search-inp"
+            placeholder="搜索昵称 / 会员号"
+          />
+        </div>
+        <div class="tb-wrap">
+          <table class="tb2 team-member-table">
+            <thead>
+              <tr>
+                <th style="width:34%">会员</th>
+                <th style="width:18%">个人冠军</th>
+                <th style="width:18%">本周碎片</th>
+                <th style="width:30%">加入战队</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="member in filteredUnassigned" :key="member.id">
+                <td>
+                  <b>{{ member.nick }}</b>
+                  <div class="tiny">{{ member.no }}</div>
+                </td>
+                <td>{{ member.champions }}</td>
+                <td>{{ fmt(member.shard) }}</td>
+                <td>
+                  <AppSelect
+                    v-if="joinTeamOptions.length"
+                    class="move-sel"
+                    :model-value="0"
+                    :options="joinTeamOptions"
+                    placeholder="选择战队"
+                    compact
+                    no-margin
+                    action
+                    @change="onJoinSelect(member, $event)"
+                  />
+                  <span v-else class="tiny">暂无可用战队</span>
+                </td>
+              </tr>
+              <tr v-if="!unassigned.length">
+                <td colspan="4" class="empty-row">当前没有无战队会员</td>
+              </tr>
+              <tr v-else-if="!filteredUnassigned.length">
+                <td colspan="4" class="empty-row">未找到匹配会员</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <section v-for="team in teams" :key="team.id" class="card team-card">
         <div class="team-head">
@@ -221,7 +302,7 @@ onMounted(load);
                 <td><button class="btn sm" @click="removeDlg = member">移出</button></td>
               </tr>
               <tr v-if="!team.members.length">
-                <td colspan="5" class="empty-row">暂无成员</td>
+                <td colspan="5" class="empty-row">暂无成员 · 可从上方「无战队会员」加入</td>
               </tr>
             </tbody>
           </table>
@@ -232,7 +313,7 @@ onMounted(load);
 
       <div class="side-note">
         <div class="side-note-body">
-          <b>调队后果：</b>冠军数归属新战队且实时聚合，拖一个人会同时改变两个战队的排名。已发放的历史奖励不受影响（依据快照）。停用的战队不再出现在调队目标中。
+          <b>调队后果：</b>冠军数归属新战队且实时聚合，拖一个人会同时改变两个战队的排名。已发放的历史奖励不受影响（依据快照）。停用的战队不再出现在调队 / 加入目标中。
         </div>
       </div>
     </div>
@@ -271,17 +352,25 @@ onMounted(load);
 
     <div v-if="moveDlg" class="dlg-mask" @click.self="moveDlg = null">
       <section class="dlg">
-        <div class="st">调队二次确认</div>
-        <p class="dlg-body">
+        <div class="st">{{ moveDlg.from ? "调队二次确认" : "加入战队确认" }}</div>
+        <p v-if="moveDlg.from" class="dlg-body">
           将「<b>{{ moveDlg.member.nick }}</b>」从【{{ moveDlg.from.name }}】调至【{{ moveDlg.to.name }}】：<br />
           · {{ moveDlg.from.name }}冠军数 <b class="down">{{ movePreview()?.fromBefore }} → {{ movePreview()?.fromAfter }}</b><br />
           · {{ moveDlg.to.name }}冠军数 <b class="up">{{ movePreview()?.toBefore }} → {{ movePreview()?.toAfter }}</b><br />
           · 将影响后续战队榜排名<br />
           · <b>已发放的历史奖励不受影响</b>（依据快照）
         </p>
+        <p v-else class="dlg-body">
+          将「<b>{{ moveDlg.member.nick }}</b>」加入【{{ moveDlg.to.name }}】：<br />
+          · {{ moveDlg.to.name }}冠军数 <b class="up">{{ movePreview()?.toBefore }} → {{ movePreview()?.toAfter }}</b><br />
+          · 将影响后续战队榜排名<br />
+          · <b>已发放的历史奖励不受影响</b>（依据快照）
+        </p>
         <div class="dlg-actions">
           <button class="btn ghost" @click="moveDlg = null">取消</button>
-          <button class="btn pri" :disabled="acting" @click="confirmMove">确认调队</button>
+          <button class="btn pri" :disabled="acting" @click="confirmMove">
+            {{ moveDlg.from ? "确认调队" : "确认加入" }}
+          </button>
         </div>
       </section>
     </div>
@@ -289,7 +378,7 @@ onMounted(load);
     <div v-if="removeDlg" class="dlg-mask" @click.self="removeDlg = null">
       <section class="dlg">
         <div class="st">移出战队</div>
-        <p class="dlg-body">确认将 <b>{{ removeDlg.nick }}</b> 移出当前战队？</p>
+        <p class="dlg-body">确认将 <b>{{ removeDlg.nick }}</b> 移出当前战队？移出后会出现在「无战队会员」中，可随时再加入。</p>
         <div class="dlg-actions">
           <button class="btn ghost" @click="removeDlg = null">取消</button>
           <button class="btn dan" :disabled="acting" @click="confirmRemove">确认移出</button>
@@ -311,6 +400,7 @@ onMounted(load);
 }
 .toolbar { gap: 8px; margin-bottom: 11px; align-items: center; }
 .team-card { margin-bottom: 12px; padding-bottom: 0; overflow: hidden; }
+.unassigned-card { border-color: #D8D5CC; background: #FAF9F5; }
 .team-head {
   display: flex;
   align-items: center;
@@ -339,6 +429,13 @@ onMounted(load);
   font-weight: 400;
 }
 .edit-btn { flex: none; margin: 0; }
+.search-inp {
+  width: min(220px, 100%);
+  margin: 0;
+  flex: none;
+  padding: 6px 10px;
+  font-size: 12px;
+}
 .team-member-table :is(th, td):nth-child(5) { text-align: center; }
 .disabled-tag { color: var(--red); font-size: 12px; font-weight: 400; }
 .tb-wrap { overflow-x: auto; }
@@ -368,5 +465,6 @@ onMounted(load);
     align-items: flex-start;
     gap: 4px;
   }
+  .search-inp { width: 100%; }
 }
 </style>

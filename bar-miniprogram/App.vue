@@ -366,10 +366,10 @@ button::after { border: none; }
 .sln { flex: 1; height: 2px; background: rgba(28,27,25,.1); border-radius: 1px; }
 .icell {
 	width: calc(33.33% - 6px); box-sizing: border-box;
-	border: 1px solid rgba(28,27,25,.1); border-radius: 12px;
+	border: 2px solid rgba(28,27,25,.1); border-radius: 12px;
 	padding: 12px 4px; text-align: center; font-size: 12px; background: #fff;
 }
-.icell.on { border-color: #1C1B19; border-width: 2px; background: linear-gradient(180deg,#FAF9F5,#fff); font-weight: 500; box-shadow: 0 2px 8px rgba(28,27,25,.06); }
+.icell.on { border-color: #1C1B19; background: linear-gradient(180deg,#FAF9F5,#fff); font-weight: 500; box-shadow: 0 2px 8px rgba(28,27,25,.06); }
 .icell-i { width: 28px; height: 28px; border-radius: 9px; background: linear-gradient(135deg,#D3D1C7,#E8E6E0); margin: 0 auto 5px; }
 .icell.on .icell-i { background: linear-gradient(135deg,#1C1B19,#4A4540); }
 .g4 { display: flex; flex-wrap: wrap; gap: 8px; }

@@ -72,10 +72,14 @@ def main():
         "api.js has resolveHomeUrl + portal helpers",
         all(x in api_js for x in ["resolveHomeUrl", "setPortal", "isStaffPortal", "forceChoose"]),
     )
+    ok(
+        "api.js handles staff revoke → member",
+        all(x in api_js for x in ["exitStaffToCustomer", "applyMeUser", "isStaffApiPath"]),
+    )
     ok("login forceChoose after auth", "forceChoose: true" in login_js)
     ok("boot uses resolveHomeUrl", "resolveHomeUrl()" in boot_js)
     ok("tab-bar uses isStaffPortal", "isStaffPortal()" in tab_js)
-    ok("c/mine switch to staff", "切换到员工端" in c_mine and 'setPortal("staff")' in c_mine)
+    ok("c/mine switch to staff", "切换到员工端" in c_mine and 'setPortal("staff")' in c_mine and "showStaffSwitch" in c_mine)
     ok("s/mine switch to customer", "切换到会员端" in s_mine and 'setPortal("customer")' in s_mine)
     ok("reminder gated by isStaffPortal", "isStaffPortal()" in reminder)
 

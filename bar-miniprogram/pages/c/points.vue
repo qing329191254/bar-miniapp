@@ -13,7 +13,7 @@ const negative = computed(() => (data.value?.point?.av || 0) < 0);
 const av = computed(() => data.value?.point?.av || 0);
 const exchCount = computed(() => Math.floor(Math.max(0, av.value) / 3000));
 const daysLeft = computed(() => Number(data.value?.daysLeft ?? 0));
-const clearLabel = computed(() => data.value?.clearLabel || "本月最后一日 24:00 清零");
+const clearLabel = computed(() => data.value?.clearLabel || "每月 1 日 12:00 清零");
 const showUrgency = computed(() => daysLeft.value <= 7 && !negative.value && av.value > 0);
 
 async function load() {

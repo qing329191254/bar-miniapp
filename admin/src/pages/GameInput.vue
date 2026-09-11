@@ -6,13 +6,19 @@ import AppAsyncPage from "../components/AppAsyncPage.vue";
 import DateTimePicker from "../components/DateTimePicker.vue";
 import { showToast } from "../composables/useToast";
 
-const meta = ref({ projects: [] as any[], tables: [] as any[] });
+type GiftBag = Record<number, number>;
+type PlayerRow = { uid: number; nick: string; no?: string; teamName?: string; pts: number; sh: number; gifts: GiftBag };
+
+const meta = ref({ projects: [] as any[], tables: [] as any[], cardTpls: [] as any[] });
 const members = ref<any[]>([]);
 const search = ref("");
 const searchArea = ref<HTMLElement | null>(null);
 const loading = ref(true);
 const loaded = ref(false);
 const err = ref("");
+const giftOpen = ref(false);
+const giftUid = ref<number | null>(null);
+const giftDraft = ref<GiftBag>({});
 
 function localDateTimeValue(date = new Date()) {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -26,9 +32,15 @@ const form = reactive({
   time: localDateTimeValue(),
   event: "",
   eventTouched: false,
-  players: [] as { uid: number; nick: string; pts: number; sh: number }[],
+  players: [] as PlayerRow[],
   winners: {} as Record<number, boolean>,
 });
+
+const CAT_LABEL: Record<string, string> = {
+  GAME: "游戏卡",
+  FOOD: "酒水小食卡",
+  OTHER: "其他卡券",
+};
 
 async function load() {
   loading.value = true;
@@ -75,6 +87,25 @@ const tableOpts = computed(() => [
   { value: null, label: "不指定" },
   ...meta.value.tables.map((t) => ({ value: t.id, label: t.name })),
 ]);
+const giftTplGroups = computed(() => {
+  const groups: Record<string, { key: string; label: string; items: any[] }> = {};
+  for (const t of meta.value.cardTpls || []) {
+    const key = t.cat || "OTHER";
+    if (!groups[key]) groups[key] = { key, label: CAT_LABEL[key] || key, items: [] };
+    groups[key].items.push(t);
+  }
+  return Object.values(groups);
+});
+const giftPlayer = computed(() => form.players.find((p) => p.uid === giftUid.value) || null);
+
+function giftCount(p: PlayerRow) {
+  return Object.values(p.gifts || {}).reduce((s, n) => s + Number(n || 0), 0);
+}
+function giftPayload(p: PlayerRow) {
+  return Object.entries(p.gifts || {})
+    .filter(([, q]) => Number(q) > 0)
+    .map(([tpl, qty]) => ({ tpl: Number(tpl), qty: Number(qty) }));
+}
 function onPidChange() {
   if (!form.eventTouched) form.event = defaultEvent();
 }
@@ -87,7 +118,15 @@ function added(id: number) {
 function add(u: any) {
   if (added(u.id)) return;
   const shard = meta.value.projects.find((p) => p.id === form.pid)?.shard || 0;
-  form.players.push({ uid: u.id, nick: u.nick, pts: 0, sh: shard });
+  form.players.push({
+    uid: u.id,
+    nick: u.nick,
+    no: u.no,
+    teamName: u.teamName,
+    pts: 0,
+    sh: shard,
+    gifts: {},
+  });
 }
 function closeSearch() {
   search.value = "";
@@ -129,6 +168,32 @@ function remove(uid: number) {
   form.players = form.players.filter((p) => p.uid !== uid);
   delete form.winners[uid];
 }
+function openGift(p: PlayerRow) {
+  giftUid.value = p.uid;
+  giftDraft.value = { ...(p.gifts || {}) };
+  giftOpen.value = true;
+}
+function closeGift() {
+  giftOpen.value = false;
+  giftUid.value = null;
+  giftDraft.value = {};
+}
+function draftQty(tplId: number) {
+  return Number(giftDraft.value[tplId] || 0);
+}
+function setDraftQty(tplId: number, next: number) {
+  const n = Math.max(0, Math.min(99, Number(next) || 0));
+  const copy = { ...giftDraft.value };
+  if (n <= 0) delete copy[tplId];
+  else copy[tplId] = n;
+  giftDraft.value = copy;
+}
+function confirmGift() {
+  const p = giftPlayer.value;
+  if (!p) return;
+  p.gifts = { ...giftDraft.value };
+  closeGift();
+}
 async function submit() {
   try {
     await api("/staff/games", {
@@ -136,7 +201,12 @@ async function submit() {
       body: {
         projectId: form.pid,
         tableId: form.tid,
-        players: form.players,
+        players: form.players.map((p) => ({
+          uid: p.uid,
+          pts: p.pts,
+          sh: p.sh,
+          cards: giftPayload(p),
+        })),
         winners: Object.keys(form.winners).filter((k) => form.winners[Number(k)]).map(Number),
         event: form.event,
         round: (form.round || "").trim(),
@@ -155,7 +225,7 @@ async function submit() {
 <template>
   <AppAsyncPage :loading="loading" :data="loaded" :err="err" :skeleton="{ variant: 'form', showFilter: false, metrics: 4, showNote: true }" @retry="load">
   <div>
-    <div class="hdr game-hdr">对局结果录入 <em>记录参与玩家、成绩与本局积分</em></div>
+    <div class="hdr game-hdr">对局结果录入 <em>记录参与玩家、成绩、积分与赠卡</em></div>
     <div class="prod-grid">
       <div>
         <div class="card">
@@ -211,15 +281,27 @@ async function submit() {
               </div>
             </div>
           </div>
-          <table class="tb2 player-table" data-cols="lcccc">
+          <table class="tb2 player-table" data-cols="llccccc">
             <thead>
-              <tr><th>玩家</th><th>积分</th><th>碎片</th><th>冠军</th><th></th></tr>
+              <tr><th>玩家</th><th>战队</th><th>积分</th><th>碎片</th><th>卡券</th><th>冠军</th><th></th></tr>
             </thead>
             <tbody>
             <tr v-for="p in form.players" :key="p.uid">
-              <td><b>{{ p.nick }}</b></td>
+              <td>
+                <b>{{ p.nick }}</b>
+                <div class="tiny">{{ p.no || "" }}</div>
+              </td>
+              <td class="tiny">{{ p.teamName || "无战队" }}</td>
               <td><input class="inp score-input" type="number" v-model.number="p.pts" /></td>
               <td><input class="inp score-input" type="number" v-model.number="p.sh" /></td>
+              <td>
+                <button
+                  type="button"
+                  class="btn sm gift-cfg"
+                  :class="{ on: giftCount(p) > 0 }"
+                  @click="openGift(p)"
+                >{{ giftCount(p) > 0 ? `已配 ${giftCount(p)} 张` : "配置卡券" }}</button>
+              </td>
               <td class="col-champ">
                 <label class="champ-check">
                   <input v-model="form.winners[p.uid]" type="checkbox" class="ui-check" />
@@ -228,12 +310,13 @@ async function submit() {
               <td class="tiny" style="cursor:pointer" @click="remove(p.uid)">移除</td>
             </tr>
             <tr v-if="!form.players.length">
-              <td colspan="5" class="table-empty">暂无参与玩家，请搜索或从右侧快速添加</td>
+              <td colspan="7" class="table-empty">暂无参与玩家，请搜索或从右侧快速添加</td>
             </tr>
             </tbody>
           </table>
           <div class="row" style="margin-top:11px">
             <button class="btn ghost" @click="form.players=[];form.winners={}">清空</button>
+            <span class="tiny gift-hint">卡券发放后 C 端卡包立即可见 · 作废时未使用赠卡一并回滚</span>
             <button class="btn pri submit-btn" style="margin-left:auto" :disabled="!form.players.length" @click="submit">提交并入账</button>
           </div>
         </div>
@@ -252,6 +335,35 @@ async function submit() {
         </div>
       </div>
     </div>
+
+    <Teleport to="body">
+      <div v-if="giftOpen" class="gift-mask" @click.self="closeGift">
+        <div class="gift-dlg">
+          <div class="st">赠送卡券 <em v-if="giftPlayer">{{ giftPlayer.nick }}</em></div>
+          <div class="gift-body">
+            <div v-if="!giftTplGroups.length" class="tiny" style="padding:24px;text-align:center">暂无卡券模板，请先在「卡券配置」创建</div>
+            <div v-for="g in giftTplGroups" :key="g.key" class="gift-group">
+              <div class="gift-cat">{{ g.label }}</div>
+              <div v-for="t in g.items" :key="t.id" class="gift-row">
+                <div class="gr">
+                  <b style="font-weight:500">{{ t.name }}</b>
+                  <span class="tiny">有效期 {{ t.days || 30 }} 天</span>
+                </div>
+                <div class="gift-stepper">
+                  <button type="button" class="step" @click="setDraftQty(t.id, draftQty(t.id) - 1)">−</button>
+                  <input class="inp qty" type="number" min="0" max="99" :value="draftQty(t.id)" @change="setDraftQty(t.id, Number(($event.target as HTMLInputElement).value))" />
+                  <button type="button" class="step" @click="setDraftQty(t.id, draftQty(t.id) + 1)">+</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="gift-actions">
+            <button class="btn ghost" type="button" @click="closeGift">取消</button>
+            <button class="btn pri" type="button" @click="confirmGift">确定</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
   </AppAsyncPage>
 </template>
@@ -277,7 +389,21 @@ async function submit() {
 .player-table td.col-champ{text-align:center}
 .champ-check{display:inline-flex;align-items:center;justify-content:center;margin:0;cursor:pointer}
 .score-input{display:block;width:72px;margin:0 auto;padding:5px 7px;text-align:center}
+.gift-cfg{white-space:nowrap}
+.gift-cfg.on{border-color:#185FA5;color:#185FA5;background:#E6F1FB}
+.gift-hint{margin-left:12px;color:var(--ink3)}
 .submit-btn{padding:8px 20px}
 .submit-btn:disabled{background:#D8D6D0;color:#8C8981;opacity:1;cursor:not-allowed}
+.gift-mask{position:fixed;inset:0;z-index:80;background:rgba(28,27,25,.35);display:flex;align-items:center;justify-content:center;padding:24px}
+.gift-dlg{width:min(480px,100%);max-height:min(80vh,640px);background:var(--card);border-radius:14px;box-shadow:0 16px 40px rgba(28,27,25,.18);display:flex;flex-direction:column;overflow:hidden}
+.gift-dlg .st{padding:14px 16px 8px;margin:0}
+.gift-body{padding:0 16px;overflow:auto;flex:1}
+.gift-group{margin-bottom:12px}
+.gift-cat{font-size:12px;font-weight:600;color:var(--ink2);margin:8px 0 4px}
+.gift-row{display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid var(--line)}
+.gift-stepper{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.gift-stepper .step{width:28px;height:28px;border:1px solid var(--line2);border-radius:8px;background:#FAF9F5;cursor:pointer}
+.gift-stepper .qty{width:48px;margin:0;padding:4px 6px;text-align:center}
+.gift-actions{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;border-top:1px solid var(--line)}
 @media(max-width:1100px){.game-info-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style>

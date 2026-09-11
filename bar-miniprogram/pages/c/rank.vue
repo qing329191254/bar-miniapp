@@ -44,6 +44,10 @@ function isMe(r) {
 function nameOf(r) {
   return r.team?.name || r.user?.nick;
 }
+function teamLabelOf(r) {
+  if (subject.value !== "USER") return "";
+  return (r.user?.teamName || "").trim();
+}
 function valOf(r) {
   return kind.value === "CHAMPION" ? r.v + " 冠" : fmt(r.v);
 }
@@ -53,7 +57,7 @@ function chooseKind(value) {
 }
 function metricHint(value) {
   if (value === "WEEK") return "周一 00:00 重置";
-  if (kind.value === "POINT") return "随月底清零归零";
+  if (kind.value === "POINT") return "随每月 1 日 12:00 清零归零";
   if (kind.value === "SHARD") return "碎片永久累计";
   return "历次冠军累计";
 }
@@ -87,6 +91,12 @@ const emptyText = computed(() => {
   if (kind.value === "SHARD" && dim.value !== "WEEK") return "暂无历史碎片数据";
   return "本周还没有数据，快来玩一局";
 });
+/** 个人榜默认只展示前十；战队榜仍全量 */
+const displayRows = computed(() => {
+  const rows = data.value?.rows || [];
+  if (subject.value === "USER") return rows.slice(0, 10);
+  return rows;
+});
 </script>
 
 <template>
@@ -108,12 +118,15 @@ const emptyText = computed(() => {
       <view class="tiny gold" style="margin-top:3px;line-height:1.65">夺冠战队全员得战队宝箱卡 · 个人榜前三得钻石 / 黄金 / 白银宝箱卡</view>
     </view>
     <view class="rk-box">
-      <view v-if="!data.rows.length" class="empty">{{ emptyText }}</view>
-      <view v-for="r in data.rows" :key="r.rank + '-' + nameOf(r)" class="rk-row" :class="{ me: isMe(r) }">
+      <view v-if="!displayRows.length" class="empty">{{ emptyText }}</view>
+      <view v-for="r in displayRows" :key="r.rank + '-' + nameOf(r)" class="rk-row" :class="{ me: isMe(r) }">
         <view class="rk-no" :class="{ top: r.rank <= 3 }">{{ r.rank }}</view>
         <view class="av">{{ (nameOf(r) || "").slice(0, 2) }}</view>
         <view style="flex:1;min-width:0">
-          <view style="font-weight:500">{{ isMe(r) ? "我的" + (subject === "TEAM" ? "战队" : "") + " · " : "" }}{{ nameOf(r) }}</view>
+          <view class="rk-name-line">
+            <text class="rk-nick">{{ isMe(r) ? "我的" + (subject === "TEAM" ? "战队" : "") + " · " : "" }}{{ nameOf(r) }}</text>
+            <text v-if="subject === 'USER' && teamLabelOf(r)" class="rk-team-tag">{{ teamLabelOf(r) }}</text>
+          </view>
           <view class="tiny" v-if="r.members">{{ r.members }} 名成员</view>
         </view>
         <text style="font-weight:600" :style="{ color }">{{ valOf(r) }}</text>
@@ -141,5 +154,8 @@ const emptyText = computed(() => {
 </template>
 
 <style scoped>
+.rk-name-line{display:flex;align-items:center;flex-wrap:wrap;gap:6px;min-width:0}
+.rk-nick{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.rk-team-tag{flex:none;max-width:9em;padding:1px 7px;border:1px solid #E2E0DA;border-radius:99px;color:#6B6A65;font-size:10px;line-height:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rank-period{margin-left:auto;color:#9C9A93;font-size:12px;padding:5px 0}.rank-period text{font-size:12px;font-weight:400;color:#6B6A65;margin-left:4px}.metric-mask{position:fixed;z-index:30;inset:0;background:rgba(0,0,0,.38);display:flex;align-items:flex-end}.metric-sheet{width:100%;background:#fff;border-radius:22px 22px 0 0;padding:20px 16px 28px;box-sizing:border-box}.metric-title{display:flex;justify-content:space-between;align-items:center;font-weight:600;font-size:18px;margin-bottom:14px}.metric-title text{font-size:13px;font-weight:400;color:#9C9A93}.metric-option{display:flex;justify-content:space-between;align-items:center;padding:17px 14px;border:1px solid #E2E0DA;border-bottom:0;color:#9C9A93}.metric-option:first-of-type{border-radius:14px 14px 0 0}.metric-option:nth-of-type(3){border-bottom:1px solid #E2E0DA;border-radius:0 0 14px 14px}.metric-name{color:#6B6A65;font-size:15px;font-weight:400}.metric-option.selected .metric-name{color:#1C1B19;font-weight:600}.metric-name text{margin-left:4px}.metric-option>text{font-size:12px}.metric-tip{margin-top:14px;padding:11px 12px;border-radius:10px;background:#E6F1FB;color:#185FA5;font-size:12px;line-height:1.65}
 </style>

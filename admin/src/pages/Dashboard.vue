@@ -59,8 +59,13 @@ const pointThreshold = computed(() => d.value?.alerts?.pointThreshold ?? 3);
 const pointOver = computed(() => !!d.value?.alerts?.pointOver);
 const clearDay = computed(() => {
   const now = new Date();
-  const last = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  return `${now.getMonth() + 1}-${last} 清零`;
+  // Next clear: 1st of next month at 12:00 (or this month 1st 12:00 if not yet passed)
+  const noonTodayMonth = new Date(now.getFullYear(), now.getMonth(), 1, 12, 0, 0, 0);
+  const clearAt =
+    now.getTime() >= noonTodayMonth.getTime()
+      ? new Date(now.getFullYear(), now.getMonth() + 1, 1, 12, 0, 0, 0)
+      : noonTodayMonth;
+  return `${clearAt.getMonth() + 1}-1 12:00 清零`;
 });
 </script>
 
