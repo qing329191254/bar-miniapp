@@ -235,10 +235,13 @@ def tick_settlement(db: Session):
     if auto_last.get("week") == week:
         return
     result = run_settlement(db, week=week, admin=None, trigger="auto")
-    if result.get("ok"):
+    # Only advance after a real completed run (not lock-skip / already-done / blocked).
+    if result.get("ok") and not result.get("skipped") and not result.get("blocked"):
         L.save_setting(db, "settleAutoLast", {"week": week, "date": L.today_str()})
         advance_settle_week_after_run(db)
         print(f"[settlement] auto {week}: {result.get('message')}")
+    elif result.get("ok"):
+        print(f"[settlement] auto {week} not advanced: {result.get('message')}")
 
 
 def settlement_scheduler_loop():

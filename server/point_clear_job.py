@@ -7,6 +7,7 @@ from __future__ import annotations
 import threading
 import time
 
+import cache
 import logic as L
 from database import session_scope
 from models import Wallet
@@ -30,13 +31,16 @@ def run_monthly_point_clear(db, *, trigger: str = "auto") -> dict:
     if not period:
         return {"ok": True, "skipped": True, "reason": "not_due"}
 
+    if not cache.idem_begin(db, f"point-clear:{period}", ttl=24 * 3600):
+        return {"ok": True, "skipped": True, "reason": "busy_or_done", "period": period}
+
     last = L.setting(db, "pointClearLast") or {}
     if last.get("period") == period:
         return {"ok": True, "skipped": True, "reason": "already", "period": period}
 
     total_cleared = 0
     touched = 0
-    for w in db.query(Wallet).all():
+    for w in db.query(Wallet).with_for_update().all():
         av = int(w.point_av or 0)
         pd = int(w.point_pd or 0)
         mg = int(w.point_mg or 0)

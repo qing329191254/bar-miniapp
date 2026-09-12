@@ -997,6 +997,8 @@ def admin_void_game_preview(gid: int, admin: dict = Depends(admin_user), db: Ses
 
 @app.post("/api/admin/games/{gid}/void")
 def admin_void_game(gid: int, body: VoidGameIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    if not cache.idem_begin(db, f"game-void:{gid}"):
+        raise HTTPException(400, "请勿重复提交")
     try:
         return L.void_game(db, gid, body.reason, body.voidCards, admin)
     except ValueError as e:
@@ -2012,6 +2014,8 @@ def save_product(body: PatchIn, admin: dict = Depends(admin_user), db: Session =
 
 @app.post("/api/admin/orders/{oid}/refund")
 def admin_refund_order(oid: int, body: ReasonIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    if not cache.idem_begin(db, f"od-refund:{oid}"):
+        raise HTTPException(400, "请勿重复提交")
     try:
         return L.refund_order(db, oid, body.reason, admin)
     except ValueError as e:

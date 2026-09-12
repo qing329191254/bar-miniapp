@@ -727,7 +727,7 @@ def create_recharge(sess: Session, uid: int, tier_id: int) -> dict:
 
 
 def cancel_recharge(sess: Session, uid: int, rid: int) -> dict:
-    r = sess.get(Recharge, rid)
+    r = sess.query(Recharge).filter_by(id=rid).with_for_update().first()
     if not r or r.uid != uid or r.status != "PENDING_PAY":
         err("无法取消")
     r.status = "CLOSED"
@@ -780,7 +780,12 @@ def create_withdraw(sess: Session, uid: int, pts: int) -> dict:
 
 
 def cancel_withdraw(sess: Session, uid: int) -> dict:
-    w = sess.query(Withdrawal).filter_by(uid=uid, status="PENDING_CONFIRM").first()
+    w = (
+        sess.query(Withdrawal)
+        .filter_by(uid=uid, status="PENDING_CONFIRM")
+        .with_for_update()
+        .first()
+    )
     if not w:
         err("无待确认提分单")
     w.status = "CANCELLED"
@@ -932,7 +937,7 @@ def reject_order(sess: Session, oid: int, reason: str, staff: dict) -> dict:
 
 def refund_order(sess: Session, oid: int, reason: str, admin: dict) -> dict:
     """处理售后订单退款；金币订单退回原本金/赠送构成，到吧台付款由线下退款。"""
-    o = sess.get(Order, oid)
+    o = sess.query(Order).filter_by(id=oid).with_for_update().first()
     if not o:
         err("订单不存在")
     if o.status in ("PENDING_PAY", "CLOSED", "CANCELLED", "REFUNDED"):
@@ -948,7 +953,9 @@ def refund_order(sess: Session, oid: int, reason: str, admin: dict) -> dict:
         bonus = int(o.paid_bonus or 0)
         if principal + bonus <= 0:
             err("该订单没有可退回的金币")
-        wallet = wallet_of(sess, o.uid)
+        wallet = sess.query(Wallet).filter_by(user_id=o.uid).with_for_update().first()
+        if not wallet:
+            wallet = wallet_of(sess, o.uid)
         wallet.coin_p += principal
         wallet.coin_b += bonus
         refund_type = "COIN"
@@ -1760,7 +1767,7 @@ def void_game_preview(sess: Session, gid: int) -> dict:
 
 
 def void_game(sess: Session, gid: int, reason: str, void_cards: bool, admin: dict) -> dict:
-    g = sess.get(GameRecord, gid)
+    g = sess.query(GameRecord).filter_by(id=gid).with_for_update().first()
     if not g or g.status == "VOID":
         err("对局不存在或已作废")
     reason = (reason or "").strip()
@@ -1773,7 +1780,9 @@ def void_game(sess: Session, gid: int, reason: str, void_cards: bool, admin: dic
         uid = int(p.get("uid") or 0)
         pts = int(p.get("pts") or 0)
         sh = int(p.get("sh") or 0)
-        w = wallet_of(sess, uid)
+        w = sess.query(Wallet).filter_by(user_id=uid).with_for_update().first()
+        if not w:
+            w = wallet_of(sess, uid)
         if not skip_pts and pts > 0:
             w.point_av -= pts
             w.point_wg = max(0, int(w.point_wg or 0) - pts)
@@ -2932,7 +2941,7 @@ def coin_adjust_page(sess: Session, page: int = 1, page_size: int = 15) -> dict:
 
 
 def approve_coin_adjust(sess: Session, aid: int, action: str, admin: dict, reason: str = "") -> dict:
-    a = sess.get(CoinAdjust, aid)
+    a = sess.query(CoinAdjust).filter_by(id=aid).with_for_update().first()
     if not a or a.status != "PENDING":
         err("已处理")
     usr = sess.get(User, a.uid)
@@ -2941,7 +2950,9 @@ def approve_coin_adjust(sess: Session, aid: int, action: str, admin: dict, reaso
     adj = sess.get(User, a.adjust_by)
     adj_name = adj.nick if adj else "—"
     if action == "approve":
-        w = wallet_of(sess, a.uid)
+        w = sess.query(Wallet).filter_by(user_id=a.uid).with_for_update().first()
+        if not w:
+            w = wallet_of(sess, a.uid)
         before = w.coin_p + w.coin_b
         if a.type == "PRINCIPAL":
             w.coin_p += a.delta
