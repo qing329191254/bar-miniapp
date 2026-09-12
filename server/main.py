@@ -987,12 +987,18 @@ def admin_alert_points(
 
 @app.get("/api/admin/games/{gid}/void-preview")
 def admin_void_game_preview(gid: int, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
-    return L.void_game_preview(db, gid)
+    try:
+        return L.void_game_preview(db, gid)
+    except ValueError as e:
+        fail(e)
 
 
 @app.post("/api/admin/games/{gid}/void")
 def admin_void_game(gid: int, body: VoidGameIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
-    return L.void_game(db, gid, body.reason, body.voidCards, admin)
+    try:
+        return L.void_game(db, gid, body.reason, body.voidCards, admin)
+    except ValueError as e:
+        fail(e)
 
 
 @app.get("/api/admin/jobs-page")
