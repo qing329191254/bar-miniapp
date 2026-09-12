@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import BigInteger, Boolean, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -91,10 +91,14 @@ class Champ(Base):
     team_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     team_name: Mapped[str] = mapped_column(String(64), default="")
     op: Mapped[str] = mapped_column(String(32), default="")
+    game_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
 
     def to_dict(self):
-        return {"uid": self.uid, "event": self.event, "date": self.date, "n": self.n,
-                "teamId": self.team_id, "teamName": self.team_name, "op": self.op}
+        d = {"uid": self.uid, "event": self.event, "date": self.date, "n": self.n,
+             "teamId": self.team_id, "teamName": self.team_name, "op": self.op}
+        if self.game_id:
+            d["gameId"] = self.game_id
+        return d
 
 
 class Project(Base):
@@ -515,3 +519,31 @@ class Setting(Base):
     __tablename__ = "settings"
     k: Mapped[str] = mapped_column(String(32), primary_key=True)
     v: Mapped[dict] = mapped_column(JSON)
+
+
+class SmsCode(Base):
+    """SMS OTP + send limits; shared across API instances via MySQL."""
+    __tablename__ = "sms_codes"
+    phone: Mapped[str] = mapped_column(String(16), primary_key=True)
+    code: Mapped[str] = mapped_column(String(16), default="")
+    expire_at: Mapped[float] = mapped_column(Float, default=0)
+    tries: Mapped[int] = mapped_column(Integer, default=0)
+    sent_at: Mapped[float] = mapped_column(Float, default=0)
+    day: Mapped[str] = mapped_column(String(10), default="")
+    day_count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class AppLock(Base):
+    """Cross-instance locks / idempotency keys with TTL."""
+    __tablename__ = "app_locks"
+    lock_key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    expire_at: Mapped[float] = mapped_column(Float, default=0, index=True)
+
+
+class StaffEvent(Base):
+    """Cross-instance staff reminder fan-out (MySQL bus, no Redis)."""
+    __tablename__ = "staff_events"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    event: Mapped[str] = mapped_column(String(64), default="")
+    item_id: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[float] = mapped_column(Float, default=0, index=True)

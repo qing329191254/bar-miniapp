@@ -89,7 +89,15 @@ def seed_all(reset: bool = False):
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE teams ADD COLUMN logo VARCHAR(8) NOT NULL DEFAULT '队'"))
             conn.execute(text("ALTER TABLE teams ADD COLUMN status VARCHAR(16) NOT NULL DEFAULT 'ACTIVE'"))
-    unique_names = {x.get("name") for x in insp.get_unique_constraints("sign_records")}
+    champ_cols = {c["name"] for c in insp.get_columns("champs")} if insp.has_table("champs") else set()
+    if champ_cols and "game_id" not in champ_cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE champs ADD COLUMN game_id INTEGER NULL"))
+            try:
+                conn.execute(text("CREATE INDEX ix_champs_game_id ON champs (game_id)"))
+            except Exception:
+                pass
+    unique_names = {x.get("name") for x in insp.get_unique_constraints("sign_records")} if insp.has_table("sign_records") else set()
     if "uk_sign_uid_day" in unique_names or "uk_sign_uid_month_day" not in unique_names:
         with engine.begin() as conn:
             if "uk_sign_uid_day" in unique_names:
@@ -106,63 +114,63 @@ def seed_all(reset: bool = False):
             db.commit()
         hashed = hash_pwd(DEFAULT_PWD)
         if db.query(User).count():
-            db.query(User).filter(
-                User.role != "CUSTOMER",
-                (User.pwd == None) | (User.pwd == ""),
-            ).update({User.pwd: hashed}, synchronize_session=False)
-            # Test-data login: keep boss phone in sync with seed.json (one-shot when tail differs)
-            boss_seed = next((x for x in (SEED.get("users") or []) if x.get("role") == "BOSS"), None)
-            if boss_seed and boss_seed.get("tail"):
-                want_tail = str(boss_seed.get("tail") or "")
-                full_by_tail = {"9366": "13121309366"}
-                for boss in db.query(User).filter(User.role == "BOSS").all():
-                    if boss.tail == want_tail:
+            # Local/demo only: never rewrite passwords, boss phone, or seed rows on cloud hosting.
+            if demo_starter_enabled():
+                db.query(User).filter(
+                    User.role != "CUSTOMER",
+                    (User.pwd == None) | (User.pwd == ""),
+                ).update({User.pwd: hashed}, synchronize_session=False)
+                # Test-data login: keep boss phone in sync with seed.json
+                boss_seed = next((x for x in (SEED.get("users") or []) if x.get("role") == "BOSS"), None)
+                if boss_seed and boss_seed.get("tail"):
+                    want_tail = str(boss_seed.get("tail") or "")
+                    full_by_tail = {"9366": "13121309366"}
+                    for boss in db.query(User).filter(User.role == "BOSS").all():
+                        if boss.tail == want_tail:
+                            continue
+                        full = full_by_tail.get(want_tail, "")
+                        if len(full) == 11:
+                            bind_wx_phone(db, boss, full)
+                        else:
+                            boss.phone = str(boss_seed.get("phone") or boss.phone)
+                            boss.tail = want_tail
+                        boss.pwd = hashed
+                have = {c.id for c in db.query(Card).all()}
+                for c in SEED.get("cards") or []:
+                    if c["id"] in have:
                         continue
-                    full = full_by_tail.get(want_tail, "")
-                    if len(full) == 11:
-                        bind_wx_phone(db, boss, full)
-                    else:
-                        boss.phone = str(boss_seed.get("phone") or boss.phone)
-                        boss.tail = want_tail
-                    boss.pwd = hashed
-            for u in db.query(User).all():
-                if (u.no or "").startswith("WK"):
-                    u.no = u.no[2:]
-            have = {c.id for c in db.query(Card).all()}
-            for c in SEED.get("cards") or []:
-                if c["id"] in have:
-                    continue
-                db.add(Card(
-                    id=c["id"], uid=c["uid"], tpl=c["tpl"], no=c["no"], src=c.get("src") or "",
-                    src_desc=c.get("srcDesc") or "", status=c["status"], days_left=c.get("daysLeft") or 30,
-                    expire=c.get("expire") or "", void_reason=c.get("voidReason"),
-                ))
-            have_tiers = {t.id for t in db.query(Tier).all()}
-            for t in SEED.get("tiers") or []:
-                if t["id"] in have_tiers:
-                    continue
-                db.add(Tier(id=t["id"], amount=t["amount"], bonus=t.get("bonus") or 0, rec=bool(t.get("rec"))))
-            for w in db.query(Wallet).all():
-                # Never rehydrate demo balances on WeChat Cloud Hosting (would undo monthly clear).
-                if demo_starter_enabled():
+                    db.add(Card(
+                        id=c["id"], uid=c["uid"], tpl=c["tpl"], no=c["no"], src=c.get("src") or "",
+                        src_desc=c.get("srcDesc") or "", status=c["status"], days_left=c.get("daysLeft") or 30,
+                        expire=c.get("expire") or "", void_reason=c.get("voidReason"),
+                    ))
+                have_tiers = {t.id for t in db.query(Tier).all()}
+                for t in SEED.get("tiers") or []:
+                    if t["id"] in have_tiers:
+                        continue
+                    db.add(Tier(id=t["id"], amount=t["amount"], bonus=t.get("bonus") or 0, rec=bool(t.get("rec"))))
+                for w in db.query(Wallet).all():
                     grant_demo_points(db, w.user_id)
                     grant_demo_coins(db, w.user_id)
                     grant_demo_sign(db, w.user_id)
+                seed_week = SEED.get("settleWeek") or {}
+                if seed_week.get("start"):
+                    row = db.get(Setting, "settleWeek")
+                    seed_key = f"{seed_week['start']}~{seed_week['end']}"
+                    cur = row.v if row else {}
+                    cur_key = f"{cur.get('start', '')}~{cur.get('end', '')}" if cur else ""
+                    has_seed = db.query(SettleLog).filter(SettleLog.week == seed_key).count()
+                    has_cur = db.query(SettleLog).filter(SettleLog.week == cur_key).count() if cur_key else 0
+                    if has_seed and not has_cur and cur_key != seed_key:
+                        if row:
+                            row.v = seed_week
+                        else:
+                            db.add(Setting(k="settleWeek", v=seed_week))
+            for u in db.query(User).all():
+                if (u.no or "").startswith("WK"):
+                    u.no = u.no[2:]
             if not db.get(Setting, "settleMeta") and SEED.get("settleMeta"):
                 db.add(Setting(k="settleMeta", v=SEED["settleMeta"]))
-            seed_week = SEED.get("settleWeek") or {}
-            if seed_week.get("start"):
-                row = db.get(Setting, "settleWeek")
-                seed_key = f"{seed_week['start']}~{seed_week['end']}"
-                cur = row.v if row else {}
-                cur_key = f"{cur.get('start', '')}~{cur.get('end', '')}" if cur else ""
-                has_seed = db.query(SettleLog).filter(SettleLog.week == seed_key).count()
-                has_cur = db.query(SettleLog).filter(SettleLog.week == cur_key).count() if cur_key else 0
-                if has_seed and not has_cur and cur_key != seed_key:
-                    if row:
-                        row.v = seed_week
-                    else:
-                        db.add(Setting(k="settleWeek", v=seed_week))
             db.commit()
             return {"ok": True, "skipped": True}
         s = SEED

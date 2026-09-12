@@ -19,7 +19,7 @@ from database import SessionLocal, get_db
 from models import (
     AgreeLog, Card, CardTpl, Category, Champ, CoinAdjust, DailyBiz, Deactivation,
     GameRecord, OpLog, Order, Product, Project, Recharge, SettleLog, SignRule,
-    TableSeat, Team, Tier, User, VerifyLog, Wallet, Withdrawal,
+    SmsCode, TableSeat, Team, Tier, User, VerifyLog, Wallet, Withdrawal,
 )
 from seed_db import seed_all
 from settings import cloud_env_id, cos_public_base, host_for_log, in_cloud, is_loopback, mysql_url
@@ -200,7 +200,7 @@ async def on_startup():
             "MYSQL_USERNAME、MYSQL_PASSWORD、MYSQL_DATABASE=wanka。"
         )
     print("MySQL ->", host_for_log(db_url))
-    print("Session -> signed token (in-process, no Redis)")
+    print("Session -> signed token; SMS/locks -> MySQL")
     last = None
     for i in range(12):
         try:
@@ -282,7 +282,7 @@ def login_with_sms(phone: str, sms_code: str, agreed: bool, terms_version: int,
         raise HTTPException(400, "请填写有效手机号")
     if not (sms_code or "").strip():
         raise HTTPException(400, "请输入验证码")
-    if not cache.sms_verify(d11, sms_code.strip()):
+    if not cache.sms_verify(db, d11, sms_code.strip()):
         raise HTTPException(401, "验证码错误或已过期")
     openid = None
     if (wx_code or "").strip():
@@ -297,19 +297,24 @@ def login_with_sms(phone: str, sms_code: str, agreed: bool, terms_version: int,
 
 
 @app.post("/api/auth/sms/send")
-def sms_send(body: SmsSendIn):
+def sms_send(body: SmsSendIn, db: Session = Depends(get_db)):
     d11 = L.phone_digits(body.phone)
     if not L.is_cn_mobile(d11):
         raise HTTPException(400, "请填写有效手机号")
-    blocked = cache.sms_send_guard(d11)
+    blocked = cache.sms_send_guard(db, d11)
     if blocked:
         raise HTTPException(429, blocked)
     code = f"{random.randint(0, 999999):06d}"
+    # Persist before provider call so verify works even if another instance handles login.
+    cache.sms_store(db, d11, code)
     try:
         result = sms.send_code(d11, code)
     except ValueError as e:
+        row = db.get(SmsCode, d11)
+        if row:
+            db.delete(row)
+            db.flush()
         raise HTTPException(400, str(e))
-    cache.sms_store(d11, code)
     out = {"ok": True, "ttl": cache.SMS_TTL}
     if result.get("mock"):
         out["mock"] = True
@@ -827,13 +832,8 @@ def api_finish(oid: int, staff: dict = Depends(staff_user), db: Session = Depend
 
 @app.post("/api/staff/recharges/{rid}/confirm")
 def api_rc_ok(rid: int, staff: dict = Depends(staff_user), db: Session = Depends(get_db)):
-    try:
-        if not cache.idem_begin(f"rc:{rid}"):
-            raise HTTPException(400, "请勿重复提交")
-    except HTTPException:
-        raise
-    except Exception:
-        pass
+    if not cache.idem_begin(db, f"rc:{rid}"):
+        raise HTTPException(400, "请勿重复提交")
     try:
         row = L.confirm_recharge(db, rid, staff)
         reminders.publish("recharge.confirmed", rid)
@@ -854,13 +854,8 @@ def api_rc_no(rid: int, body: ReasonIn, staff: dict = Depends(staff_user), db: S
 
 @app.post("/api/staff/withdrawals/{wid}/grant")
 def api_wd_ok(wid: int, staff: dict = Depends(staff_user), db: Session = Depends(get_db)):
-    try:
-        if not cache.idem_begin(f"wd:{wid}"):
-            raise HTTPException(400, "请勿重复提交")
-    except HTTPException:
-        raise
-    except Exception:
-        pass
+    if not cache.idem_begin(db, f"wd:{wid}"):
+        raise HTTPException(400, "请勿重复提交")
     try:
         row = L.confirm_withdraw(db, wid, staff)
         reminders.publish("withdrawal.confirmed", wid)
@@ -1094,13 +1089,8 @@ def admin_recharges_page(
 
 @app.post("/api/admin/recharges/{rid}/confirm")
 def admin_confirm_recharge(rid: int, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
-    try:
-        if not cache.idem_begin(f"rc:{rid}"):
-            raise HTTPException(400, "请勿重复提交")
-    except HTTPException:
-        raise
-    except Exception:
-        pass
+    if not cache.idem_begin(db, f"rc:{rid}"):
+        raise HTTPException(400, "请勿重复提交")
     try:
         return L.confirm_recharge(db, rid, admin)
     except ValueError as e:

@@ -5,18 +5,17 @@ import hashlib
 import hmac
 import time
 
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+from models import AppLock, SmsCode
 from settings import session_secret
 
 SESSION_TTL = 7 * 24 * 3600
-_local_locks: dict[str, float] = {}
-_idem_keys: dict[str, float] = {}
-
-
-def _drop_expired(store: dict[str, float]) -> None:
-    now = time.time()
-    for key in list(store.keys()):
-        if store[key] <= now:
-            del store[key]
+SMS_TTL = 300
+SMS_COOLDOWN = 60
+SMS_DAY_LIMIT = 8
+SMS_MAX_TRIES = 5
 
 
 def _signed_token(user_id: int) -> str:
@@ -55,81 +54,96 @@ def session_get(token: str) -> int | None:
     return None
 
 
-def lock_pending(kind: str, uid: int, ttl: int) -> bool:
-    key = f"lock:{kind}:{uid}"
-    ttl = max(ttl, 5)
-    _drop_expired(_local_locks)
+def _claim_ttl_key(sess: Session, key: str, ttl: int) -> bool:
+    """Insert or refresh a TTL key if missing/expired. Safe under concurrent instances."""
+    ttl = max(ttl, 1)
     now = time.time()
-    if _local_locks.get(key, 0) > now:
-        return False
-    _local_locks[key] = now + ttl
-    return True
+    exp = now + ttl
+    result = sess.execute(
+        text(
+            "INSERT INTO app_locks (lock_key, expire_at) VALUES (:key, :exp) "
+            "ON DUPLICATE KEY UPDATE "
+            "expire_at = IF(expire_at <= :now, VALUES(expire_at), expire_at)"
+        ),
+        {"key": key, "exp": exp, "now": now},
+    )
+    sess.flush()
+    # MySQL: 1=insert, 2=update changed, 0=update no-change (still held)
+    return int(result.rowcount or 0) > 0
 
 
-def unlock_pending(kind: str, uid: int) -> None:
-    _local_locks.pop(f"lock:{kind}:{uid}", None)
+def lock_pending(sess: Session, kind: str, uid: int, ttl: int) -> bool:
+    return _claim_ttl_key(sess, f"lock:{kind}:{uid}", max(ttl, 5))
 
 
-_sms_codes: dict[str, dict] = {}
-SMS_TTL = 300
-SMS_COOLDOWN = 60
-SMS_DAY_LIMIT = 8
-SMS_MAX_TRIES = 5
+def unlock_pending(sess: Session, kind: str, uid: int) -> None:
+    row = sess.get(AppLock, f"lock:{kind}:{uid}")
+    if row:
+        sess.delete(row)
+        sess.flush()
 
 
-def sms_send_guard(phone: str) -> str | None:
+def sms_send_guard(sess: Session, phone: str) -> str | None:
     """Return an error message if this number cannot receive a new code yet."""
     now = time.time()
-    rec = _sms_codes.get(phone)
+    rec = sess.query(SmsCode).filter_by(phone=phone).with_for_update().first()
     if not rec:
         return None
-    if rec.get("sent_at", 0) + SMS_COOLDOWN > now:
-        wait = int(rec["sent_at"] + SMS_COOLDOWN - now)
+    if float(rec.sent_at or 0) + SMS_COOLDOWN > now:
+        wait = int(float(rec.sent_at or 0) + SMS_COOLDOWN - now)
         return f"请 {max(wait, 1)} 秒后再获取验证码"
     day = time.strftime("%Y-%m-%d", time.localtime(now))
-    if rec.get("day") == day and int(rec.get("day_count") or 0) >= SMS_DAY_LIMIT:
+    if rec.day == day and int(rec.day_count or 0) >= SMS_DAY_LIMIT:
         return "该手机号今日获取次数已达上限"
     return None
 
 
-def sms_store(phone: str, code: str) -> None:
+def sms_store(sess: Session, phone: str, code: str) -> None:
     now = time.time()
     day = time.strftime("%Y-%m-%d", time.localtime(now))
-    rec = _sms_codes.get(phone) or {}
-    day_count = int(rec.get("day_count") or 0) + 1 if rec.get("day") == day else 1
-    _sms_codes[phone] = {
-        "code": code,
-        "exp": now + SMS_TTL,
-        "tries": 0,
-        "sent_at": now,
-        "day": day,
-        "day_count": day_count,
-    }
+    rec = sess.query(SmsCode).filter_by(phone=phone).with_for_update().first()
+    if rec:
+        day_count = int(rec.day_count or 0) + 1 if rec.day == day else 1
+        rec.code = code
+        rec.expire_at = now + SMS_TTL
+        rec.tries = 0
+        rec.sent_at = now
+        rec.day = day
+        rec.day_count = day_count
+    else:
+        sess.add(SmsCode(
+            phone=phone,
+            code=code,
+            expire_at=now + SMS_TTL,
+            tries=0,
+            sent_at=now,
+            day=day,
+            day_count=1,
+        ))
+    sess.flush()
 
 
-def sms_verify(phone: str, code: str) -> bool:
-    rec = _sms_codes.get(phone)
+def sms_verify(sess: Session, phone: str, code: str) -> bool:
+    now = time.time()
+    rec = sess.query(SmsCode).filter_by(phone=phone).with_for_update().first()
     if not rec:
         return False
-    if rec.get("exp", 0) <= time.time():
-        _sms_codes.pop(phone, None)
+    if float(rec.expire_at or 0) <= now:
+        sess.delete(rec)
+        sess.flush()
         return False
-    rec["tries"] = int(rec.get("tries") or 0) + 1
-    if rec["tries"] > SMS_MAX_TRIES:
-        _sms_codes.pop(phone, None)
+    rec.tries = int(rec.tries or 0) + 1
+    if rec.tries > SMS_MAX_TRIES:
+        sess.delete(rec)
+        sess.flush()
         return False
-    if not hmac.compare_digest(str(rec.get("code") or ""), str(code or "").strip()):
+    if not hmac.compare_digest(str(rec.code or ""), str(code or "").strip()):
+        sess.flush()
         return False
-    _sms_codes.pop(phone, None)
+    sess.delete(rec)
+    sess.flush()
     return True
 
 
-def idem_begin(key: str, ttl: int = 60) -> bool:
-    store_key = f"idem:{key}"
-    ttl = max(ttl, 1)
-    _drop_expired(_idem_keys)
-    now = time.time()
-    if _idem_keys.get(store_key, 0) > now:
-        return False
-    _idem_keys[store_key] = now + ttl
-    return True
+def idem_begin(sess: Session, key: str, ttl: int = 60) -> bool:
+    return _claim_ttl_key(sess, f"idem:{key}", ttl)

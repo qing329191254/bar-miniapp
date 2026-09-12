@@ -237,6 +237,7 @@ function parseResponse(res, path, method, opts, finish, resolve, reject) {
     return;
   }
   if (statusCode === 401 && token()) {
+    const msg = detailMsg(data);
     clearSession();
     if (!redirectingToLogin) {
       redirectingToLogin = true;
@@ -246,7 +247,7 @@ function parseResponse(res, path, method, opts, finish, resolve, reject) {
       });
     }
     finish();
-    reject(new Error("登录已过期，请重新登录"));
+    reject(new Error(msg.includes("协议") ? msg : (msg && msg !== "请求失败" ? msg : "登录已过期，请重新登录")));
     return;
   }
   // Staff APIs return 403 after revoke (role demoted to CUSTOMER); keep member session.

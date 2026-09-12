@@ -246,8 +246,14 @@ def bootstrap_settlement(db: Session):
 
 
 def sync_demo_settle_settings(db: Session):
-    """Keep demo settleWeek / settleMeta aligned with seed after restarts."""
+    """Keep demo settleWeek / settleMeta aligned with seed after restarts (local/demo only)."""
     from seed_db import SEED
+    from settings import demo_starter_enabled
+
+    if not demo_starter_enabled():
+        if SEED.get("settleMeta") and not L.setting(db, "settleMeta"):
+            L.save_setting(db, "settleMeta", SEED["settleMeta"])
+        return
 
     seed_week = SEED.get("settleWeek") or {}
     if seed_week.get("start"):

@@ -265,7 +265,7 @@ def expire_timeouts(sess: Session):
             r.close_reason = "TIMEOUT"
             r.pending_uid = None
             try:
-                cache.unlock_pending("recharge", r.uid)
+                cache.unlock_pending(sess, "recharge", r.uid)
             except Exception:
                 pass
     for o in sess.query(Order).filter(Order.status == "PENDING_PAY").all():
@@ -279,7 +279,7 @@ def expire_timeouts(sess: Session):
             w.pending_uid = None
             restore_withdraw_frozen(sess, w)
             try:
-                cache.unlock_pending("withdraw", w.uid)
+                cache.unlock_pending(sess, "withdraw", w.uid)
             except Exception:
                 pass
     expired_codes = sess.query(VerifyCode).filter(
@@ -692,11 +692,8 @@ def create_recharge(sess: Session, uid: int, tier_id: int) -> dict:
     if lim and t.amount > lim:
         err(f"超出单笔充值上限 ¥{lim}")
     timeout = int(cfg.get("rechargeTimeout") or 30)
-    try:
-        if not cache.lock_pending("recharge", uid, timeout * 60):
-            err("你有一张待付充值单，请先付款或取消")
-    except Exception:
-        pass
+    if not cache.lock_pending(sess, "recharge", uid, timeout * 60):
+        err("你有一张待付充值单，请先付款或取消")
     ro = Recharge(
         id=new_id(sess, Recharge),
         no="CZ" + yyMMdd() + rand_digits(4),
@@ -719,7 +716,7 @@ def cancel_recharge(sess: Session, uid: int, rid: int) -> dict:
     r.close_reason = "USER_CANCEL"
     r.pending_uid = None
     try:
-        cache.unlock_pending("recharge", uid)
+        cache.unlock_pending(sess, "recharge", uid)
     except Exception:
         pass
     return r.to_dict()
@@ -735,14 +732,16 @@ def create_withdraw(sess: Session, uid: int, pts: int) -> dict:
         err("提分失败，可用积分不足")
     if sess.query(Withdrawal).filter_by(uid=uid, status="PENDING_CONFIRM").first():
         err("你有一张待确认提分单")
-    toc = sess.query(Withdrawal).filter_by(uid=uid, status="CLOSED_TIMEOUT").count()  # demo: count all timeouts
+    since = now_ms() - 24 * 60 * MIN_MS
+    toc = sess.query(Withdrawal).filter(
+        Withdrawal.uid == uid,
+        Withdrawal.status == "CLOSED_TIMEOUT",
+        Withdrawal.expire_at >= since,
+    ).count()
     if toc >= WDR_BAN:
         err(f"近 24 小时内已有 {toc} 张提分单超时未确认，暂停提交")
-    try:
-        if not cache.lock_pending("withdraw", uid, 30 * 60):
-            err("你有一张待确认提分单")
-    except Exception:
-        pass
+    if not cache.lock_pending(sess, "withdraw", uid, 30 * 60):
+        err("你有一张待确认提分单")
     wlt.point_av -= pts
     wlt.point_fz += pts
     wo = Withdrawal(
@@ -767,7 +766,7 @@ def cancel_withdraw(sess: Session, uid: int) -> dict:
     w.pending_uid = None
     restore_withdraw_frozen(sess, w)
     try:
-        cache.unlock_pending("withdraw", uid)
+        cache.unlock_pending(sess, "withdraw", uid)
     except Exception:
         pass
     return w.to_dict()
@@ -963,10 +962,14 @@ def finish_order(sess: Session, oid: int) -> dict:
 
 
 def confirm_recharge(sess: Session, rid: int, staff: dict) -> dict:
-    r = sess.get(Recharge, rid)
+    r = sess.query(Recharge).filter_by(id=rid).with_for_update().first()
     if not r or r.status != "PENDING_PAY":
         err("该充值单已处理")
-    c = wallet_of(sess, r.uid)
+    c = sess.query(Wallet).filter_by(user_id=r.uid).with_for_update().first()
+    if not c:
+        c = wallet_of(sess, r.uid)
+        sess.flush()
+        c = sess.query(Wallet).filter_by(user_id=r.uid).with_for_update().first()
     r.status = "PAID"
     c.coin_p += r.amount
     c.coin_b += r.bonus
@@ -974,7 +977,7 @@ def confirm_recharge(sess: Session, rid: int, staff: dict) -> dict:
     r.at = r.at or f"{today_str()} {clock()}"
     r.pending_uid = None
     try:
-        cache.unlock_pending("recharge", r.uid)
+        cache.unlock_pending(sess, "recharge", r.uid)
     except Exception:
         pass
     log(sess, "RECHARGE_CONFIRM", f"{r.no} · ¥{r.amount}", r.uid, staff)
@@ -982,7 +985,7 @@ def confirm_recharge(sess: Session, rid: int, staff: dict) -> dict:
 
 
 def reject_recharge(sess: Session, rid: int, reason: str, staff: dict) -> dict:
-    r = sess.get(Recharge, rid)
+    r = sess.query(Recharge).filter_by(id=rid).with_for_update().first()
     if not r or r.status != "PENDING_PAY":
         err("该充值单已处理")
     r.status = "CLOSED"
@@ -990,7 +993,7 @@ def reject_recharge(sess: Session, rid: int, reason: str, staff: dict) -> dict:
     r.reject_remark = reason
     r.pending_uid = None
     try:
-        cache.unlock_pending("recharge", r.uid)
+        cache.unlock_pending(sess, "recharge", r.uid)
     except Exception:
         pass
     log(sess, "RECHARGE_REJECT", reason, r.uid, staff)
@@ -998,10 +1001,14 @@ def reject_recharge(sess: Session, rid: int, reason: str, staff: dict) -> dict:
 
 
 def confirm_withdraw(sess: Session, wid: int, staff: dict) -> dict:
-    w = sess.get(Withdrawal, wid)
+    w = sess.query(Withdrawal).filter_by(id=wid).with_for_update().first()
     if not w or w.status != "PENDING_CONFIRM":
         err("该提分单已处理")
-    pt = wallet_of(sess, w.uid)
+    pt = sess.query(Wallet).filter_by(user_id=w.uid).with_for_update().first()
+    if not pt:
+        pt = wallet_of(sess, w.uid)
+        sess.flush()
+        pt = sess.query(Wallet).filter_by(user_id=w.uid).with_for_update().first()
     w.status = "GRANTED"
     w.grant_by = staff["id"]
     w.grant_at = f"{today_str()} {clock()}"
@@ -1009,7 +1016,7 @@ def confirm_withdraw(sess: Session, wid: int, staff: dict) -> dict:
     pt.point_fz = max(0, pt.point_fz - w.pts)
     pt.point_wd += w.pts
     try:
-        cache.unlock_pending("withdraw", w.uid)
+        cache.unlock_pending(sess, "withdraw", w.uid)
     except Exception:
         pass
     log(sess, "WITHDRAW_GRANT", f"{w.no} · {w.pts} 分", w.uid, staff)
@@ -1017,9 +1024,10 @@ def confirm_withdraw(sess: Session, wid: int, staff: dict) -> dict:
 
 
 def reject_withdraw(sess: Session, wid: int, reason: str, staff: dict) -> dict:
-    w = sess.get(Withdrawal, wid)
+    w = sess.query(Withdrawal).filter_by(id=wid).with_for_update().first()
     if not w or w.status != "PENDING_CONFIRM":
         err("该提分单已处理")
+    sess.query(Wallet).filter_by(user_id=w.uid).with_for_update().first()
     w.status = "REJECTED"
     w.reject_by = staff["id"]
     w.reject_remark = reason
@@ -1027,7 +1035,7 @@ def reject_withdraw(sess: Session, wid: int, reason: str, staff: dict) -> dict:
     w.pending_uid = None
     restore_withdraw_frozen(sess, w)
     try:
-        cache.unlock_pending("withdraw", w.uid)
+        cache.unlock_pending(sess, "withdraw", w.uid)
     except Exception:
         pass
     log(sess, "WITHDRAW_REJECT", reason, w.uid, staff)
@@ -1195,6 +1203,7 @@ def submit_game(sess: Session, staff: dict, pid: int, table_id, players: list, w
                 uid=uid, event=ev, date=normalized_time[:10], n=len(players),
                 team_id=x.team_id if x else None,
                 team_name=tm.name if tm else "无战队", op=staff["nick"],
+                game_id=rec.id,
             ))
     detail = rec.pname
     if total_gift:
@@ -1432,7 +1441,7 @@ def champ_count(sess: Session, uid, dim: str = "ALL") -> int:
 
 def rank_rows(sess: Session, kind: str, dim: str, subject: str):
     people = custs(sess)
-    teams = sess.query(Team).all()
+    teams = [t for t in sess.query(Team).all() if (t.status or "ACTIVE") != "DISABLED"]
     if kind == "SHARD":
         def val(x: User):
             w = wallet_of(sess, x.id)
@@ -1746,19 +1755,25 @@ def void_game(sess: Session, gid: int, reason: str, void_cards: bool, admin: dic
             tm = tpl(sess, c.tpl)
             if tm and tm.stock >= 0:
                 tm.stock = int(tm.stock or 0) + 1
-    # Remove champion records created by this game (win+event stamped on players JSON).
+    # Remove champion records for this game. Prefer game_id; legacy rows fall back to event+date+winners.
     champ_removed = 0
-    game_date = (g.time or "")[:10]
-    event_name = next((str(p.get("event") or "") for p in (g.players or []) if p.get("event")), "")
-    win_uids = [int(p["uid"]) for p in (g.players or []) if p.get("win") and p.get("uid")]
-    if event_name and game_date and win_uids:
-        q = sess.query(Champ).filter(
-            Champ.event == event_name,
-            Champ.date == game_date,
-            Champ.uid.in_(win_uids),
-        )
-        champ_removed = q.count()
+    q = sess.query(Champ).filter(Champ.game_id == g.id)
+    champ_removed = q.count()
+    if champ_removed:
         q.delete(synchronize_session=False)
+    else:
+        game_date = (g.time or "")[:10]
+        event_name = next((str(p.get("event") or "") for p in (g.players or []) if p.get("event")), "")
+        win_uids = [int(p["uid"]) for p in (g.players or []) if p.get("win") and p.get("uid")]
+        if event_name and game_date and win_uids:
+            q = sess.query(Champ).filter(
+                Champ.game_id.is_(None),
+                Champ.event == event_name,
+                Champ.date == game_date,
+                Champ.uid.in_(win_uids),
+            )
+            champ_removed = q.count()
+            q.delete(synchronize_session=False)
     g.status = "VOID"
     total_pts = sum(int(p.get("pts") or 0) for p in g.players or [])
     uid0 = int(g.players[0]["uid"]) if g.players else None
