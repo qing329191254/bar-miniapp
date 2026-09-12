@@ -792,6 +792,8 @@ def staff_todo(staff: dict = Depends(staff_user), db: Session = Depends(get_db))
 
 @app.post("/api/staff/orders/{oid}/accept")
 def api_accept(oid: int, staff: dict = Depends(staff_user), db: Session = Depends(get_db)):
+    if not cache.idem_begin(db, f"od-accept:{oid}"):
+        raise HTTPException(400, "请勿重复提交")
     try:
         row = L.accept_order(db, oid, staff)
         reminders.publish("order.accepted", oid)

@@ -259,29 +259,47 @@ def restore_withdraw_frozen(sess: Session, w: Withdrawal) -> None:
 
 def expire_timeouts(sess: Session):
     now = now_ms()
-    for r in sess.query(Recharge).filter(Recharge.status == "PENDING_PAY").all():
-        if r.expire_at and int(r.expire_at) <= now:
-            r.status = "CLOSED"
-            r.close_reason = "TIMEOUT"
-            r.pending_uid = None
-            try:
-                cache.unlock_pending(sess, "recharge", r.uid)
-            except Exception:
-                pass
-    for o in sess.query(Order).filter(Order.status == "PENDING_PAY").all():
-        if o.expire_at and int(o.expire_at) <= now:
-            o.status = "CLOSED"
-            o.cancel_reason = "TIMEOUT"
-    for w in sess.query(Withdrawal).filter(Withdrawal.status == "PENDING_CONFIRM").all():
-        if w.expire_at and int(w.expire_at) <= now:
-            w.status = "CLOSED_TIMEOUT"
-            w.closed_at = f"{today_str()} {clock()}"
-            w.pending_uid = None
-            restore_withdraw_frozen(sess, w)
-            try:
-                cache.unlock_pending(sess, "withdraw", w.uid)
-            except Exception:
-                pass
+    for r in (
+        sess.query(Recharge)
+        .filter(Recharge.status == "PENDING_PAY", Recharge.expire_at.isnot(None), Recharge.expire_at <= now)
+        .with_for_update()
+        .all()
+    ):
+        if r.status != "PENDING_PAY":
+            continue
+        r.status = "CLOSED"
+        r.close_reason = "TIMEOUT"
+        r.pending_uid = None
+        try:
+            cache.unlock_pending(sess, "recharge", r.uid)
+        except Exception:
+            pass
+    for o in (
+        sess.query(Order)
+        .filter(Order.status == "PENDING_PAY", Order.expire_at.isnot(None), Order.expire_at <= now)
+        .with_for_update()
+        .all()
+    ):
+        if o.status != "PENDING_PAY":
+            continue
+        o.status = "CLOSED"
+        o.cancel_reason = "TIMEOUT"
+    for w in (
+        sess.query(Withdrawal)
+        .filter(Withdrawal.status == "PENDING_CONFIRM", Withdrawal.expire_at.isnot(None), Withdrawal.expire_at <= now)
+        .with_for_update()
+        .all()
+    ):
+        if w.status != "PENDING_CONFIRM":
+            continue
+        w.status = "CLOSED_TIMEOUT"
+        w.closed_at = f"{today_str()} {clock()}"
+        w.pending_uid = None
+        restore_withdraw_frozen(sess, w)
+        try:
+            cache.unlock_pending(sess, "withdraw", w.uid)
+        except Exception:
+            pass
     expired_codes = sess.query(VerifyCode).filter(
         VerifyCode.status == "VALID", VerifyCode.expire_at <= now,
     ).all()
@@ -723,7 +741,11 @@ def cancel_recharge(sess: Session, uid: int, rid: int) -> dict:
 
 
 def create_withdraw(sess: Session, uid: int, pts: int) -> dict:
-    wlt = wallet_of(sess, uid)
+    wlt = sess.query(Wallet).filter_by(user_id=uid).with_for_update().first()
+    if not wlt:
+        wlt = wallet_of(sess, uid)
+        sess.flush()
+        wlt = sess.query(Wallet).filter_by(user_id=uid).with_for_update().first()
     if pts <= 0:
         err("请输入有效数量")
     if wlt.point_av < 0:
@@ -773,8 +795,12 @@ def cancel_withdraw(sess: Session, uid: int) -> dict:
 
 
 def do_exchange(sess: Session, uid: int, tid: int, qty: int) -> bool:
-    t = tpl(sess, tid)
-    w = wallet_of(sess, uid)
+    t = sess.query(CardTpl).filter_by(id=tid).with_for_update().first()
+    w = sess.query(Wallet).filter_by(user_id=uid).with_for_update().first()
+    if not w:
+        w = wallet_of(sess, uid)
+        sess.flush()
+        w = sess.query(Wallet).filter_by(user_id=uid).with_for_update().first()
     qty = int(qty)
     if qty < 1 or qty > 99:
         err("兑换数量无效")
@@ -834,9 +860,15 @@ def verify_code_dict(vc: VerifyCode) -> dict:
 
 
 def find_verify(sess: Session, code: str) -> VerifyCode | None:
+    code = (code or "").strip()
+    if not code:
+        return None
     found = sess.get(VerifyCode, code)
     if found:
         return found
+    # Suffix match only for reasonably long scans — avoid short typos hitting others.
+    if len(code) < 6:
+        return None
     return sess.query(VerifyCode).filter(VerifyCode.code.like(f"%{code}")).order_by(VerifyCode.expire_at.desc()).first()
 
 
@@ -856,11 +888,15 @@ def grant_combo(sess: Session, order: Order) -> int:
 
 
 def accept_order(sess: Session, oid: int, staff: dict) -> dict:
-    o = sess.get(Order, oid)
+    o = sess.query(Order).filter_by(id=oid).with_for_update().first()
     if not o or o.status != "PENDING_ACCEPT":
         err("订单状态已变更")
     if o.pay_type == "COIN":
-        c = wallet_of(sess, o.uid)
+        c = sess.query(Wallet).filter_by(user_id=o.uid).with_for_update().first()
+        if not c:
+            c = wallet_of(sess, o.uid)
+            sess.flush()
+            c = sess.query(Wallet).filter_by(user_id=o.uid).with_for_update().first()
         if c.coin_p + c.coin_b < o.total:
             err(f"余额不足，差 {o.total - c.coin_p - c.coin_b} 金币")
         dp = min(c.coin_p, o.total)
@@ -879,11 +915,13 @@ def accept_order(sess: Session, oid: int, staff: dict) -> dict:
 
 
 def reject_order(sess: Session, oid: int, reason: str, staff: dict) -> dict:
-    o = sess.get(Order, oid)
+    o = sess.query(Order).filter_by(id=oid).with_for_update().first()
     if not o or o.status != "PENDING_ACCEPT":
         err("订单状态已变更")
     if o.pay_type == "COIN" and (o.paid_principal or o.paid_bonus):
-        c = wallet_of(sess, o.uid)
+        c = sess.query(Wallet).filter_by(user_id=o.uid).with_for_update().first()
+        if not c:
+            c = wallet_of(sess, o.uid)
         c.coin_p += o.paid_principal or 0
         c.coin_b += o.paid_bonus or 0
     o.status = "CANCELLED"
@@ -1150,12 +1188,16 @@ def submit_game(sess: Session, staff: dict, pid: int, table_id, players: list, w
         usr = u(sess, int(p["uid"]))
         if not usr or usr.role != "CUSTOMER" or usr.status != "ACTIVE":
             err("玩家不存在或不可用")
+        pts = int(p.get("pts") or 0)
+        sh = int(p.get("sh") or 0)
+        if pts < 0 or sh < 0:
+            err("积分/碎片不能为负")
         gifts = _normalize_game_gift_cards(sess, p.get("cards"))
         prepared.append({
             "uid": usr.id,
             "nick": usr.nick,
-            "pts": int(p.get("pts") or 0),
-            "sh": int(p.get("sh") or 0),
+            "pts": pts,
+            "sh": sh,
             "gifts": gifts,
             "win": usr.id in win_set,
         })

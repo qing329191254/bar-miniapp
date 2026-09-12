@@ -173,6 +173,11 @@ def seed_all(reset: bool = False):
                 db.add(Setting(k="settleMeta", v=SEED["settleMeta"]))
             db.commit()
             return {"ok": True, "skipped": True}
+        # Empty database: never load prototype seed.json onto WeChat Cloud Hosting.
+        if not demo_starter_enabled():
+            print("[seed] empty cloud DB — skip prototype seed (create staff via admin)")
+            db.commit()
+            return {"ok": True, "empty": True, "seeded": False}
         s = SEED
         for x in s["users"]:
             db.add(User(

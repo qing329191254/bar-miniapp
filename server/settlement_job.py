@@ -8,8 +8,9 @@ from datetime import date, datetime, timedelta
 from sqlalchemy.orm import Session
 
 import logic as L
+import cache
 from database import session_scope
-from models import CardTpl, SettleLog, Team, User
+from models import CardTpl, SettleLog, Team, User, Wallet
 
 
 def week_period(d: date) -> dict:
@@ -72,7 +73,15 @@ def record_settle_meta(db: Session, week: str, executed_at: str, trigger: str, *
 
 
 def advance_settle_week_after_run(db: Session):
+    reset_weekly_rank_counters(db)
     L.save_setting(db, "settleWeek", week_period(L.business_today()))
+
+
+def reset_weekly_rank_counters(db: Session) -> None:
+    """Zero week shard/point counters after settlement so 本周榜 starts fresh."""
+    for w in db.query(Wallet).all():
+        w.shard_w = 0
+        w.point_wg = 0
 
 
 def ensure_settle_week_current(db: Session):
@@ -152,6 +161,13 @@ def run_settlement(db: Session, week: str | None = None, admin: dict | None = No
     week = week or settlement_week(db)
     if not week:
         return {"ok": False, "message": "未配置结算周期"}
+
+    # Cross-instance: claim week lock before counting / issuing cards.
+    if not cache.idem_begin(db, f"settle:{week}", ttl=2 * 3600):
+        return {
+            "ok": True, "skipped": True, "week": week,
+            "message": "结算正在执行或刚完成，本次跳过",
+        }
 
     existing = db.query(SettleLog).filter(SettleLog.week == week).count()
     if existing:
