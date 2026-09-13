@@ -149,6 +149,7 @@ function closeRefund() {
   refundReason.value = "";
 }
 async function submitRefund() {
+  if (refunding.value) return;
   const order = refundTarget.value;
   const reason = refundReason.value.trim();
   if (!order || reason.length < 2) {

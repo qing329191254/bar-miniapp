@@ -19,6 +19,7 @@ const err = ref("");
 const giftOpen = ref(false);
 const giftUid = ref<number | null>(null);
 const giftDraft = ref<GiftBag>({});
+const submitting = ref(false);
 
 function localDateTimeValue(date = new Date()) {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -196,6 +197,7 @@ function confirmGift() {
   closeGift();
 }
 async function submit() {
+  if (submitting.value) return;
   if (!form.pid) {
     showToast("请选择对局项目", true);
     return;
@@ -204,6 +206,7 @@ async function submit() {
     showToast("请至少添加 1 位玩家", true);
     return;
   }
+  submitting.value = true;
   try {
     await api("/staff/games", {
       method: "POST",
@@ -227,6 +230,8 @@ async function submit() {
     form.winners = {};
   } catch (e: any) {
     showToast(e.message, true);
+  } finally {
+    submitting.value = false;
   }
 }
 </script>
@@ -324,9 +329,14 @@ async function submit() {
             </tbody>
           </table>
           <div class="row" style="margin-top:11px">
-            <button class="btn ghost" @click="form.players=[];form.winners={}">清空</button>
+            <button class="btn ghost" :disabled="submitting" @click="form.players=[];form.winners={}">清空</button>
             <span class="tiny gift-hint">卡券发放后 C 端卡包立即可见 · 作废时未使用赠卡一并回滚</span>
-            <button class="btn pri submit-btn" style="margin-left:auto" :disabled="!form.players.length || !form.pid" @click="submit">提交并入账</button>
+            <button
+              class="btn pri submit-btn"
+              style="margin-left:auto"
+              :disabled="submitting || !form.players.length || !form.pid"
+              @click="submit"
+            >{{ submitting ? "处理中…" : "提交并入账" }}</button>
           </div>
         </div>
       </div>

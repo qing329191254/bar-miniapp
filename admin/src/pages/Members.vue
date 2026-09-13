@@ -149,7 +149,7 @@ function openAdj(kind: AdjKind) {
 }
 
 async function submitAdj() {
-  if (!me.value || !adjOpen.value) return;
+  if (!me.value || !adjOpen.value || acting.value) return;
   const reason = adjForm.value.reason.trim();
   if (reason.length < 2) {
     showToast("原因至少 2 个字", true);
@@ -457,7 +457,7 @@ watch(kw, () => {
         <input v-model="adjForm.reason" class="inp" placeholder="必填，至少 2 个字" />
 
         <div class="dlg-actions">
-          <button class="btn ghost" @click="adjOpen = null">取消</button>
+          <button class="btn ghost" :disabled="acting" @click="adjOpen = null">取消</button>
           <button
             class="btn"
             :class="{ dan: adjOpen !== 'card' }"

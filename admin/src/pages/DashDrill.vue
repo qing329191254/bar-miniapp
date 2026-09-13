@@ -126,11 +126,13 @@ async function openVoid(g: any) {
 }
 
 function closeVoid() {
+  if (voiding.value) return;
   voidPreview.value = null;
   voidReason.value = "";
 }
 
 async function submitVoid() {
+  if (voiding.value) return;
   if (!voidPreview.value || voidPreview.value._err) return;
   if (voidReason.value.trim().length < 2) {
     showToast("作废原因至少 2 个字", true);

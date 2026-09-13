@@ -73,12 +73,14 @@ async function loadPage() {
 }
 function openRerun() { rerunOpen.value = true; }
 async function rerun() {
+  if (busy.value) return;
   busy.value = true;
   try { const res = await api<any>("/admin/settlement/rerun", { method: "POST" }); showToast(res.message || "结算已处理"); rerunOpen.value = false; await refreshAll(); }
   catch (e: any) { showToast(e.message || "结算处理失败", true); } finally { busy.value = false; }
 }
 function openForce() { forceReason.value = ""; forceOpen.value = true; }
 async function forceGrant() {
+  if (busy.value) return;
   if (forceReason.value.trim().length < 2) { showToast("强制发放原因至少 2 个字", true); return; }
   busy.value = true;
   try { const res = await api<any>("/admin/settlement/force", { method: "POST", body: { data: { reason: forceReason.value.trim() } } }); showToast(res.message || "强制发放完成"); forceOpen.value = false; await refreshAll(); }
@@ -87,12 +89,14 @@ async function forceGrant() {
 async function openSnapshot() { try { snapshot.value = await api(`/admin/settlement/snapshot?week=${encodeURIComponent(data.value.week || "")}`); } catch (e: any) { showToast(e.message, true); } }
 function openRevoke(row: any) { revokeRow.value = row; revokeReason.value = ""; }
 async function revoke() {
+  if (busy.value) return;
   if (revokeReason.value.trim().length < 2) { showToast("撤销原因至少 2 个字", true); return; }
   busy.value = true;
   try { await api(`/admin/settlement/${revokeRow.value.id}/revoke`, { method: "POST", body: { data: { reason: revokeReason.value.trim() } } }); revokeRow.value = null; showToast("奖励已撤销"); await refreshAll(); }
   catch (e: any) { showToast(e.message, true); } finally { busy.value = false; }
 }
 async function grantManual() {
+  if (busy.value) return;
   if (!manual.value.uid || !manual.value.tplId) { showToast("请选择会员和补发奖励", true); return; }
   if (manual.value.reason.trim().length < 2) { showToast("补发原因至少 2 个字", true); return; }
   busy.value = true;

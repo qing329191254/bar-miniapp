@@ -163,14 +163,19 @@ let loadingCount = 0;
 let loadingTimer = null;
 let loadingShown = false;
 
-function beginLoading() {
+function beginLoading(delayMs = 180, title = "加载中") {
   loadingCount += 1;
   if (loadingCount !== 1) return;
-  loadingTimer = setTimeout(() => {
+  const show = () => {
     if (!loadingCount) return;
     loadingShown = true;
-    uni.showLoading({ title: "加载中", mask: true });
-  }, 180);
+    uni.showLoading({ title, mask: true });
+  };
+  if (delayMs <= 0) {
+    show();
+    return;
+  }
+  loadingTimer = setTimeout(show, delayMs);
 }
 
 function finishLoading() {
@@ -340,8 +345,13 @@ export function api(path, opts = {}) {
   const key = requestKey(path, opts);
   if (pendingRequests.has(key)) return pendingRequests.get(key);
 
+  const method = (opts.method || "GET").toUpperCase();
   const withLoading = opts.loading !== false;
-  if (withLoading) beginLoading();
+  const isWrite = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
+  // Writes show loading immediately so slow taps still feel acknowledged.
+  const delay = opts.loadingDelay ?? (isWrite ? 0 : 180);
+  const title = opts.loadingTitle || (isWrite ? "处理中" : "加载中");
+  if (withLoading) beginLoading(delay, title);
   const request = new Promise((resolve, reject) => {
     let finished = false;
     const finish = () => {
@@ -349,7 +359,6 @@ export function api(path, opts = {}) {
       finished = true;
       if (withLoading) finishLoading();
     };
-    const method = (opts.method || "GET").toUpperCase();
     if (canUseCloudContainer()) {
       requestViaCloud(path, opts, method, finish, resolve, reject);
       return;

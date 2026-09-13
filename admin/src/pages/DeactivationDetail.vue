@@ -119,12 +119,13 @@ function openReject() {
   reason.value = "";
 }
 function closeDlg() {
+  if (acting.value) return;
   dlg.value = null;
   reason.value = "";
 }
 
 async function submitDlg() {
-  if (!dlg.value || !data.value) return;
+  if (acting.value || !dlg.value || !data.value) return;
   if (dlg.value === "reject" && reason.value.trim().length < 2) {
     showToast("驳回原因至少 2 个字", true);
     return;

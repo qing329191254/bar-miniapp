@@ -160,7 +160,7 @@ function closeConfirm() {
 }
 async function confirmOne() {
   const r = confirmTarget.value;
-  if (!r) return;
+  if (!r || actingId.value) return;
   actingId.value = r.id;
   try {
     await api(`/admin/recharges/${r.id}/confirm`, { method: "POST" });
@@ -184,8 +184,8 @@ function closeReject() {
 async function submitReject() {
   const r = rejectTarget.value;
   const reason = rejectReason.value.trim();
-  if (!r || reason.length < 2) {
-    showToast("请填写拒绝原因（至少 2 个字）", true);
+  if (rejecting.value || !r || reason.length < 2) {
+    if (!rejecting.value && reason.length < 2) showToast("请填写拒绝原因（至少 2 个字）", true);
     return;
   }
   rejecting.value = true;
