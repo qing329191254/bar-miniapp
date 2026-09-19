@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
-import { api, setSession } from "../api";
+import { api, setSession, takeLoginNotice } from "../api";
 import UiIcon from "../components/UiIcon.vue";
 
 const router = useRouter();
@@ -55,6 +55,11 @@ async function submit() {
 function onKey(e: KeyboardEvent) {
   if (e.key === "Enter") submit();
 }
+
+onMounted(() => {
+  const notice = takeLoginNotice();
+  if (notice) err.value = notice;
+});
 </script>
 
 <template>

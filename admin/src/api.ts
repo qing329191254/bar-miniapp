@@ -38,6 +38,38 @@ export function clearSession() {
   sessionUser.value = null;
 }
 
+const LOGIN_NOTICE_KEY = "wanka_admin_login_notice";
+let redirectingToLogin = false;
+
+/** One-shot message shown on the login page after a forced sign-out. */
+export function takeLoginNotice(): string {
+  const msg = sessionStorage.getItem(LOGIN_NOTICE_KEY) || "";
+  if (msg) sessionStorage.removeItem(LOGIN_NOTICE_KEY);
+  return msg;
+}
+
+function kickToLogin() {
+  const hadSession = !!token();
+  clearSession();
+  if (!hadSession || redirectingToLogin) return;
+  const path = window.location.pathname.replace(/\/+$/, "") || "/";
+  if (path === "/") return;
+  redirectingToLogin = true;
+  sessionStorage.setItem(LOGIN_NOTICE_KEY, "登录已过期，请重新登录");
+  window.location.assign("/");
+}
+
+function errorDetail(data: unknown, fallback: string) {
+  const detail = (data as { detail?: unknown }).detail;
+  return typeof detail === "string" ? detail : fallback;
+}
+
+function rejectHttp(path: string, res: Response, data: unknown, fallback: string): never {
+  const isLogin = path.split("?")[0] === "/auth/login";
+  if (res.status === 401 && !isLogin) kickToLogin();
+  throw new Error(errorDetail(data, fallback));
+}
+
 export async function api<T = any>(
   path: string,
   opts: { method?: string; body?: unknown; signal?: AbortSignal } = {},
@@ -52,10 +84,7 @@ export async function api<T = any>(
     signal: opts.signal,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const d = (data as { detail?: unknown }).detail;
-    throw new Error(typeof d === "string" ? d : res.statusText);
-  }
+  if (!res.ok) rejectHttp(path, res, data, res.statusText || "请求失败");
   return data as T;
 }
 
@@ -82,10 +111,7 @@ export async function uploadFile(file: File): Promise<string> {
     body: form,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const detail = (data as { detail?: unknown }).detail;
-    throw new Error(typeof detail === "string" ? detail : "图片上传失败");
-  }
+  if (!res.ok) rejectHttp("/admin/upload", res, data, "图片上传失败");
   const url = (data as { url?: unknown }).url;
   if (typeof url !== "string" || !url) throw new Error("服务端未返回图片地址");
   return url;
