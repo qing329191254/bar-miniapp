@@ -26,9 +26,58 @@ SERVICE = "sms"
 ACTION = "SendSms"
 VERSION = "2021-01-11"
 
+# Tencent often returns English LimitExceeded.* messages; map to Chinese for the mini program.
+_SMS_ERR_BY_CODE = {
+    "LimitExceeded.PhoneNumberDailyLimit": "该手机号今日短信次数已达上限，请明天再试或稍后再试",
+    "LimitExceeded.PhoneNumberOneHourLimit": "该手机号发送过于频繁，请一小时后再试",
+    "LimitExceeded.PhoneNumberThirtySecondLimit": "发送过于频繁，请稍后再试",
+    "LimitExceeded.PhoneNumberSameContentDailyLimit": "相同内容发送次数已达上限，请稍后再试",
+    "LimitExceeded.AppDailyLimit": "今日短信发送量已达上限，请联系商家",
+    "LimitExceeded.DailyLimit": "今日短信发送量已达上限，请联系商家",
+    "FailedOperation.ContainSensitiveWord": "短信内容不合规，请联系商家",
+    "FailedOperation.SignatureIncorrectOrUnapproved": "短信签名未通过审核，请联系商家",
+    "FailedOperation.TemplateIncorrectOrUnapproved": "短信模板未通过审核，请联系商家",
+    "UnauthorizedOperation.SmsSdkAppIdVerifyFail": "短信应用配置有误，请联系商家",
+    "AuthFailure.SecretIdNotFound": "短信密钥配置有误，请联系商家",
+    "AuthFailure.SignatureFailure": "短信密钥配置有误，请联系商家",
+}
+
+_SMS_ERR_BY_HINT = (
+    ("every day exceeds the upper limit", "该手机号今日短信次数已达上限，请明天再试或稍后再试"),
+    ("phone number daily limit", "该手机号今日短信次数已达上限，请明天再试或稍后再试"),
+    ("one hour", "该手机号发送过于频繁，请一小时后再试"),
+    ("30 seconds", "发送过于频繁，请稍后再试"),
+    ("thirty second", "发送过于频繁，请稍后再试"),
+    ("same content", "相同内容发送次数已达上限，请稍后再试"),
+    ("insufficient balance", "短信余额不足，请联系商家"),
+    ("sign name", "短信签名异常，请联系商家"),
+    ("template", "短信模板异常，请联系商家"),
+)
+
 
 def _sign(key: bytes, msg: str) -> bytes:
     return hmac.new(key, msg.encode("utf-8"), hashlib.sha256).digest()
+
+
+def _friendly_error(code: str | None, message: str | None) -> str:
+    raw_code = str(code or "").strip()
+    raw_msg = str(message or "").strip()
+    if raw_code in _SMS_ERR_BY_CODE:
+        return _SMS_ERR_BY_CODE[raw_code]
+    # SendStatusSet sometimes prefixes FailedOperation. / LimitExceeded.
+    for key, text in _SMS_ERR_BY_CODE.items():
+        if raw_code.endswith(key) or key in raw_code:
+            return text
+    lower = raw_msg.lower()
+    for hint, text in _SMS_ERR_BY_HINT:
+        if hint in lower:
+            return text
+    # Prefer Chinese vendor text; fall back for English noise.
+    if raw_msg and not all(ord(ch) < 128 for ch in raw_msg):
+        return raw_msg
+    if raw_msg and any(ch.isalpha() for ch in raw_msg) and raw_msg.isascii():
+        return "短信发送失败，请稍后重试"
+    return raw_msg or "短信发送失败"
 
 
 def send_code(phone: str, code: str) -> dict:
@@ -96,10 +145,10 @@ def send_code(phone: str, code: str) -> dict:
     result = (data.get("Response") or {})
     err = result.get("Error") or {}
     if err:
-        raise ValueError(err.get("Message") or "短信发送失败")
+        raise ValueError(_friendly_error(err.get("Code"), err.get("Message")))
     statuses = result.get("SendStatusSet") or []
     if statuses:
         first = statuses[0] or {}
         if str(first.get("Code") or "") not in ("Ok", "ok", ""):
-            raise ValueError(first.get("Message") or "短信发送失败")
+            raise ValueError(_friendly_error(first.get("Code"), first.get("Message")))
     return {"mock": False}
