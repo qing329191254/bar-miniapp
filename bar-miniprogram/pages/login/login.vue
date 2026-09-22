@@ -60,7 +60,7 @@ function ensureAgreed() {
 }
 
 function wxLogin(e) {
-  if (wxLoading.value) return;
+  if (wxLoading.value || smsLoading.value) return;
   if (!ensureAgreed()) return;
   const phoneCode = e?.detail?.code;
   if (!phoneCode) {
@@ -120,7 +120,7 @@ function startCountdown(sec) {
 }
 
 async function sendSms() {
-  if (sending.value || countdown.value > 0) return;
+  if (sending.value || countdown.value > 0 || wxLoading.value || smsLoading.value) return;
   if (!ensureAgreed()) return;
   const p = phone.value.trim();
   if (!/^1\d{10}$/.test(p)) {
@@ -136,6 +136,8 @@ async function sendSms() {
       smsCode.value = r.debugCode;
       toastText("本地调试：验证码已填入");
     } else {
+      // Clear stale digits so the previous code is not submitted by mistake.
+      smsCode.value = "";
       toastText("验证码已发送");
     }
   } catch (e) {
@@ -155,17 +157,22 @@ function wxCode() {
   });
 }
 
+function onSmsCodeInput(e) {
+  const raw = e?.detail?.value ?? e?.target?.value ?? "";
+  smsCode.value = String(raw).replace(/\D/g, "").slice(0, 6);
+}
+
 async function smsLogin() {
-  if (smsLoading.value) return;
+  if (smsLoading.value || wxLoading.value) return;
   if (!ensureAgreed()) return;
   const p = phone.value.trim();
-  const c = smsCode.value.trim();
+  const c = String(smsCode.value || "").replace(/\D/g, "").slice(0, 6);
   if (!/^1\d{10}$/.test(p)) {
     err.value = "请填写11位手机号";
     return;
   }
-  if (!c) {
-    err.value = "请输入验证码";
+  if (c.length !== 6) {
+    err.value = "请输入6位验证码";
     return;
   }
   err.value = "";
@@ -206,13 +213,13 @@ async function smsLogin() {
       <button
         class="btn block login-act"
         :open-type="agreed && agreementsReady ? 'getPhoneNumber' : ''"
-        :disabled="wxLoading || smsLoading"
+        :disabled="wxLoading"
         @tap="loginTap"
         @getphonenumber="wxLogin"
       >
         <text>{{ wxLoading ? "登录中…" : "一键登录" }}</text>
       </button>
-      <button class="btn ghost block login-act" :disabled="wxLoading || smsLoading" @tap="showSms = !showSms">
+      <button class="btn ghost block login-act" @tap="showSms = !showSms">
         <text>{{ showSms ? "收起验证码登录" : "手机号验证码登录" }}</text>
       </button>
       <view v-if="showSms" class="sms-box">
@@ -227,17 +234,18 @@ async function smsLogin() {
         <view class="sms-row">
           <input
             class="login-inp sms-code"
-            v-model="smsCode"
-            type="number"
+            :value="smsCode"
+            type="tel"
             maxlength="6"
             placeholder="验证码"
             placeholder-class="login-ph"
+            @input="onSmsCodeInput"
           />
           <button class="btn ghost sms-send" :disabled="sending || countdown > 0" @tap="sendSms">
             {{ countdown > 0 ? countdown + "s" : sending ? "发送中" : "获取验证码" }}
           </button>
         </view>
-        <button class="btn block login-act" :disabled="smsLoading || wxLoading" @tap="smsLogin">
+        <button class="btn block login-act" :disabled="smsLoading" @tap="smsLogin">
           <text>{{ smsLoading ? "登录中…" : "验证码登录" }}</text>
         </button>
       </view>

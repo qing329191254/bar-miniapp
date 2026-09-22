@@ -229,7 +229,7 @@ onUnmounted(() => clearTimeout(noticeTimer));
         可用积分 <text class="confirm-pts">{{ fmt(av) }}</text> → <text class="confirm-pts">{{ fmt(afterFreeze) }}</text>
       </view>
       <view class="confirm-actions">
-        <button class="btn ghost confirm-btn" :disabled="creating" @tap="closeConfirm">取消</button>
+        <button class="btn ghost confirm-btn" @tap="closeConfirm">取消</button>
         <button class="btn confirm-btn" :disabled="creating" @tap="submit">{{ creating ? "生成中…" : "生成提分单" }}</button>
       </view>
     </view>
@@ -239,7 +239,7 @@ onUnmounted(() => clearTimeout(noticeTimer));
       <view class="confirm-title">取消提分单</view>
       <view class="confirm-copy">取消后 <text class="confirm-pts">{{ fmt(pw?.pts) }}</text> 分将原额度退回可用积分。</view>
       <view class="confirm-actions">
-        <button class="btn ghost confirm-btn" :disabled="cancelling" @tap="closeCancelConfirm">取消</button>
+        <button class="btn ghost confirm-btn" @tap="closeCancelConfirm">取消</button>
         <button class="btn danger-btn confirm-btn" :disabled="cancelling" @tap="cancel">{{ cancelling ? "取消中…" : "确认取消" }}</button>
       </view>
     </view>

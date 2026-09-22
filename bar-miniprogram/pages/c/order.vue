@@ -323,7 +323,7 @@ page { height: 100%; overflow: hidden; background: #F5F4F0; }
   margin-left: auto;
   padding: 10px 24px;
 }
-.checkout-btn[disabled] { background: #EDEBE4; color: #9C9A93; }
+.checkout-btn[disabled] { background: #EDEBE4 !important; color: #9C9A93 !important; opacity: 1; }
 .lab { font-size: 12px; color: #6B6A65; margin-bottom: 8px; }
 .gal-mask {
   position: fixed;

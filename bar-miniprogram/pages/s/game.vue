@@ -778,7 +778,7 @@ function hasDraft() {
         <view class="draft-title">确认提交</view>
         <view class="draft-body">本局无任何奖励，确认提交？</view>
         <view class="draft-actions">
-          <button class="btn ghost draft-btn" :disabled="submitting" @tap="closeZeroRewardDlg">再想想</button>
+          <button class="btn ghost draft-btn" @tap="closeZeroRewardDlg">再想想</button>
           <button class="btn draft-btn" :disabled="submitting" @tap="confirmZeroSubmit">
             {{ submitting ? "提交中…" : "确认提交" }}
           </button>

@@ -153,5 +153,5 @@ async function gen() {
   border-top: 1px solid rgba(28,27,25,.12);
   z-index: 5;
 }
-.pack-bar .btn[disabled] { background: #EDEBE4; color: #9C9A93; }
+.pack-bar .btn[disabled] { background: #EDEBE4 !important; color: #9C9A93 !important; opacity: 1; }
 </style>

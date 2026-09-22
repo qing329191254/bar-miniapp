@@ -218,7 +218,7 @@ function reorder(order) {
         <view class="confirm-body">确认取消订单 {{ cancelOrder.no }}？</view>
         <view v-if="msg" class="err">{{ msg }}</view>
         <view class="confirm-actions">
-          <button class="btn ghost confirm-btn" :disabled="canceling" @tap="closeCancelDlg">再想想</button>
+          <button class="btn ghost confirm-btn" @tap="closeCancelDlg">再想想</button>
           <button class="btn confirm-btn confirm-danger" :disabled="canceling" @tap="confirmCancel">
             {{ canceling ? "取消中…" : "确认取消" }}
           </button>

@@ -123,26 +123,37 @@ def sms_store(sess: Session, phone: str, code: str) -> None:
     sess.flush()
 
 
-def sms_verify(sess: Session, phone: str, code: str) -> bool:
+def sms_verify(sess: Session, phone: str, code: str) -> str | None:
+    """Validate OTP. Returns None on success, otherwise an error message."""
     now = time.time()
+    given = "".join(ch for ch in str(code or "") if ch.isdigit())
+    if len(given) > 6:
+        given = given[-6:]
     rec = sess.query(SmsCode).filter_by(phone=phone).with_for_update().first()
     if not rec:
-        return False
+        print(f"[sms_verify] miss phone=...{phone[-4:] if phone else ''}")
+        return "请先获取验证码"
     if float(rec.expire_at or 0) <= now:
         sess.delete(rec)
         sess.flush()
-        return False
+        print(f"[sms_verify] expired phone=...{phone[-4:]}")
+        return "验证码已过期，请重新获取"
     rec.tries = int(rec.tries or 0) + 1
     if rec.tries > SMS_MAX_TRIES:
         sess.delete(rec)
         sess.flush()
-        return False
-    if not hmac.compare_digest(str(rec.code or ""), str(code or "").strip()):
+        return "验证码尝试次数过多，请重新获取"
+    stored = "".join(ch for ch in str(rec.code or "") if ch.isdigit())
+    if len(stored) != len(given) or not hmac.compare_digest(stored, given):
         sess.flush()
-        return False
+        print(
+            f"[sms_verify] mismatch phone=...{phone[-4:]} "
+            f"given_len={len(given)} stored_len={len(stored)} tries={rec.tries}"
+        )
+        return "验证码错误"
     sess.delete(rec)
     sess.flush()
-    return True
+    return None
 
 
 def idem_begin(sess: Session, key: str, ttl: int = 60) -> bool:

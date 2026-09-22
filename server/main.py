@@ -282,8 +282,11 @@ def login_with_sms(phone: str, sms_code: str, agreed: bool, terms_version: int,
         raise HTTPException(400, "请填写有效手机号")
     if not (sms_code or "").strip():
         raise HTTPException(400, "请输入验证码")
-    if not cache.sms_verify(db, d11, sms_code.strip()):
-        raise HTTPException(401, "验证码错误或已过期")
+    verify_err = cache.sms_verify(db, d11, sms_code.strip())
+    if verify_err:
+        # Persist tries / cleanup before HTTPException rolls the request back.
+        db.commit()
+        raise HTTPException(401, verify_err)
     openid = None
     if (wx_code or "").strip():
         try:
@@ -304,7 +307,7 @@ def sms_send(body: SmsSendIn, db: Session = Depends(get_db)):
     blocked = cache.sms_send_guard(db, d11)
     if blocked:
         raise HTTPException(429, blocked)
-    code = f"{random.randint(0, 999999):06d}"
+    code = f"{random.randint(100000, 999999)}"
     # Commit before provider call: SMS API can take seconds; login on another
     # connection must see the code as soon as the user receives the message.
     cache.sms_store(db, d11, code)

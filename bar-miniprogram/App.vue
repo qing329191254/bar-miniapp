@@ -73,6 +73,30 @@ button::after { border: none; }
 	font-weight: 600;
 	line-height: 1.2;
 }
+/* WeChat greys out native <button disabled>; keep palette, only dim. */
+button.btn[disabled] {
+	background-color: #1C1B19 !important;
+	color: #fff !important;
+	opacity: 0.5;
+}
+button.btn.gold[disabled] {
+	background: linear-gradient(135deg,#C8862A,#E8B45A) !important;
+	color: #fff !important;
+}
+button.btn.ghost[disabled] {
+	background-color: transparent !important;
+	color: #1C1B19 !important;
+	border-color: rgba(28,27,25,.2) !important;
+}
+button.btn.danger[disabled] {
+	background-color: #FCEBEB !important;
+	color: #A32D2D !important;
+}
+button.btn.danger-btn[disabled],
+button.btn.confirm-danger[disabled] {
+	background-color: #B52F32 !important;
+	color: #fff !important;
+}
 .btn.gold { background: linear-gradient(135deg,#C8862A,#E8B45A); color: #fff; }
 .btn.grad-dark { background: linear-gradient(135deg,#23201B,#4A4038); color: #fff; }
 .btn.ghost { background: transparent; border: 1px solid rgba(28,27,25,.2); color: #1C1B19; }

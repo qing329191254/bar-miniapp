@@ -348,8 +348,8 @@ export function api(path, opts = {}) {
   const method = (opts.method || "GET").toUpperCase();
   const withLoading = opts.loading !== false;
   const isWrite = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
-  // Writes show loading immediately so slow taps still feel acknowledged.
-  const delay = opts.loadingDelay ?? (isWrite ? 0 : 180);
+  // Delay both reads and writes so fast responses never flash a loading mask.
+  const delay = opts.loadingDelay ?? (isWrite ? 250 : 180);
   const title = opts.loadingTitle || (isWrite ? "处理中" : "加载中");
   if (withLoading) beginLoading(delay, title);
   const request = new Promise((resolve, reject) => {

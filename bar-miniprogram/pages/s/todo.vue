@@ -15,9 +15,23 @@ const msg = ref("");
 const tab = ref("accept");
 const rejectOrder = ref(null);
 const rejectReason = ref("");
-const rejecting = ref(false);
-const acting = ref(false);
+/** In-flight rows keyed by "order:12" — only those cards disable. */
+const actingMap = ref({});
 let reloadTimer = null;
+
+function rowKey(kind, id) {
+  return `${kind}:${id}`;
+}
+function isActing(kind, id) {
+  return !!actingMap.value[rowKey(kind, id)];
+}
+function setActing(kind, id, on) {
+  const key = rowKey(kind, id);
+  const next = { ...actingMap.value };
+  if (on) next[key] = true;
+  else delete next[key];
+  actingMap.value = next;
+}
 
 function applyTabFromCounts(payload) {
   if (!payload) return;
@@ -88,9 +102,9 @@ const cur = computed(() => {
   return defs.value.find((x) => x.k === tab.value) || defs.value[0];
 });
 
-async function act(path, reason = "店员操作", successText = "") {
-  if (acting.value) return false;
-  acting.value = true;
+async function act(kind, id, path, reason = "店员操作", successText = "") {
+  if (isActing(kind, id)) return false;
+  setActing(kind, id, true);
   msg.value = "";
   try {
     await api(path, { method: "POST", body: { reason } });
@@ -101,19 +115,20 @@ async function act(path, reason = "店员操作", successText = "") {
     msg.value = e.message;
     return false;
   } finally {
-    acting.value = false;
+    setActing(kind, id, false);
   }
 }
 
 function openReject(order) {
-  if (acting.value) return;
+  if (isActing("order", order.id)) return;
   rejectOrder.value = order;
   rejectReason.value = "";
   msg.value = "";
 }
 
 function closeReject() {
-  if (rejecting.value || acting.value) return;
+  const order = rejectOrder.value;
+  if (order && isActing("order", order.id)) return;
   rejectOrder.value = null;
   rejectReason.value = "";
 }
@@ -124,10 +139,9 @@ async function confirmReject() {
     msg.value = "请输入拒单原因";
     return;
   }
-  if (!rejectOrder.value || rejecting.value || acting.value) return;
-  rejecting.value = true;
-  const ok = await act(`/staff/orders/${rejectOrder.value.id}/reject`, reason, "已拒单");
-  rejecting.value = false;
+  const order = rejectOrder.value;
+  if (!order || isActing("order", order.id)) return;
+  const ok = await act("order", order.id, `/staff/orders/${order.id}/reject`, reason, "已拒单");
   if (ok) {
     rejectOrder.value = null;
     rejectReason.value = "";
@@ -197,8 +211,8 @@ async function confirmReject() {
         <view class="between" style="margin-top:8px">
           <text style="font-size:16px;font-weight:600">{{ o.total }} 金币</text>
           <view class="row">
-            <button class="btn ghost" :disabled="acting" @tap="openReject(o)">拒单</button>
-            <button class="btn" :disabled="acting || !!o.lack" @tap="act('/staff/orders/'+o.id+'/accept', '店员操作', '接单成功')">接单</button>
+            <button class="btn ghost" @tap="openReject(o)">拒单</button>
+            <button class="btn" :disabled="!!o.lack" @tap="act('order', o.id, '/staff/orders/'+o.id+'/accept', '店员操作', '接单成功')">接单</button>
           </view>
         </view>
       </view>
@@ -217,15 +231,15 @@ async function confirmReject() {
         </view>
         <view class="tiny">{{ r.user?.nick }} · 到账 {{ r.amount + r.bonus }} 金币</view>
         <view class="row" style="margin-top:8px">
-          <button class="btn ghost" :disabled="acting" @tap="act('/staff/recharges/'+r.id+'/reject', '店员操作', '已拒绝')">拒绝</button>
-          <button class="btn" :disabled="acting" @tap="act('/staff/recharges/'+r.id+'/confirm', '店员操作', '已确认收款')">确认收款</button>
+          <button class="btn ghost" @tap="act('recharge', r.id, '/staff/recharges/'+r.id+'/reject', '店员操作', '已拒绝')">拒绝</button>
+          <button class="btn" @tap="act('recharge', r.id, '/staff/recharges/'+r.id+'/confirm', '店员操作', '已确认收款')">确认收款</button>
         </view>
       </view>
       <view class="card" v-for="o in data.payOrders" :key="'o'+o.id">
         <view class="between"><text class="pill">点单</text><text>{{ o.user?.nick }}</text></view>
         <view class="between" style="margin-top:8px">
           <text style="font-weight:700">¥{{ o.total }}</text>
-          <button class="btn" :disabled="acting" @tap="act('/staff/orders/'+o.id+'/confirm-pay', '店员操作', '已确认收款')">确认收款</button>
+          <button class="btn" @tap="act('order', o.id, '/staff/orders/'+o.id+'/confirm-pay', '店员操作', '已确认收款')">确认收款</button>
         </view>
       </view>
       <view class="empty" v-if="!data.recharges.length && !data.payOrders.length">暂无待收款</view>
@@ -240,8 +254,8 @@ async function confirmReject() {
         <view style="font-size:20px;font-weight:700;margin:8px 0">{{ w.pts }} 分</view>
         <view class="tiny">{{ w.user?.nick }} · {{ String(w.no).slice(-4) }}</view>
         <view class="row" style="margin-top:8px">
-          <button class="btn ghost" :disabled="acting" @tap="act('/staff/withdrawals/'+w.id+'/reject', '店员操作', '已驳回')">驳回</button>
-          <button class="btn" :disabled="acting" @tap="act('/staff/withdrawals/'+w.id+'/grant', '店员操作', '已确认发放')">确认发放</button>
+          <button class="btn ghost" @tap="act('withdrawal', w.id, '/staff/withdrawals/'+w.id+'/reject', '店员操作', '已驳回')">驳回</button>
+          <button class="btn" @tap="act('withdrawal', w.id, '/staff/withdrawals/'+w.id+'/grant', '店员操作', '已确认发放')">确认发放</button>
         </view>
       </view>
       <view class="empty" v-if="!data.withdrawals.length">暂无待确认提分</view>
@@ -255,7 +269,7 @@ async function confirmReject() {
         </view>
         <view class="tiny">{{ (o.items||[]).map(i=>i.name+'×'+i.qty).join('、') }}</view>
         <view class="row" style="margin-top:8px;justify-content:flex-end">
-          <button class="btn" :disabled="acting" @tap="act('/staff/orders/'+o.id+'/finish', '店员操作', '已出单')">出单</button>
+          <button class="btn" @tap="act('order', o.id, '/staff/orders/'+o.id+'/finish', '店员操作', '已出单')">出单</button>
         </view>
       </view>
       <view class="empty" v-if="!data.making.length">暂无制作中</view>
@@ -290,10 +304,8 @@ async function confirmReject() {
         />
         <view class="err" v-if="msg">{{ msg }}</view>
         <view class="reject-actions">
-          <button class="btn ghost" :disabled="rejecting || acting" @tap="closeReject">取消</button>
-          <button class="btn reject-submit" :disabled="rejecting || acting" @tap="confirmReject">
-            {{ rejecting || acting ? "提交中…" : "确认拒单" }}
-          </button>
+          <button class="btn ghost" @tap="closeReject">取消</button>
+          <button class="btn reject-submit" @tap="confirmReject">确认拒单</button>
         </view>
       </view>
     </view>

@@ -156,7 +156,7 @@ async function create() {
         </view>
       </view>
       <view class="tier-dialog-actions">
-        <button class="btn ghost tier-dialog-btn" :disabled="creating" @tap="closeTierDialog">取消</button>
+        <button class="btn ghost tier-dialog-btn" @tap="closeTierDialog">取消</button>
         <button class="btn tier-dialog-btn confirm" :disabled="!selected || creating" @tap="create">
           {{ creating ? "生成中…" : "生成充值单" }}
         </button>
