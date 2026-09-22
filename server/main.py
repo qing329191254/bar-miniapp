@@ -305,15 +305,17 @@ def sms_send(body: SmsSendIn, db: Session = Depends(get_db)):
     if blocked:
         raise HTTPException(429, blocked)
     code = f"{random.randint(0, 999999):06d}"
-    # Persist before provider call so verify works even if another instance handles login.
+    # Commit before provider call: SMS API can take seconds; login on another
+    # connection must see the code as soon as the user receives the message.
     cache.sms_store(db, d11, code)
+    db.commit()
     try:
         result = sms.send_code(d11, code)
     except ValueError as e:
         row = db.get(SmsCode, d11)
         if row:
             db.delete(row)
-            db.flush()
+            db.commit()
         raise HTTPException(400, str(e))
     out = {"ok": True, "ttl": cache.SMS_TTL}
     if result.get("mock"):
