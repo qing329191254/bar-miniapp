@@ -2502,14 +2502,17 @@ def create_staff(sess: Session, data: dict, admin: dict) -> dict:
     nick_in = str(data.get("nick") or "").strip()
     role = str(data.get("role") or "STAFF").upper()
     password = str(data.get("password") or "")
-    if role not in ("STAFF", "MANAGER"):
+    if role not in ("STAFF", "MANAGER", "BOSS"):
         raise ValueError("角色无效")
+    if role == "BOSS" and admin.get("role") != "BOSS":
+        raise ValueError("仅老板可添加老板账号")
     if not is_cn_mobile(phone_raw):
         raise ValueError("请填写有效手机号")
-    # Only managers use Web admin (phone+password). Staff use mini program only.
-    need_pwd = role == "MANAGER"
+    # Managers and bosses use Web admin (phone+password). Staff use mini program only.
+    need_pwd = role in ("MANAGER", "BOSS")
+    pwd_role = "老板" if role == "BOSS" else "店长"
     if need_pwd and (len(password) < 6 or len(password) > 32):
-        raise ValueError("店长需设置 6-32 位后台登录密码")
+        raise ValueError(f"{pwd_role}需设置 6-32 位后台登录密码")
     if not need_pwd and password:
         raise ValueError("店员无需后台密码")
     d11 = phone_digits(phone_raw)
@@ -2519,6 +2522,7 @@ def create_staff(sess: Session, data: dict, admin: dict) -> dict:
         raise ValueError("该手机号已绑定员工")
     customer = next((u for u in users_by_phone(sess, d11) if u.role == "CUSTOMER"), None)
     hashed = hash_pwd(password) if need_pwd else ""
+    default_nick = "老板" if role == "BOSS" else "员工"
     if customer:
         if customer.status == "DEACTIVATED":
             raise ValueError("该账号已注销，无法授权为员工")
@@ -2529,6 +2533,8 @@ def create_staff(sess: Session, data: dict, admin: dict) -> dict:
             customer.pwd = hashed
         if nick_in:
             customer.nick = nick_in
+        elif role == "BOSS" and (not customer.nick or customer.nick == "玩咖用户"):
+            customer.nick = default_nick
         bind_wx_phone(sess, customer, d11)
         log(
             sess, "STAFF_ROLE_CHANGE",
@@ -2538,7 +2544,7 @@ def create_staff(sess: Session, data: dict, admin: dict) -> dict:
         sess.flush()
         return public_user(sess, customer)
 
-    nick = nick_in or "员工"
+    nick = nick_in or default_nick
     user = User(
         id=new_id(sess, User),
         no=alloc_staff_no(sess),

@@ -24,7 +24,7 @@ const acting = ref(false);
 
 const addForm = ref({ phone: "", nick: "", role: "STAFF", password: "", password2: "" });
 const showAdd = ref(false);
-const addNeedsPwd = computed(() => addForm.value.role === "MANAGER");
+const addNeedsPwd = computed(() => addForm.value.role === "MANAGER" || addForm.value.role === "BOSS");
 
 const roleDlg = ref<{
   row: StaffRow;
@@ -39,6 +39,11 @@ const pwdDlg = ref<{ row: StaffRow; password: string; password2: string } | null
 const ROLE_OPTS = [
   { value: "STAFF", label: "店员" },
   { value: "MANAGER", label: "店长" },
+];
+const ADD_ROLE_OPTS = [
+  { value: "STAFF", label: "店员" },
+  { value: "MANAGER", label: "店长" },
+  { value: "BOSS", label: "老板" },
 ];
 const ROLE_NAME: Record<string, string> = { STAFF: "店员", MANAGER: "店长", BOSS: "老板" };
 
@@ -82,9 +87,10 @@ async function addStaff() {
     showToast("请填写手机号", true);
     return;
   }
-  if (role === "MANAGER") {
+  if (role === "MANAGER" || role === "BOSS") {
+    const roleName = ROLE_NAME[role] || role;
     if (password.length < 6 || password.length > 32) {
-      showToast("店长需设置 6-32 位后台登录密码", true);
+      showToast(`${roleName}需设置 6-32 位后台登录密码`, true);
       return;
     }
     if (password !== password2) {
@@ -99,15 +105,17 @@ async function addStaff() {
       nick: addForm.value.nick.trim(),
       role,
     };
-    if (role === "MANAGER") data.password = password;
+    if (role === "MANAGER" || role === "BOSS") data.password = password;
     await api("/admin/staff", { method: "POST", body: { data } });
     addForm.value = { phone: "", nick: "", role: "STAFF", password: "", password2: "" };
     showAdd.value = false;
     await load();
     showToast(
-      role === "MANAGER"
-        ? "已保存；店长可用手机号+密码登录 Web 后台"
-        : "已保存；店员仅用小程序手机号登录，无需后台密码",
+      role === "BOSS"
+        ? "已保存；老板可用手机号+密码登录 Web 后台"
+        : role === "MANAGER"
+          ? "已保存；店长可用手机号+密码登录 Web 后台"
+          : "已保存；店员仅用小程序手机号登录，无需后台密码",
     );
   } catch (e: any) {
     showToast(e?.message || "添加失败", true);
@@ -236,7 +244,7 @@ onMounted(load);
       </div>
       <div class="toolbar row">
         <button class="btn sm pri" @click="openAdd">＋ 新增员工</button>
-        <span class="tiny">店员只用小程序；店长才设后台密码。撤销员工会自动变成会员，手机号可再添加</span>
+        <span class="tiny">店员只用小程序；店长/老板设后台密码。可添加多名老板；撤销员工会变成会员</span>
       </div>
       <div class="card tb-wrap">
         <table class="tb2 staff-table" data-cols="llccccc">
@@ -317,13 +325,13 @@ onMounted(load);
           <div class="fld">姓名</div>
           <input v-model="addForm.nick" class="inp" placeholder="如 小玲" />
           <div class="fld">角色</div>
-          <AppSelect v-model="addForm.role" :options="ROLE_OPTS" no-margin />
+          <AppSelect v-model="addForm.role" :options="ADD_ROLE_OPTS" no-margin />
           <template v-if="addNeedsPwd">
             <div class="fld">后台登录密码 *</div>
             <input v-model="addForm.password" class="inp" type="password" placeholder="6-32 位，手机号+密码进 Web 后台" autocomplete="new-password" />
             <div class="fld">确认密码 *</div>
             <input v-model="addForm.password2" class="inp" type="password" placeholder="再次输入密码" autocomplete="new-password" />
-            <p class="tiny add-pwd-hint">仅店长需要；用于管理后台登录。小程序仍用手机号登录。</p>
+            <p class="tiny add-pwd-hint">店长与老板需设置；用于管理后台登录。小程序仍用手机号登录。老板权限与现有老板相同。</p>
           </template>
           <p v-else class="tiny add-pwd-hint">店员只走小程序（手机号登录），不进 Web 后台，无需设密码。</p>
           <div class="dlg-actions">

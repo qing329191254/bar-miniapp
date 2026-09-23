@@ -210,6 +210,10 @@ async function smsLogin() {
     </view>
 
     <view class="card login-card">
+      <view class="login-audience">
+        <text class="login-audience-title">仅限本店顾客及授权员工使用</text>
+        <text class="login-audience-desc">本小程序为玩咖桌游酒吧到店会员服务。登录将进行账号鉴权，用于点单、充值与核销等门店服务，非面向公众的开放注册平台。</text>
+      </view>
       <button
         class="btn block login-act"
         :open-type="agreed && agreementsReady ? 'getPhoneNumber' : ''"
@@ -259,7 +263,7 @@ async function smsLogin() {
     </view>
 
     <view class="err" v-if="err">{{ err }}</view>
-    <view class="tiny login-tip">优先使用一键登录；无法授权手机号时可用短信验证码。员工由后台按手机号授权。</view>
+    <view class="tiny login-tip">优先使用一键登录，无法授权手机号时可用短信验证码。</view>
 
     <view v-if="openDoc" class="agreement-mask" @tap="openDoc = ''" @touchmove.stop.prevent></view>
     <view v-if="openDoc" class="agreement-sheet">
@@ -288,6 +292,27 @@ async function smsLogin() {
 }
 .login-name { font-size: 20px; font-weight: 600; letter-spacing: 1px; }
 .login-card { padding: 16px; }
+.login-audience {
+  margin-bottom: 16px;
+  padding: 12px 12px 13px;
+  border-radius: 10px;
+  background: rgba(28, 27, 25, 0.04);
+  text-align: center;
+}
+.login-audience-title {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1c1b19;
+  line-height: 1.4;
+}
+.login-audience-desc {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  color: #6b6a65;
+  line-height: 1.65;
+}
 .login-act {
   height: 44px;
   padding: 0 !important;
@@ -335,10 +360,17 @@ async function smsLogin() {
   line-height: 44px;
 }
 .login-tip {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
   margin-top: 12px;
   text-align: center;
   color: #9C9A93;
   line-height: 1.6;
+  padding: 0 8px;
+}
+.login-page .err {
+  text-align: center;
   padding: 0 8px;
 }
 .agreement-row { display:flex;align-items:center;justify-content:center;flex-wrap:wrap;margin-top:14px;color:#6b6a65;font-size:11px;line-height:1.8; }
