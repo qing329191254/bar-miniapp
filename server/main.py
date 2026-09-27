@@ -953,7 +953,7 @@ def staff_adjust_point(uid: int, body: PatchIn, staff: dict = Depends(staff_user
     try:
         return L.member_adjust_point(
             db, uid, int(data.get("delta") or 0), str(data.get("reason") or ""), staff,
-            roles=L.STAFF_ADJUST_ROLES,
+            roles=L.STAFF_ADJUST_ROLES, require_reason=False,
         )
     except ValueError as e:
         fail(e)
@@ -965,7 +965,7 @@ def staff_adjust_shard(uid: int, body: PatchIn, staff: dict = Depends(staff_user
     try:
         return L.member_adjust_shard(
             db, uid, int(data.get("delta") or 0), str(data.get("reason") or ""), staff,
-            roles=L.STAFF_ADJUST_ROLES,
+            roles=L.STAFF_ADJUST_ROLES, require_reason=False,
         )
     except ValueError as e:
         fail(e)
@@ -976,13 +976,26 @@ def staff_adjust_cards(uid: int, body: PatchIn, staff: dict = Depends(staff_user
     data = body.data or {}
     qty = int(data.get("qty") or 0)
     reason = str(data.get("reason") or "")
-    tpl = int(data.get("tpl") or 0)
+    tpl_id = int(data.get("tpl") or 0)
     try:
         if qty > 0:
-            return L.member_grant_cards(db, uid, tpl, qty, reason, staff, roles=L.STAFF_ADJUST_ROLES)
-        if qty < 0:
-            return L.member_revoke_cards(db, uid, tpl, abs(qty), reason, staff, roles=L.STAFF_ADJUST_ROLES)
-        raise ValueError("请输入调整数量")
+            return L.member_grant_cards(
+                db, uid, tpl_id, qty, reason, staff,
+                roles=L.STAFF_ADJUST_ROLES, require_reason=False,
+            )
+        raise ValueError("店员端请用「补发卡券」；扣卡请使用代客核销")
+    except ValueError as e:
+        fail(e)
+
+
+@app.post("/api/staff/members/{uid}/direct-verify")
+def staff_direct_verify(uid: int, body: PatchIn, staff: dict = Depends(staff_user), db: Session = Depends(get_db)):
+    data = body.data or {}
+    try:
+        return L.staff_direct_verify(
+            db, uid, int(data.get("cardId") or 0),
+            str(data.get("tail") or ""), str(data.get("reason") or ""), staff,
+        )
     except ValueError as e:
         fail(e)
 

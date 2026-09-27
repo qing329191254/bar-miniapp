@@ -464,9 +464,13 @@ class VerifyLog(Base):
     uid: Mapped[int] = mapped_column(Integer, default=0)
     op_uid: Mapped[int] = mapped_column(Integer, default=0)
     at: Mapped[str] = mapped_column(String(24), default="")
+    src: Mapped[str] = mapped_column(String(24), default="")
 
     def to_dict(self):
-        return {"id": self.id, "cardNo": self.card_no, "tplName": self.tpl_name, "uid": self.uid, "opUid": self.op_uid, "at": self.at}
+        d = {"id": self.id, "cardNo": self.card_no, "tplName": self.tpl_name, "uid": self.uid, "opUid": self.op_uid, "at": self.at}
+        if self.src:
+            d["src"] = self.src
+        return d
 
 
 class SettleLog(Base):

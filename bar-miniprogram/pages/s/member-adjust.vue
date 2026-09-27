@@ -148,10 +148,7 @@ watch(search, () => {});
           <view class="tiny">{{ m.no }} · {{ m.teamName || "无战队" }}</view>
         </view>
         <view class="right">
-          <view class="nums">
-            <text>碎片 {{ fmt(m.shard?.w) }}</text>
-            <text>积分 {{ fmt(m.point?.av) }}</text>
-          </view>
+          <view class="tiny nums">碎片 {{ fmt(m.shard?.w) }} · 积分 {{ fmt(m.point?.av) }}</view>
           <view class="tiny">卡包 {{ fmt(m.unusedCards) }} 张</view>
         </view>
       </view>
@@ -264,12 +261,8 @@ watch(search, () => {});
   flex: none;
 }
 .nums {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #534ab7;
+  color: #6f6d66;
+  margin-bottom: 2px;
 }
 .empty,
 .more {

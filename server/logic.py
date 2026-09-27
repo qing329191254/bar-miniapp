@@ -2826,13 +2826,22 @@ def member_adjust_coin(sess: Session, uid: int, delta: int, reason: str, admin: 
     return {"ok": True, "balance": after}
 
 
+def _adj_reason(reason: str, *, required: bool) -> str:
+    text = (reason or "").strip()
+    if required and len(text) < 2:
+        raise ValueError("原因至少 2 个字")
+    return text
+
+
+def _reason_tail(reason: str) -> str:
+    return f" · 原因：{reason}" if reason else ""
+
+
 def member_adjust_point(sess: Session, uid: int, delta: int, reason: str, admin: dict,
-                        *, roles: tuple[str, ...] = ("BOSS",)) -> dict:
+                        *, roles: tuple[str, ...] = ("BOSS",), require_reason: bool = True) -> dict:
     if admin["role"] not in roles:
         raise ValueError("无权调整积分")
-    reason = (reason or "").strip()
-    if len(reason) < 2:
-        raise ValueError("原因至少 2 个字")
+    reason = _adj_reason(reason, required=require_reason)
     delta = int(delta or 0)
     if not delta:
         raise ValueError("请输入调整值")
@@ -2840,20 +2849,24 @@ def member_adjust_point(sess: Session, uid: int, delta: int, reason: str, admin:
     if not user or user.role != "CUSTOMER" or user.status != "ACTIVE":
         raise ValueError("会员不存在")
     w = wallet_of(sess, uid)
+    before = int(w.point_av or 0)
     w.point_av += delta
     w.point_pd = 0 if w.point_av >= 0 else -w.point_av
-    log(sess, "POINT_ADJUST", f"调整 {user.nick} 积分 {'+' if delta > 0 else ''}{delta} · 原因：{reason}", uid, admin)
+    log(
+        sess, "POINT_ADJUST",
+        f"快速调整 {user.nick} 积分 {'+' if delta > 0 else ''}{delta} · 可用 {before}→{w.point_av}"
+        f"{'（转待抵扣 '+str(w.point_pd)+'）' if w.point_av < 0 else ''}{_reason_tail(reason)}",
+        uid, admin,
+    )
     sess.flush()
     return {"ok": True}
 
 
 def member_adjust_shard(sess: Session, uid: int, delta: int, reason: str, admin: dict,
-                        *, roles: tuple[str, ...] = ("BOSS",)) -> dict:
+                        *, roles: tuple[str, ...] = ("BOSS",), require_reason: bool = True) -> dict:
     if admin["role"] not in roles:
         raise ValueError("无权调整碎片")
-    reason = (reason or "").strip()
-    if len(reason) < 2:
-        raise ValueError("原因至少 2 个字")
+    reason = _adj_reason(reason, required=require_reason)
     delta = int(delta or 0)
     if not delta:
         raise ValueError("请输入调整值")
@@ -2867,19 +2880,17 @@ def member_adjust_shard(sess: Session, uid: int, delta: int, reason: str, admin:
     w.shard_w += delta
     w.shard_t = max(w.shard_w, w.shard_t + delta)
     log(sess, "SHARD_ADJUST",
-        f"调整 {user.nick} 碎片 {'+' if delta > 0 else ''}{delta} · 本周 {bw}→{w.shard_w} · 累计 {bt}→{w.shard_t} · 原因：{reason}",
+        f"快速调整 {user.nick} 碎片 {'+' if delta > 0 else ''}{delta} · 本周 {bw}→{w.shard_w} · 累计 {bt}→{w.shard_t}{_reason_tail(reason)}",
         uid, admin)
     sess.flush()
     return {"ok": True}
 
 
 def member_grant_cards(sess: Session, uid: int, tpl_id: int, qty: int, reason: str, admin: dict,
-                       *, roles: tuple[str, ...] = ("BOSS", "MANAGER")) -> dict:
+                       *, roles: tuple[str, ...] = ("BOSS", "MANAGER"), require_reason: bool = True) -> dict:
     if admin["role"] not in roles:
         raise ValueError("无权补发卡券")
-    reason = (reason or "").strip()
-    if len(reason) < 2:
-        raise ValueError("原因至少 2 个字")
+    reason = _adj_reason(reason, required=require_reason)
     qty = int(qty or 0)
     if qty < 1:
         raise ValueError("数量至少为 1")
@@ -2890,8 +2901,8 @@ def member_grant_cards(sess: Session, uid: int, tpl_id: int, qty: int, reason: s
     if not tm:
         raise ValueError("卡券模板不存在")
     for _ in range(qty):
-        issue_card(sess, uid, tm, "MANUAL_GRANT", f"手动补发 · {fmt_hm()[:5]}")
-    log(sess, "CARD_GRANT", f"补发 {user.nick} · {tm.name} ×{qty} · 原因：{reason}", uid, admin)
+        issue_card(sess, uid, tm, "MANUAL_GRANT", f"店员补发 · {fmt_hm()[:5]}")
+    log(sess, "CARD_GRANT", f"快速补发 {user.nick} · {tm.name} ×{qty}{_reason_tail(reason)}", uid, admin)
     sess.flush()
     return {"ok": True, "qty": qty}
 
@@ -3013,21 +3024,84 @@ def staff_members_adjust_page(
     return {"rows": rows, "total": total, "page": page, "pageSize": page_size, "todayOnly": today_only and not q}
 
 
+ADJUST_LOG_ACTIONS = (
+    "SHARD_ADJUST", "POINT_ADJUST", "CARD_GRANT", "CARD_REVOKE",
+    "CARD_VERIFY_STAFF", "CARD_VERIFY",
+)
+
+
 def staff_member_adjust_detail(sess: Session, uid: int) -> dict:
     user = sess.get(User, uid)
     if not user or user.role != "CUSTOMER" or user.status != "ACTIVE":
         raise ValueError("会员不存在")
-    unused = sess.query(Card).filter_by(uid=uid, status="UNUSED").all()
+    unused = sess.query(Card).filter_by(uid=uid, status="UNUSED").order_by(Card.id.desc()).all()
+    used_n = sess.query(Card).filter_by(uid=uid, status="USED").count()
     by_tpl: dict[int, int] = {}
     for c in unused:
         by_tpl[c.tpl] = by_tpl.get(c.tpl, 0) + 1
     tpls = [t.to_dict() for t in sess.query(CardTpl).order_by(CardTpl.id).all()]
     for t in tpls:
         t["unused"] = by_tpl.get(int(t["id"]), 0)
+    unused_cards = []
+    for c in unused:
+        tm = tpl(sess, c.tpl)
+        unused_cards.append({
+            **c.to_dict(),
+            "tplName": tm.name if tm else "卡券",
+            "cat": tm.cat if tm else "",
+            "prize": tm.prize if tm else "",
+            "days": tm.days if tm else c.days_left,
+        })
+    logs = (
+        sess.query(OpLog)
+        .filter(OpLog.uid == uid, OpLog.action.in_(ADJUST_LOG_ACTIONS))
+        .order_by(OpLog.id.desc())
+        .limit(5)
+        .all()
+    )
+    member = staff_member_row(sess, user, len(unused))
+    member["usedCards"] = int(used_n)
     return {
-        "member": staff_member_row(sess, user, len(unused)),
+        "member": member,
         "cardTpls": tpls,
+        "unusedCards": unused_cards,
+        "logs": [x.to_dict() for x in logs],
     }
+
+
+def staff_direct_verify(sess: Session, uid: int, card_id: int, tail: str, reason: str, staff: dict) -> dict:
+    """代客核销：当面核对手机尾号后直接将 UNUSED 卡记为 USED。"""
+    if staff.get("role") not in STAFF_ADJUST_ROLES:
+        raise ValueError("无权代客核销")
+    reason = _adj_reason(reason, required=False)
+    user = sess.get(User, uid)
+    if not user or user.role != "CUSTOMER" or user.status != "ACTIVE":
+        raise ValueError("会员不存在")
+    tail = "".join(ch for ch in str(tail or "") if ch.isdigit())
+    if len(tail) != 4:
+        raise ValueError("请核对并输入顾客手机尾号 4 位")
+    if tail != (user.tail or ""):
+        raise ValueError("尾号不符，请重新与顾客核对")
+    card = sess.get(Card, int(card_id or 0))
+    if not card or card.uid != uid or card.status != "UNUSED":
+        raise ValueError("卡券状态已变更，请返回重试")
+    tm = tpl(sess, card.tpl)
+    card.status = "USED"
+    sess.add(VerifyLog(
+        card_no=card.no,
+        tpl_name=tm.name if tm else "卡券",
+        uid=uid,
+        op_uid=staff["id"],
+        at=f"{today_str()} {clock()}",
+        src="STAFF_DIRECT",
+    ))
+    log(
+        sess, "CARD_VERIFY_STAFF",
+        f"代客核销 {user.nick} 尾号 {tail} 已核对 · {(tm.name if tm else '卡券')} · 卡号 {card.no}{_reason_tail(reason)}",
+        uid, staff,
+    )
+    sess.flush()
+    return {"ok": True, "cardNo": card.no}
 
 
 def recharges_page(

@@ -61,6 +61,10 @@ def seed_all(reset: bool = False):
                 conn.execute(text("CREATE INDEX ix_users_last_active_at ON users (last_active_at)"))
             except Exception:
                 pass
+    verify_cols = {c["name"] for c in insp.get_columns("verify_logs")} if insp.has_table("verify_logs") else set()
+    if verify_cols and "src" not in verify_cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE verify_logs ADD COLUMN src VARCHAR(24) NOT NULL DEFAULT ''"))
     product_cols = {c["name"]: c for c in insp.get_columns("products")}
     img_type = product_cols.get("img", {}).get("type")
     if (
