@@ -1488,18 +1488,53 @@ def champ_count(sess: Session, uid, dim: str = "ALL") -> int:
     return q.count()
 
 
+def _reg_keys(sess: Session, uids: list[int]) -> dict[int, int]:
+    """Smaller key = earlier registration (first AgreeLog id; else large offset + uid)."""
+    if not uids:
+        return {}
+    rows = (
+        sess.query(AgreeLog.uid, func.min(AgreeLog.id))
+        .filter(AgreeLog.uid.in_(uids))
+        .group_by(AgreeLog.uid)
+        .all()
+    )
+    out = {int(uid): int(mid) for uid, mid in rows}
+    for uid in uids:
+        if uid not in out:
+            out[uid] = 10**9 + int(uid)
+    return out
+
+
 def rank_rows(sess: Session, kind: str, dim: str, subject: str):
     people = custs(sess)
     teams = [t for t in sess.query(Team).all() if (t.status or "ACTIVE") != "DISABLED"]
+    unique_ranks = False
     if kind == "SHARD":
-        def val(x: User):
-            w = wallet_of(sess, x.id)
-            return w.shard_w if dim == "WEEK" else w.shard_t
+        # 当周新增碎片榜（个人/战队）：当周碎片 → 历史累计碎片 → 当月积分 → 注册时间；禁止并列
+        unique_ranks = True
+        reg = _reg_keys(sess, [x.id for x in people])
         if subject == "USER":
-            rows = [{"x": x, "v": val(x)} for x in people]
+            rows = []
+            for x in people:
+                w = wallet_of(sess, x.id)
+                sw, st, pm = int(w.shard_w or 0), int(w.shard_t or 0), int(w.point_mg or 0)
+                rows.append({
+                    "x": x,
+                    "v": sw if dim == "WEEK" else st,
+                    "_sort": (-sw, -st, -pm, reg.get(x.id, 10**9 + x.id)),
+                })
         else:
-            rows = [{"t": t, "v": sum(val(x) for x in people if x.team_id == t.id),
-                     "ms": [x for x in people if x.team_id == t.id]} for t in teams]
+            rows = []
+            for t in teams:
+                ms = [x for x in people if x.team_id == t.id]
+                sw = sum(int(wallet_of(sess, x.id).shard_w or 0) for x in ms)
+                st = sum(int(wallet_of(sess, x.id).shard_t or 0) for x in ms)
+                pm = sum(int(wallet_of(sess, x.id).point_mg or 0) for x in ms)
+                rows.append({
+                    "t": t, "ms": ms,
+                    "v": sw if dim == "WEEK" else st,
+                    "_sort": (-sw, -st, -pm, int(t.id)),
+                })
     elif kind == "POINT":
         key = "wg" if dim == "WEEK" else "mg"
         def pval(x: User):
@@ -1518,10 +1553,17 @@ def rank_rows(sess: Session, kind: str, dim: str, subject: str):
             rows = [{"t": t, "v": sum(champ_count(sess, x.id, cdim) for x in people if x.team_id == t.id),
                      "ms": [x for x in people if x.team_id == t.id]} for t in teams]
     rows = [r for r in rows if r["v"] > 0]
-    rows.sort(key=lambda r: -r["v"])
+    if unique_ranks:
+        rows.sort(key=lambda r: r["_sort"])
+    else:
+        rows.sort(key=lambda r: -r["v"])
     prev = None
     for i, r in enumerate(rows):
-        r["rank"] = 1 if i == 0 else (prev["rank"] if r["v"] == prev["v"] else i + 1)
+        r.pop("_sort", None)
+        if unique_ranks:
+            r["rank"] = i + 1
+        else:
+            r["rank"] = 1 if i == 0 else (prev["rank"] if r["v"] == prev["v"] else i + 1)
         prev = r
         if "x" in r:
             r["user"] = public_user(sess, r["x"])
