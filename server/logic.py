@@ -1506,65 +1506,67 @@ def _reg_keys(sess: Session, uids: list[int]) -> dict[int, int]:
 
 
 def rank_rows(sess: Session, kind: str, dim: str, subject: str):
+    """All boards: unique ranks (no ties). Primary metric per kind, then shared breakers."""
     people = custs(sess)
     teams = [t for t in sess.query(Team).all() if (t.status or "ACTIVE") != "DISABLED"]
-    unique_ranks = False
-    if kind == "SHARD":
-        # 当周新增碎片榜（个人/战队）：当周碎片 → 历史累计碎片 → 当月积分 → 注册时间；禁止并列
-        unique_ranks = True
-        reg = _reg_keys(sess, [x.id for x in people])
-        if subject == "USER":
-            rows = []
-            for x in people:
-                w = wallet_of(sess, x.id)
-                sw, st, pm = int(w.shard_w or 0), int(w.shard_t or 0), int(w.point_mg or 0)
-                rows.append({
-                    "x": x,
-                    "v": sw if dim == "WEEK" else st,
-                    "_sort": (-sw, -st, -pm, reg.get(x.id, 10**9 + x.id)),
-                })
-        else:
-            rows = []
-            for t in teams:
-                ms = [x for x in people if x.team_id == t.id]
-                sw = sum(int(wallet_of(sess, x.id).shard_w or 0) for x in ms)
-                st = sum(int(wallet_of(sess, x.id).shard_t or 0) for x in ms)
-                pm = sum(int(wallet_of(sess, x.id).point_mg or 0) for x in ms)
-                rows.append({
-                    "t": t, "ms": ms,
-                    "v": sw if dim == "WEEK" else st,
-                    "_sort": (-sw, -st, -pm, int(t.id)),
-                })
-    elif kind == "POINT":
-        key = "wg" if dim == "WEEK" else "mg"
-        def pval(x: User):
-            w = wallet_of(sess, x.id)
-            return getattr(w, "point_wg" if key == "wg" else "point_mg")
-        if subject == "USER":
-            rows = [{"x": x, "v": pval(x)} for x in people]
-        else:
-            rows = [{"t": t, "v": sum(pval(x) for x in people if x.team_id == t.id),
-                     "ms": [x for x in people if x.team_id == t.id]} for t in teams]
+    reg = _reg_keys(sess, [x.id for x in people])
+    cdim = "WEEK" if dim == "WEEK" else "ALL"
+    point_attr = "point_wg" if dim == "WEEK" else "point_mg"
+
+    def metrics(x: User) -> tuple[int, int, int, int, int]:
+        w = wallet_of(sess, x.id)
+        sw, st = int(w.shard_w or 0), int(w.shard_t or 0)
+        pw = int(getattr(w, point_attr) or 0)
+        pm = int(w.point_mg or 0)
+        cc = champ_count(sess, x.id, cdim) if kind == "CHAMPION" else 0
+        return sw, st, pw, pm, cc
+
+    rows: list[dict] = []
+    if subject == "USER":
+        for x in people:
+            sw, st, pw, pm, cc = metrics(x)
+            rk = reg.get(x.id, 10**9 + x.id)
+            if kind == "SHARD":
+                # 当周碎片 → 历史碎片 → 当月积分 → 注册时间
+                v = sw if dim == "WEEK" else st
+                sort = (-sw, -st, -pm, rk)
+            elif kind == "POINT":
+                # 当周/当月积分 → 当周碎片 → 历史碎片 → 注册时间
+                v = pw
+                sort = (-pw, -sw, -st, rk)
+            else:
+                # 冠军次数 → 当周碎片 → 历史碎片 → 当月积分 → 注册时间
+                v = cc
+                sort = (-cc, -sw, -st, -pm, rk)
+            rows.append({"x": x, "v": v, "_sort": sort})
     else:
-        cdim = "WEEK" if dim == "WEEK" else "ALL"
-        if subject == "USER":
-            rows = [{"x": x, "v": champ_count(sess, x.id, cdim)} for x in people]
-        else:
-            rows = [{"t": t, "v": sum(champ_count(sess, x.id, cdim) for x in people if x.team_id == t.id),
-                     "ms": [x for x in people if x.team_id == t.id]} for t in teams]
+        for t in teams:
+            ms = [x for x in people if x.team_id == t.id]
+            sw = st = pw = pm = cc = 0
+            for x in ms:
+                a, b, c, d, e = metrics(x)
+                sw += a
+                st += b
+                pw += c
+                pm += d
+                cc += e
+            tid = int(t.id)
+            if kind == "SHARD":
+                v = sw if dim == "WEEK" else st
+                sort = (-sw, -st, -pm, tid)
+            elif kind == "POINT":
+                v = pw
+                sort = (-pw, -sw, -st, tid)
+            else:
+                v = cc
+                sort = (-cc, -sw, -st, -pm, tid)
+            rows.append({"t": t, "ms": ms, "v": v, "_sort": sort})
+
     rows = [r for r in rows if r["v"] > 0]
-    if unique_ranks:
-        rows.sort(key=lambda r: r["_sort"])
-    else:
-        rows.sort(key=lambda r: -r["v"])
-    prev = None
+    rows.sort(key=lambda r: r["_sort"])
     for i, r in enumerate(rows):
         r.pop("_sort", None)
-        if unique_ranks:
-            r["rank"] = i + 1
-        else:
-            r["rank"] = 1 if i == 0 else (prev["rank"] if r["v"] == prev["v"] else i + 1)
-        prev = r
+        r["rank"] = i + 1
         if "x" in r:
             r["user"] = public_user(sess, r["x"])
             del r["x"]
