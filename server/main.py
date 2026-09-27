@@ -930,6 +930,15 @@ def staff_members_adjust(
     return L.staff_members_adjust_page(db, q=q, today_only=bool(today), page=page, page_size=page_size)
 
 
+@app.post("/api/staff/members/adjust/demo-today")
+def staff_members_adjust_demo_today(staff: dict = Depends(staff_user), db: Session = Depends(get_db)):
+    """QA helper: mark sample customers as active today so the list is non-empty."""
+    n = L.stamp_today_active_members(db, 8)
+    page = L.staff_members_adjust_page(db, q="", today_only=True, page=1, page_size=20)
+    page["seeded"] = n
+    return page
+
+
 @app.get("/api/staff/members/{uid}/adjust")
 def staff_member_adjust_detail(uid: int, staff: dict = Depends(staff_user), db: Session = Depends(get_db)):
     try:

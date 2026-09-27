@@ -459,12 +459,9 @@ function hasDraft() {
     </view>
 
     <view v-if="wiz.step === 0" class="card quick-adjust" @tap="go('/pages/s/member-adjust')">
-      <view class="between">
-        <view class="quick-adjust-title">会员快速调整</view>
-        <text class="quick-adjust-arrow">›</text>
-      </view>
-      <view class="tiny quick-adjust-desc">
-        支持搜索手机尾号 4 位 / 会员名，当场增减碎片、积分、卡券；提交立即生效并留痕。金币请走 Web 端申请。
+      <view class="quick-adjust-title">会员快速调整 <text class="quick-adjust-arrow">›</text></view>
+      <view class="quick-adjust-desc">
+        搜手机尾号 4 位 / 会员名，就地增减碎片 · 积分 · 卡券。提交即生效并留痕。金币不在本页范围（仍需 Web 端申请与审批）。
       </view>
     </view>
 
@@ -820,19 +817,26 @@ function hasDraft() {
 }
 .quick-adjust {
   padding: 14px;
+  background: #e6f1fb;
+  border-color: #b5d4f4;
 }
 .quick-adjust-title {
   font-size: 15px;
   font-weight: 600;
+  color: #185fa5;
+  line-height: 1.3;
 }
 .quick-adjust-arrow {
-  font-size: 18px;
-  color: #9c9a93;
-  line-height: 1;
+  font-size: 16px;
+  font-weight: 500;
+  color: #185fa5;
+  margin-left: 2px;
 }
 .quick-adjust-desc {
   margin-top: 8px;
+  font-size: 12px;
   line-height: 1.65;
+  color: #3d8bcd;
 }
 .event-label {
   display: flex;

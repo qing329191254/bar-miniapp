@@ -2939,6 +2939,22 @@ def touch_customer_active(sess: Session, uid: int) -> None:
     user.last_active_at = time.time()
 
 
+def stamp_today_active_members(sess: Session, n: int = 8) -> int:
+    """Mark up to n active customers as opened the mini-program today (QA / demo)."""
+    now = time.time()
+    people = (
+        sess.query(User)
+        .filter_by(role="CUSTOMER", status="ACTIVE")
+        .order_by(User.id)
+        .limit(max(1, min(int(n or 8), 20)))
+        .all()
+    )
+    for i, u in enumerate(people):
+        u.last_active_at = now - i * 120
+    sess.flush()
+    return len(people)
+
+
 def _today_active_start() -> float:
     """Unix timestamp for business-local midnight today."""
     now = business_now()
