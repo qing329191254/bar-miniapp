@@ -1,8 +1,6 @@
 """Offline unit checks for member quick-adjust helpers (no MySQL)."""
 from __future__ import annotations
 
-import time
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import logic as L
@@ -13,24 +11,6 @@ def test_today_active_start_is_midnight():
     now = L.business_now()
     start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     assert abs(ts - start.timestamp()) < 1
-
-
-def test_stamp_today_active_members():
-    sess = MagicMock()
-    users = [
-        SimpleNamespace(id=1, role="CUSTOMER", status="ACTIVE", last_active_at=0),
-        SimpleNamespace(id=2, role="CUSTOMER", status="ACTIVE", last_active_at=0),
-    ]
-    q = MagicMock()
-    sess.query.return_value = q
-    q.filter_by.return_value = q
-    q.order_by.return_value = q
-    q.limit.return_value = q
-    q.all.return_value = users
-    n = L.stamp_today_active_members(sess, 8)
-    assert n == 2
-    assert users[0].last_active_at > users[1].last_active_at > 0
-    sess.flush.assert_called()
 
 
 def test_staff_adjust_roles():
@@ -72,7 +52,6 @@ def test_revoke_with_staff_roles_allowed_path():
 
 if __name__ == "__main__":
     test_today_active_start_is_midnight()
-    test_stamp_today_active_members()
     test_staff_adjust_roles()
     test_revoke_cards_validates_qty()
     test_revoke_cards_permission()

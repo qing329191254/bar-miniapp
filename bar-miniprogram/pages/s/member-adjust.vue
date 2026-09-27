@@ -34,15 +34,15 @@ async function load(reset = false) {
     ]
       .filter(Boolean)
       .join("&");
-    const data = await api(`/staff/members/adjust?${qs}`, { loading: false, silent: true });
+    // 首屏 / 搜索走全局 showLoading；翻页只用页底文案，避免 mask
+    const data = await api(`/staff/members/adjust?${qs}`, {
+      loading: reset,
+      silent: true,
+    });
     const next = data?.rows || [];
     rows.value = reset ? next : rows.value.concat(next);
     total.value = Number(data?.total || 0);
     todayOnly.value = !!data?.todayOnly;
-    // 空列表时自动灌入测试会员，方便看 UI
-    if (reset && !q && !rows.value.length) {
-      await seedDemo(true);
-    }
   } catch (e) {
     if (reset) {
       rows.value = [];
@@ -69,22 +69,6 @@ function loadMore() {
 
 function openMember(m) {
   go(`/pages/s/member-adjust-form?uid=${m.id}`);
-}
-
-async function seedDemo(silent = false) {
-  loading.value = true;
-  try {
-    const data = await api("/staff/members/adjust/demo-today", { method: "POST", loading: false, silent: true });
-    rows.value = data?.rows || [];
-    total.value = Number(data?.total || 0);
-    page.value = 1;
-    todayOnly.value = true;
-    if (!silent) toastText(`已加载 ${data?.seeded || rows.value.length} 位测试会员`);
-  } catch (e) {
-    if (!silent) toastText(e?.message || "加载失败");
-  } finally {
-    loading.value = false;
-  }
 }
 
 function fmt(n) {
@@ -128,10 +112,8 @@ watch(search, () => {});
       @scrolltolower="loadMore"
       lower-threshold="80"
     >
-      <view v-if="loading && !rows.length" class="empty">加载中…</view>
-      <view v-else-if="!rows.length" class="empty">
-        <view>{{ search.trim() ? "没有匹配的会员" : "今日暂无打开过小程序的会员" }}</view>
-        <button v-if="!search.trim()" class="btn ghost demo-btn" @tap="seedDemo">加载测试会员</button>
+      <view v-if="!loading && !rows.length" class="empty">
+        {{ search.trim() ? "没有匹配的会员" : "今日暂无打开过小程序的会员" }}
       </view>
       <view
         v-for="m in rows"
@@ -270,12 +252,6 @@ watch(search, () => {});
   padding: 24px 8px;
   color: #9c9a93;
   font-size: 12px;
-}
-.demo-btn {
-  margin-top: 14px;
-  display: inline-block;
-  padding: 8px 14px;
-  font-size: 13px;
 }
 .more.muted {
   opacity: 0.7;

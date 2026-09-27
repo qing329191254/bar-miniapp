@@ -70,11 +70,15 @@ function logLine(l) {
   return d.length > 72 ? `${d.slice(0, 72)}…` : d;
 }
 
-async function load() {
+async function load({ soft = false } = {}) {
   if (!uid.value) return;
   loading.value = true;
   try {
-    detail.value = await api(`/staff/members/${uid.value}/adjust`, { loading: false });
+    // 进页首屏用全局转圈；提交后刷新有数据时静默，避免叠两层
+    detail.value = await api(`/staff/members/${uid.value}/adjust`, {
+      loading: !soft,
+      silent: soft,
+    });
     syncDefaultTpl();
   } catch (e) {
     toastText(e?.message || "加载失败");
@@ -171,14 +175,12 @@ async function submitDlg() {
         await api(`/staff/members/${uid.value}/adjust-shard`, {
           method: "POST",
           body: { data: { delta, reason } },
-          loading: false,
         });
         toastText(`已调整 ${fmt(delta)} 碎片 · 已留痕`);
       } else {
         await api(`/staff/members/${uid.value}/adjust-point`, {
           method: "POST",
           body: { data: { delta, reason } },
-          loading: false,
         });
         toastText("已调整积分 · 已留痕");
       }
@@ -196,7 +198,6 @@ async function submitDlg() {
       await api(`/staff/members/${uid.value}/adjust-cards`, {
         method: "POST",
         body: { data: { tpl: form.tpl, qty, reason } },
-        loading: false,
       });
       toastText(form.cardDir === "revoke" ? `已扣减 ${qtyAbs} 张未使用卡 · 已留痕` : `已补发 ${qtyAbs} 张 · 已留痕`);
     } else if (dlg.value === "verify") {
@@ -212,12 +213,11 @@ async function submitDlg() {
       await api(`/staff/members/${uid.value}/direct-verify`, {
         method: "POST",
         body: { data: { cardId: form.cardId, tail, reason } },
-        loading: false,
       });
       toastText("已核销 1 张 · 已留痕");
     }
     dlg.value = null;
-    await load();
+    await load({ soft: true });
   } catch (e) {
     toastText(e?.message || "操作失败");
   } finally {
@@ -237,7 +237,7 @@ onShow(() => {
 <template>
   <page-meta :page-style="`overflow:${dlgOpen ? 'hidden' : 'visible'}`" />
   <view class="pbody">
-    <view v-if="loading && !member" class="empty">加载中…</view>
+    <view v-if="!loading && !member" class="empty">会员不存在或已失效</view>
     <template v-else-if="member">
       <view class="card head">
         <view class="av">{{ (member.av || member.nick || "?").slice(0, 2) }}</view>

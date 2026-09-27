@@ -16,9 +16,10 @@ from sqlalchemy.orm.attributes import flag_modified
 import cache
 from settings import demo_starter_enabled, in_cloud
 from models import (
-    AgreeLog, Card, CardTpl, Category, Champ, CoinAdjust, DailyBiz, Deactivation,
+    AgreeLog, AppLock, Card, CardTpl, Category, Champ, CoinAdjust, DailyBiz, Deactivation,
     GameRecord, OpLog, Order, Product, Project, Recharge, Setting, SettleLog,
-    SignRecord, SignRule, TableSeat, Team, Tier, User, VerifyCode, VerifyLog, Wallet, Withdrawal,
+    SignRecord, SignRule, SmsCode, StaffEvent, TableSeat, Team, Tier, User, VerifyCode,
+    VerifyLog, Wallet, Withdrawal,
 )
 
 MIN_MS = 60_000
@@ -2948,22 +2949,6 @@ def touch_customer_active(sess: Session, uid: int) -> None:
     user.last_active_at = time.time()
 
 
-def stamp_today_active_members(sess: Session, n: int = 8) -> int:
-    """Mark up to n active customers as opened the mini-program today (QA / demo)."""
-    now = time.time()
-    people = (
-        sess.query(User)
-        .filter_by(role="CUSTOMER", status="ACTIVE")
-        .order_by(User.id)
-        .limit(max(1, min(int(n or 8), 20)))
-        .all()
-    )
-    for i, u in enumerate(people):
-        u.last_active_at = now - i * 120
-    sess.flush()
-    return len(people)
-
-
 def _today_active_start() -> float:
     """Unix timestamp for business-local midnight today."""
     now = business_now()
@@ -3582,3 +3567,89 @@ def reports_page(
         body["rows"] = pg["items"]
         body["rowTotal"] = pg["total"]
     return {"rangeLabel": range_label(preset, date_from, date_to), "tab": tab, "today": today, "body": body}
+
+
+PURGE_KEEP_BOSSES_CONFIRM = "PURGE_KEEP_BOSSES"
+
+# Transactional / demo rows to wipe. Keep: settings(agreements/content/config),
+# catalog (products/cats/projects/card_tpls/tiers/tables/sign_rules), and BOSS users.
+_PURGE_FULL_CLEAR_MODELS = (
+    StaffEvent,
+    SmsCode,
+    AppLock,
+    AgreeLog,
+    OpLog,
+    SettleLog,
+    VerifyLog,
+    DailyBiz,
+    GameRecord,
+    SignRecord,
+    CoinAdjust,
+    Deactivation,
+    Withdrawal,
+    Recharge,
+    Order,
+    VerifyCode,
+    Card,
+    Champ,
+    Team,
+)
+
+
+def purge_test_data_keep_bosses(sess: Session, admin: dict, confirm: str) -> dict:
+    """One-shot launch cleanup: keep boss accounts + shop config, wipe test business data."""
+    if admin.get("role") != "BOSS":
+        raise ValueError("仅老板可执行清库")
+    if (confirm or "").strip() != PURGE_KEEP_BOSSES_CONFIRM:
+        raise ValueError(f"确认口令不正确，请传入 {PURGE_KEEP_BOSSES_CONFIRM}")
+
+    bosses = sess.query(User).filter(User.role == "BOSS").order_by(User.id).all()
+    if not bosses:
+        raise ValueError("未找到老板账号，已中止")
+    boss_ids = [b.id for b in bosses]
+    kept = [
+        {"id": b.id, "no": b.no, "nick": b.nick, "phone": b.phone, "tail": b.tail}
+        for b in bosses
+    ]
+
+    deleted: dict[str, int] = {}
+    for model in _PURGE_FULL_CLEAR_MODELS:
+        n = sess.query(model).delete(synchronize_session=False)
+        deleted[model.__tablename__] = int(n or 0)
+
+    deleted["wallets_others"] = int(
+        sess.query(Wallet).filter(~Wallet.user_id.in_(boss_ids)).delete(synchronize_session=False) or 0
+    )
+    deleted["users_others"] = int(
+        sess.query(User).filter(~User.id.in_(boss_ids)).delete(synchronize_session=False) or 0
+    )
+
+    for b in bosses:
+        b.team_id = None
+        b.last_active_at = 0.0
+        w = sess.get(Wallet, b.id)
+        if not w:
+            w = Wallet(user_id=b.id)
+            sess.add(w)
+        w.coin_p = w.coin_b = 0
+        w.point_av = w.point_wg = w.point_mg = w.point_pd = w.point_wd = w.point_fz = 0
+        w.shard_w = w.shard_t = 0
+        w.sign_streak = 0
+
+    log(
+        sess,
+        "DATA_PURGE",
+        f"上线清库：保留 {len(boss_ids)} 个老板账号，清除测试业务数据",
+        None,
+        admin,
+    )
+    sess.flush()
+    return {
+        "ok": True,
+        "keptBosses": kept,
+        "deleted": deleted,
+        "kept": [
+            "settings(agreements/content/config/…)",
+            "products", "cats", "projects", "card_tpls", "tiers", "shop_tables", "sign_rules",
+        ],
+    }
