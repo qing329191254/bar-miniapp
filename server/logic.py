@@ -2826,9 +2826,10 @@ def member_adjust_coin(sess: Session, uid: int, delta: int, reason: str, admin: 
     return {"ok": True, "balance": after}
 
 
-def member_adjust_point(sess: Session, uid: int, delta: int, reason: str, admin: dict) -> dict:
-    if admin["role"] != "BOSS":
-        raise ValueError("仅老板可调整积分")
+def member_adjust_point(sess: Session, uid: int, delta: int, reason: str, admin: dict,
+                        *, roles: tuple[str, ...] = ("BOSS",)) -> dict:
+    if admin["role"] not in roles:
+        raise ValueError("无权调整积分")
     reason = (reason or "").strip()
     if len(reason) < 2:
         raise ValueError("原因至少 2 个字")
@@ -2846,9 +2847,10 @@ def member_adjust_point(sess: Session, uid: int, delta: int, reason: str, admin:
     return {"ok": True}
 
 
-def member_adjust_shard(sess: Session, uid: int, delta: int, reason: str, admin: dict) -> dict:
-    if admin["role"] != "BOSS":
-        raise ValueError("仅老板可调整碎片")
+def member_adjust_shard(sess: Session, uid: int, delta: int, reason: str, admin: dict,
+                        *, roles: tuple[str, ...] = ("BOSS",)) -> dict:
+    if admin["role"] not in roles:
+        raise ValueError("无权调整碎片")
     reason = (reason or "").strip()
     if len(reason) < 2:
         raise ValueError("原因至少 2 个字")
@@ -2871,9 +2873,10 @@ def member_adjust_shard(sess: Session, uid: int, delta: int, reason: str, admin:
     return {"ok": True}
 
 
-def member_grant_cards(sess: Session, uid: int, tpl_id: int, qty: int, reason: str, admin: dict) -> dict:
-    if admin["role"] not in ("BOSS", "MANAGER"):
-        raise ValueError("仅店长以上可补发卡券")
+def member_grant_cards(sess: Session, uid: int, tpl_id: int, qty: int, reason: str, admin: dict,
+                       *, roles: tuple[str, ...] = ("BOSS", "MANAGER")) -> dict:
+    if admin["role"] not in roles:
+        raise ValueError("无权补发卡券")
     reason = (reason or "").strip()
     if len(reason) < 2:
         raise ValueError("原因至少 2 个字")
@@ -2891,6 +2894,124 @@ def member_grant_cards(sess: Session, uid: int, tpl_id: int, qty: int, reason: s
     log(sess, "CARD_GRANT", f"补发 {user.nick} · {tm.name} ×{qty} · 原因：{reason}", uid, admin)
     sess.flush()
     return {"ok": True, "qty": qty}
+
+
+def member_revoke_cards(sess: Session, uid: int, tpl_id: int, qty: int, reason: str, admin: dict,
+                        *, roles: tuple[str, ...] = ("BOSS", "MANAGER")) -> dict:
+    if admin["role"] not in roles:
+        raise ValueError("无权扣减卡券")
+    reason = (reason or "").strip()
+    if len(reason) < 2:
+        raise ValueError("原因至少 2 个字")
+    qty = int(qty or 0)
+    if qty < 1:
+        raise ValueError("数量至少为 1")
+    user = sess.get(User, uid)
+    if not user or user.role != "CUSTOMER" or user.status != "ACTIVE":
+        raise ValueError("会员不存在")
+    tm = sess.get(CardTpl, tpl_id)
+    if not tm:
+        raise ValueError("卡券模板不存在")
+    cards = (
+        sess.query(Card)
+        .filter_by(uid=uid, tpl=tpl_id, status="UNUSED")
+        .order_by(Card.id.asc())
+        .limit(qty)
+        .all()
+    )
+    if len(cards) < qty:
+        raise ValueError(f"未使用「{tm.name}」仅剩 {len(cards)} 张，无法扣减 {qty} 张")
+    for c in cards:
+        c.status = "VOID"
+        c.void_reason = f"手动扣减 · {reason}"[:64]
+    log(sess, "CARD_REVOKE", f"扣减 {user.nick} · {tm.name} ×{qty} · 原因：{reason}", uid, admin)
+    sess.flush()
+    return {"ok": True, "qty": qty}
+
+
+STAFF_ADJUST_ROLES = ("STAFF", "MANAGER", "BOSS")
+
+
+def touch_customer_active(sess: Session, uid: int) -> None:
+    user = sess.get(User, uid)
+    if not user or user.role != "CUSTOMER" or user.status != "ACTIVE":
+        return
+    user.last_active_at = time.time()
+
+
+def _today_active_start() -> float:
+    """Unix timestamp for business-local midnight today."""
+    now = business_now()
+    return now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+
+
+def staff_member_row(sess: Session, user: User, unused_cards: int | None = None) -> dict:
+    row = public_user(sess, user) or {}
+    if unused_cards is None:
+        unused_cards = sess.query(Card).filter_by(uid=user.id, status="UNUSED").count()
+    row["unusedCards"] = int(unused_cards or 0)
+    row["lastActiveAt"] = float(getattr(user, "last_active_at", 0) or 0)
+    return row
+
+
+def staff_members_adjust_page(
+    sess: Session,
+    q: str = "",
+    today_only: bool = True,
+    page: int = 1,
+    page_size: int = 20,
+) -> dict:
+    q = (q or "").strip()
+    people = custs(sess)
+    if q:
+        people = [x for x in people if q in (x.nick or "") or q in (x.tail or "") or q in (x.no or "")]
+        today_only = False
+    start_ts = _today_active_start()
+    if today_only:
+        people = [x for x in people if float(getattr(x, "last_active_at", 0) or 0) >= start_ts]
+        people.sort(key=lambda x: float(getattr(x, "last_active_at", 0) or 0), reverse=True)
+    else:
+        people.sort(
+            key=lambda x: (
+                0 if float(getattr(x, "last_active_at", 0) or 0) >= start_ts else 1,
+                -float(getattr(x, "last_active_at", 0) or 0),
+                x.id,
+            )
+        )
+    total = len(people)
+    page_size = max(1, min(int(page_size or 20), 50))
+    page = max(1, int(page or 1))
+    start = (page - 1) * page_size
+    slice_ = people[start:start + page_size]
+    ids = [x.id for x in slice_]
+    unused_map: dict[int, int] = {}
+    if ids:
+        for uid, n in (
+            sess.query(Card.uid, func.count())
+            .filter(Card.uid.in_(ids), Card.status == "UNUSED")
+            .group_by(Card.uid)
+            .all()
+        ):
+            unused_map[int(uid)] = int(n)
+    rows = [staff_member_row(sess, x, unused_map.get(x.id, 0)) for x in slice_]
+    return {"rows": rows, "total": total, "page": page, "pageSize": page_size, "todayOnly": today_only and not q}
+
+
+def staff_member_adjust_detail(sess: Session, uid: int) -> dict:
+    user = sess.get(User, uid)
+    if not user or user.role != "CUSTOMER" or user.status != "ACTIVE":
+        raise ValueError("会员不存在")
+    unused = sess.query(Card).filter_by(uid=uid, status="UNUSED").all()
+    by_tpl: dict[int, int] = {}
+    for c in unused:
+        by_tpl[c.tpl] = by_tpl.get(c.tpl, 0) + 1
+    tpls = [t.to_dict() for t in sess.query(CardTpl).order_by(CardTpl.id).all()]
+    for t in tpls:
+        t["unused"] = by_tpl.get(int(t["id"]), 0)
+    return {
+        "member": staff_member_row(sess, user, len(unused)),
+        "cardTpls": tpls,
+    }
 
 
 def recharges_page(

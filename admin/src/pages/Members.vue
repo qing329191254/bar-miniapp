@@ -33,7 +33,7 @@ const cardTplOpts = computed(() =>
 
 type AdjKind = "coin" | "point" | "shard" | "card";
 const adjOpen = ref<AdjKind | null>(null);
-const adjForm = ref({ delta: null as number | null, tpl: 0, qty: 1, reason: "" });
+const adjForm = ref({ delta: null as number | null, tpl: 0, qty: 1, reason: "", cardDir: "grant" as "grant" | "revoke" });
 
 const WDR_ST: Record<string, [string, string, string]> = {
   GRANTED: ["已发放", "green", "greenbg"],
@@ -144,6 +144,7 @@ function openAdj(kind: AdjKind) {
     tpl: tpls[0]?.id || 0,
     qty: 1,
     reason: "",
+    cardDir: "grant",
   };
   adjOpen.value = kind;
 }
@@ -175,6 +176,16 @@ async function submitAdj() {
         return;
       }
     }
+  } else {
+    const qty = Math.abs(Number(adjForm.value.qty || 0));
+    if (!qty) {
+      showToast("数量至少为 1", true);
+      return;
+    }
+    if (!adjForm.value.tpl) {
+      showToast("请选择卡券模板", true);
+      return;
+    }
   }
   acting.value = true;
   try {
@@ -197,10 +208,16 @@ async function submitAdj() {
         body: { data: { delta: Number(adjForm.value.delta || 0), reason } },
       });
       showToast("已调整并留痕");
+    } else if (adjForm.value.cardDir === "revoke") {
+      await api(`/admin/members/${id}/revoke-cards`, {
+        method: "POST",
+        body: { data: { tpl: Number(adjForm.value.tpl), qty: Math.abs(Number(adjForm.value.qty || 1)), reason } },
+      });
+      showToast("已扣减未使用卡券");
     } else {
       await api(`/admin/members/${id}/grant-cards`, {
         method: "POST",
-        body: { data: { tpl: Number(adjForm.value.tpl), qty: Number(adjForm.value.qty || 1), reason } },
+        body: { data: { tpl: Number(adjForm.value.tpl), qty: Math.abs(Number(adjForm.value.qty || 1)), reason } },
       });
       showToast("已补发");
     }
@@ -350,27 +367,27 @@ watch(kw, () => {
       <div class="card">
         <div class="st">
           手动调整
-          <em>{{ isBoss ? "老板可直接调整 · 每笔留痕并推送" : "店长可发起申请 / 补发卡券" }}</em>
+          <em>{{ isBoss ? "老板可直接调整 · 每笔留痕并推送" : "店长可发起申请 / 调整卡券" }}</em>
         </div>
         <div v-if="isBoss" class="row adj-btns">
           <button class="btn sm" @click="openAdj('coin')">调整金币</button>
           <button class="btn sm" @click="openAdj('point')">调整积分</button>
           <button class="btn sm" @click="openAdj('shard')">调整碎片</button>
-          <button class="btn sm" @click="openAdj('card')">补发卡券</button>
+          <button class="btn sm" @click="openAdj('card')">调整卡券</button>
         </div>
         <div v-else>
           <div class="row adj-btns">
             <button class="btn sm" @click="openAdj('coin')">申请调整金币</button>
-            <button v-if="canGrantCard" class="btn sm" @click="openAdj('card')">补发卡券</button>
+            <button v-if="canGrantCard" class="btn sm" @click="openAdj('card')">调整卡券</button>
           </div>
           <div class="tiny mgr-note">
-            店长提交金币调整后，<b>会员余额不会立即变化</b>；老板需在「数据看板 → 经营提醒 → 金币手动调整」中审批，审批通过后才会生效。积分与碎片仅老板可调整。
+            店长提交金币调整后，<b>会员余额不会立即变化</b>；老板需在「数据看板 → 经营提醒 → 金币手动调整」中审批，审批通过后才会生效。积分与碎片仅老板可调整。店长可补发或扣减未使用卡券。
           </div>
         </div>
       </div>
 
       <div class="note rd multi">
-        <p><b>手动调整规则：</b>老板可直接调整金币，店长提交后需老板审批；积分与碎片仅老板可调整；店长与老板均可补发卡券。每次操作必须填写原因并保留记录。碎片会影响周榜排名与宝箱卡归属，已完成结算的奖励不会随之后续调整而改变。</p>
+        <p><b>手动调整规则：</b>老板可直接调整金币，店长提交后需老板审批；积分与碎片仅老板可调整；店长与老板均可补发或扣减未使用卡券。每次操作必须填写原因并保留记录。碎片会影响周榜排名与宝箱卡归属，已完成结算的奖励不会随之后续调整而改变。</p>
       </div>
     </div>
 
@@ -425,7 +442,7 @@ watch(kw, () => {
                 ? "调整积分"
                 : adjOpen === "shard"
                   ? "调整碎片"
-                  : "补发卡券"
+                  : "调整卡券"
           }}
         </div>
 
@@ -436,10 +453,16 @@ watch(kw, () => {
         </template>
 
         <template v-if="adjOpen === 'card'">
+          <div class="fld">操作</div>
+          <div class="row adj-btns" style="margin-bottom:8px">
+            <button type="button" class="btn sm" :class="{ ghost: adjForm.cardDir !== 'grant' }" @click="adjForm.cardDir = 'grant'">补发</button>
+            <button type="button" class="btn sm" :class="{ ghost: adjForm.cardDir !== 'revoke' }" @click="adjForm.cardDir = 'revoke'">扣减未使用</button>
+          </div>
           <div class="fld">卡券模板</div>
           <AppSelect v-model="adjForm.tpl" :options="cardTplOpts" no-margin class="adj-select" />
           <div class="fld">数量</div>
           <input v-model.number="adjForm.qty" class="inp" type="number" min="1" />
+          <div v-if="adjForm.cardDir === 'revoke'" class="tiny coin-hint">将作废该会员对应数量的未使用卡券；不足时报错。</div>
         </template>
 
         <template v-else>
@@ -468,7 +491,9 @@ watch(kw, () => {
               adjOpen === "coin"
                 ? isBoss ? "确认调整" : "提交申请"
                 : adjOpen === "card"
-                  ? "确认补发"
+                  ? adjForm.cardDir === "revoke"
+                    ? "确认扣减"
+                    : "确认补发"
                   : "确认调整"
             }}
           </button>

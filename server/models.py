@@ -26,6 +26,7 @@ class User(Base):
     agreed_version: Mapped[int] = mapped_column(Integer, default=0)
     pwd: Mapped[str] = mapped_column(String(128), default="")
     wx_openid: Mapped[str] = mapped_column(String(64), default="", index=True)
+    last_active_at: Mapped[float] = mapped_column(Float, default=0, index=True)
 
     wallet: Mapped["Wallet"] = relationship(back_populates="user", uselist=False, cascade="all, delete-orphan")
 

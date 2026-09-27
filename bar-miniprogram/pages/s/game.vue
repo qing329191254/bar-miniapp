@@ -458,6 +458,16 @@ function hasDraft() {
       <button class="btn block grad-dark" @tap="startWiz">开始录入</button>
     </view>
 
+    <view v-if="wiz.step === 0" class="card quick-adjust" @tap="go('/pages/s/member-adjust')">
+      <view class="between">
+        <view class="quick-adjust-title">会员快速调整</view>
+        <text class="quick-adjust-arrow">›</text>
+      </view>
+      <view class="tiny quick-adjust-desc">
+        支持搜索手机尾号 4 位 / 会员名，当场增减碎片、积分、卡券；提交立即生效并留痕。金币请走 Web 端申请。
+      </view>
+    </view>
+
     <!-- 成功 -->
     <view v-else-if="wiz.step === 5">
       <view class="payok">
@@ -807,6 +817,22 @@ function hasDraft() {
 .game-start-sub {
   margin: 0 0 16px;
   line-height: 1.6;
+}
+.quick-adjust {
+  padding: 14px;
+}
+.quick-adjust-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.quick-adjust-arrow {
+  font-size: 18px;
+  color: #9c9a93;
+  line-height: 1;
+}
+.quick-adjust-desc {
+  margin-top: 8px;
+  line-height: 1.65;
 }
 .event-label {
   display: flex;

@@ -101,6 +101,14 @@
 			"style": { "navigationBarTitleText": "录对局" }
 		},
 		{
+			"path": "pages/s/member-adjust",
+			"style": { "navigationBarTitleText": "会员快速调整" }
+		},
+		{
+			"path": "pages/s/member-adjust-form",
+			"style": { "navigationBarTitleText": "调整会员资产" }
+		},
+		{
 			"path": "pages/s/scan",
 			"style": {
 				"navigationStyle": "custom",

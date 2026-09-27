@@ -1,5 +1,5 @@
 <script>
-import { hideWxHomeButton } from "@/utils/api";
+import { hideWxHomeButton, token, api } from "@/utils/api";
 import { startStaffReminder, stopStaffReminder } from "@/utils/staff-reminder";
 
 export default {
@@ -11,6 +11,9 @@ export default {
 	onShow() {
 		hideWxHomeButton();
 		startStaffReminder();
+		if (token()) {
+			api("/activity/ping", { method: "POST", loading: false, silent: true }).catch(() => undefined);
+		}
 	},
 	onHide() {
 		stopStaffReminder();

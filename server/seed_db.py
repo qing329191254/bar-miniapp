@@ -54,6 +54,13 @@ def seed_all(reset: bool = False):
     if "wx_openid" not in cols:
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE users ADD COLUMN wx_openid VARCHAR(64) NOT NULL DEFAULT ''"))
+    if "last_active_at" not in cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN last_active_at DOUBLE NOT NULL DEFAULT 0"))
+            try:
+                conn.execute(text("CREATE INDEX ix_users_last_active_at ON users (last_active_at)"))
+            except Exception:
+                pass
     product_cols = {c["name"]: c for c in insp.get_columns("products")}
     img_type = product_cols.get("img", {}).get("type")
     if (

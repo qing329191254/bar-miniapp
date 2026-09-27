@@ -236,6 +236,8 @@ async def on_shutdown():
 
 
 def session_payload(db: Session, user: User) -> dict:
+    if user.role == "CUSTOMER":
+        L.touch_customer_active(db, user.id)
     token = cache.session_create(user.id)
     return {"token": token, "user": L.public_user(db, user)}
 
@@ -377,6 +379,8 @@ def dev_reset():
 
 @app.get("/api/me")
 def me(user: dict = Depends(current_user), db: Session = Depends(get_db)):
+    if user.get("role") == "CUSTOMER":
+        L.touch_customer_active(db, user["id"])
     cards = db.query(Card).filter_by(uid=user["id"], status="UNUSED").all()
     days = L.signed_days(db, user["id"])
     return {
@@ -394,6 +398,13 @@ def me(user: dict = Depends(current_user), db: Session = Depends(get_db)):
         "push": push_config_normalized(db),
         "content": L.setting(db, "content"),
     }
+
+
+@app.post("/api/activity/ping")
+def activity_ping(user: dict = Depends(current_user), db: Session = Depends(get_db)):
+    if user.get("role") == "CUSTOMER":
+        L.touch_customer_active(db, user["id"])
+    return {"ok": True}
 
 
 @app.post("/api/register")
@@ -905,6 +916,66 @@ def staff_members(q: str = "", staff: dict = Depends(staff_user), db: Session = 
     today_ids = {o.uid for o in db.query(Order).all()}
     lst = sorted(lst, key=lambda x: (0 if x.id in today_ids else 1, x.id))
     return [L.public_user(db, x) for x in lst]
+
+
+@app.get("/api/staff/members/adjust")
+def staff_members_adjust(
+    q: str = "",
+    today: int = Query(1, ge=0, le=1),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=50, alias="pageSize"),
+    staff: dict = Depends(staff_user),
+    db: Session = Depends(get_db),
+):
+    return L.staff_members_adjust_page(db, q=q, today_only=bool(today), page=page, page_size=page_size)
+
+
+@app.get("/api/staff/members/{uid}/adjust")
+def staff_member_adjust_detail(uid: int, staff: dict = Depends(staff_user), db: Session = Depends(get_db)):
+    try:
+        return L.staff_member_adjust_detail(db, uid)
+    except ValueError as e:
+        fail(e)
+
+
+@app.post("/api/staff/members/{uid}/adjust-point")
+def staff_adjust_point(uid: int, body: PatchIn, staff: dict = Depends(staff_user), db: Session = Depends(get_db)):
+    data = body.data or {}
+    try:
+        return L.member_adjust_point(
+            db, uid, int(data.get("delta") or 0), str(data.get("reason") or ""), staff,
+            roles=L.STAFF_ADJUST_ROLES,
+        )
+    except ValueError as e:
+        fail(e)
+
+
+@app.post("/api/staff/members/{uid}/adjust-shard")
+def staff_adjust_shard(uid: int, body: PatchIn, staff: dict = Depends(staff_user), db: Session = Depends(get_db)):
+    data = body.data or {}
+    try:
+        return L.member_adjust_shard(
+            db, uid, int(data.get("delta") or 0), str(data.get("reason") or ""), staff,
+            roles=L.STAFF_ADJUST_ROLES,
+        )
+    except ValueError as e:
+        fail(e)
+
+
+@app.post("/api/staff/members/{uid}/adjust-cards")
+def staff_adjust_cards(uid: int, body: PatchIn, staff: dict = Depends(staff_user), db: Session = Depends(get_db)):
+    data = body.data or {}
+    qty = int(data.get("qty") or 0)
+    reason = str(data.get("reason") or "")
+    tpl = int(data.get("tpl") or 0)
+    try:
+        if qty > 0:
+            return L.member_grant_cards(db, uid, tpl, qty, reason, staff, roles=L.STAFF_ADJUST_ROLES)
+        if qty < 0:
+            return L.member_revoke_cards(db, uid, tpl, abs(qty), reason, staff, roles=L.STAFF_ADJUST_ROLES)
+        raise ValueError("请输入调整数量")
+    except ValueError as e:
+        fail(e)
 
 
 @app.get("/api/staff/projects")
@@ -1986,6 +2057,15 @@ def member_grant_cards(uid: int, body: PatchIn, admin: dict = Depends(admin_user
     data = body.data or {}
     try:
         return L.member_grant_cards(db, uid, int(data.get("tpl") or 0), int(data.get("qty") or 1), str(data.get("reason") or ""), admin)
+    except ValueError as e:
+        fail(e)
+
+
+@app.post("/api/admin/members/{uid}/revoke-cards")
+def member_revoke_cards(uid: int, body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    data = body.data or {}
+    try:
+        return L.member_revoke_cards(db, uid, int(data.get("tpl") or 0), int(data.get("qty") or 1), str(data.get("reason") or ""), admin)
     except ValueError as e:
         fail(e)
 
