@@ -983,7 +983,12 @@ def staff_adjust_cards(uid: int, body: PatchIn, staff: dict = Depends(staff_user
                 db, uid, tpl_id, qty, reason, staff,
                 roles=L.STAFF_ADJUST_ROLES, require_reason=False,
             )
-        raise ValueError("店员端请用「补发卡券」；扣卡请使用代客核销")
+        if qty < 0:
+            return L.member_revoke_cards(
+                db, uid, tpl_id, abs(qty), reason, staff,
+                roles=L.STAFF_ADJUST_ROLES, require_reason=False,
+            )
+        raise ValueError("请输入调整数量")
     except ValueError as e:
         fail(e)
 

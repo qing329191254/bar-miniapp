@@ -11,6 +11,7 @@ const dlg = ref(null); // shard | point | card | verify | null
 
 const form = reactive({
   delta: "",
+  cardDir: "grant", // grant | revoke
   tpl: 0,
   qty: "1",
   cardId: 0,
@@ -24,11 +25,17 @@ const unusedCards = computed(() => detail.value?.unusedCards || []);
 const logs = computed(() => detail.value?.logs || []);
 const unusedN = computed(() => Number(member.value?.unusedCards || 0));
 
-const tplOpts = computed(() =>
+const grantTplOpts = computed(() =>
   tpls.value.map((t) => ({ id: t.id, label: `${t.name}（${t.days || 30} 天）` })),
 );
+const revokeTplOpts = computed(() =>
+  tpls.value
+    .filter((t) => Number(t.unused || 0) > 0)
+    .map((t) => ({ id: t.id, label: `${t.name} · 未用 ${t.unused} 张` })),
+);
+const cardTplOpts = computed(() => (form.cardDir === "revoke" ? revokeTplOpts.value : grantTplOpts.value));
 const tplIndex = computed(() => {
-  const i = tpls.value.findIndex((t) => t.id === form.tpl);
+  const i = cardTplOpts.value.findIndex((t) => t.id === form.tpl);
   return i < 0 ? 0 : i;
 });
 const cardOpts = computed(() =>
@@ -68,13 +75,21 @@ async function load() {
   loading.value = true;
   try {
     detail.value = await api(`/staff/members/${uid.value}/adjust`, { loading: false });
-    if (!form.tpl && tpls.value.length) form.tpl = tpls.value[0].id;
-    if (!form.cardId && unusedCards.value.length) form.cardId = unusedCards.value[0].id;
+    syncDefaultTpl();
   } catch (e) {
     toastText(e?.message || "加载失败");
   } finally {
     loading.value = false;
   }
+}
+
+function syncDefaultTpl() {
+  const opts = form.cardDir === "revoke" ? revokeTplOpts.value : grantTplOpts.value;
+  if (!opts.length) {
+    form.tpl = 0;
+    return;
+  }
+  if (!opts.some((t) => t.id === form.tpl)) form.tpl = opts[0].id;
 }
 
 function switchPerson() {
@@ -91,7 +106,14 @@ function openDlg(kind) {
   form.qty = "1";
   form.tail = "";
   form.reason = "";
-  if (kind === "card" && tpls.value.length) form.tpl = tpls.value[0].id;
+  form.cardDir = "grant";
+  if (kind === "card") {
+    syncDefaultTpl();
+    if (!tpls.value.length) {
+      toastText("暂无可用卡券模板");
+      return;
+    }
+  }
   if (kind === "verify") {
     if (!unusedCards.value.length) {
       toastText("该顾客没有可核销的卡券");
@@ -111,8 +133,17 @@ function setChip(v) {
   form.delta = String(v);
 }
 
+function setCardDir(dir) {
+  form.cardDir = dir;
+  form.qty = "1";
+  syncDefaultTpl();
+  if (dir === "revoke" && !revokeTplOpts.value.length) {
+    toastText("该顾客没有可扣减的未使用卡券");
+  }
+}
+
 function onTplPick(e) {
-  const t = tpls.value[Number(e.detail.value || 0)];
+  const t = cardTplOpts.value[Number(e.detail.value || 0)];
   if (t) form.tpl = t.id;
 }
 function onCardPick(e) {
@@ -152,17 +183,22 @@ async function submitDlg() {
         toastText("已调整积分 · 已留痕");
       }
     } else if (dlg.value === "card") {
-      const qty = Math.max(1, Math.abs(Number(form.qty) || 0));
+      const qtyAbs = Math.max(1, Math.abs(Number(form.qty) || 0));
       if (!form.tpl) {
         toastText("请选择卡券类型");
         return;
       }
+      if (form.cardDir === "revoke" && !revokeTplOpts.value.length) {
+        toastText("该顾客没有可扣减的未使用卡券");
+        return;
+      }
+      const qty = form.cardDir === "revoke" ? -qtyAbs : qtyAbs;
       await api(`/staff/members/${uid.value}/adjust-cards`, {
         method: "POST",
         body: { data: { tpl: form.tpl, qty, reason } },
         loading: false,
       });
-      toastText(`已补发 ${qty} 张 · 已留痕`);
+      toastText(form.cardDir === "revoke" ? `已扣减 ${qtyAbs} 张未使用卡 · 已留痕` : `已补发 ${qtyAbs} 张 · 已留痕`);
     } else if (dlg.value === "verify") {
       const tail = String(form.tail || "").trim();
       if (!tail) {
@@ -254,14 +290,14 @@ onShow(() => {
       <view class="actions">
         <button class="btn act shard" @tap="openDlg('shard')">调整碎片</button>
         <button class="btn act point" @tap="openDlg('point')">调整积分</button>
-        <button class="btn act" @tap="openDlg('card')">补发卡券</button>
+        <button class="btn act" @tap="openDlg('card')">调整卡券</button>
         <button class="btn act" :class="{ dan: unusedN > 0 }" :disabled="!unusedN" @tap="openDlg('verify')">
           代客核销{{ unusedN ? `（${unusedN} 张可用）` : "" }}
         </button>
       </view>
 
       <view class="warn">
-        调整立即生效，系统自动记明操作人、时间、调整前后数值与来源端，同步推送老板，顾客端也能查到。碎片影响周榜排名与宝箱卡成本，提交前请核对人。原因选填，建议写一句便于事后对账。
+        碎片 / 积分填正数增加、负数扣减；卡券在「调整卡券」里可选补发或扣减未使用卡。代客核销是当面用掉卡，需核对尾号。提交立即生效并留痕。原因选填。
       </view>
 
       <view class="st">最近调整 <text class="em">{{ logs.length }} 条 · 仅显示本会员</text></view>
@@ -276,7 +312,7 @@ onShow(() => {
       </view>
 
       <view class="note">
-        <text class="b">权限边界：</text>本页可直接增减顾客的碎片 / 积分 / 卡券，提交即生效、选填原因、全量留痕并推送老板。金币不在本页——真实负债仍走 Web 端申请与老板审批。
+        <text class="b">本页范围：</text>碎片、积分、卡券均可快速增减；另可代客核销。金币不在本页，仍走 Web 端申请与老板审批。
       </view>
     </template>
   </view>
@@ -290,7 +326,7 @@ onShow(() => {
             : dlg === "point"
               ? `调整积分 · ${member?.nick || ""}`
               : dlg === "card"
-                ? `补发卡券 · ${member?.nick || ""}`
+                ? `调整卡券 · ${member?.nick || ""}`
                 : `代客核销 · ${member?.nick || ""}`
         }}
       </view>
@@ -317,20 +353,26 @@ onShow(() => {
           >{{ v > 0 ? `+${v}` : v }}</button>
         </view>
         <view v-if="dlg === 'shard'" class="hint red">
-          碎片直接影响周榜排名与宝箱卡归属。本周期已结算则不再改变已发奖励；历史累计同步变动且不低于本周值。
+          碎片直接影响周榜排名与宝箱卡归属。扣减不能超过本周碎片；历史累计同步变动。
         </view>
-        <view v-else class="hint">积分可在 C 端自助兑券；扣成负数即转为「待抵扣」，顾客后续获得的分优先冲抵。</view>
+        <view v-else class="hint">扣成负数将转为「待抵扣」，顾客后续获得的分优先冲抵。</view>
       </template>
 
       <template v-else-if="dlg === 'card'">
-        <view class="tiny tip">尾号 {{ member?.tail || "—" }} · 补发即入卡包，顾客端立即可见</view>
+        <view class="tiny tip">尾号 {{ member?.tail || "—" }} · 补发入卡包；扣减只作废未使用卡</view>
+        <view class="fld">操作</view>
+        <view class="dir-row">
+          <view class="dir" :class="{ on: form.cardDir === 'grant' }" @tap="setCardDir('grant')">补发（增加）</view>
+          <view class="dir" :class="{ on: form.cardDir === 'revoke' }" @tap="setCardDir('revoke')">扣减未使用</view>
+        </view>
         <view class="fld">卡券类型</view>
-        <picker mode="selector" :range="tplOpts" range-key="label" :value="tplIndex" @change="onTplPick">
-          <view class="inp picker">{{ tplOpts[tplIndex]?.label || "请选择" }}</view>
+        <picker mode="selector" :range="cardTplOpts" range-key="label" :value="tplIndex" @change="onTplPick">
+          <view class="inp picker">{{ cardTplOpts[tplIndex]?.label || (form.cardDir === 'revoke' ? '暂无未使用卡' : '请选择') }}</view>
         </picker>
         <view class="fld">数量</view>
         <input v-model="form.qty" class="inp" type="number" />
-        <view class="hint">宝箱卡奖品说明仅在店员核销页可见，C 端不展示内容。</view>
+        <view v-if="form.cardDir === 'revoke'" class="hint red">将按卡种作废对应数量的未使用卡；不足时报错。已核销的不能扣。</view>
+        <view v-else class="hint">补发即入卡包，顾客端立即可见。</view>
       </template>
 
       <template v-else>
@@ -345,7 +387,7 @@ onShow(() => {
         <view class="fld">核对顾客手机尾号 4 位 <text class="req">*必填</text></view>
         <input v-model="form.tail" class="inp" maxlength="4" type="number" placeholder="请顾客报出尾号" />
         <view class="hint red">
-          代客核销跳过顾客出码环节，必须当面核对尾号——否则店员可替熟人白刷卡券。核销后顾客端立即可见，流水不可撤销。
+          代客核销是当面把卡用掉，必须核对尾号；与「扣减未使用」不同，核销后记为已使用。
         </view>
       </template>
 
@@ -361,7 +403,9 @@ onShow(() => {
               : dlg === "verify"
                 ? "确认核销"
                 : dlg === "card"
-                  ? "确认补发"
+                  ? form.cardDir === "revoke"
+                    ? "确认扣减"
+                    : "确认补发"
                   : "确认调整"
           }}
         </button>
@@ -444,14 +488,18 @@ button.btn.act[disabled] { opacity: 0.45; color: #9c9a93 !important; border-colo
   border-radius: 10px; border: 1px solid rgba(28, 27, 25, 0.12); background: #fff; font-size: 14px;
 }
 .picker { display: flex; align-items: center; }
+.dir-row { display: flex; gap: 8px; }
+.dir {
+  flex: 1; text-align: center; padding: 9px 0; border-radius: 10px;
+  border: 1px solid rgba(28, 27, 25, 0.12); background: #faf9f5; font-size: 13px;
+}
+.dir.on { background: #e6f1fb; border-color: #185fa5; color: #185fa5; font-weight: 600; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .chip { margin: 0; padding: 6px 10px; font-size: 12px; background: #faf9f5; color: #1c1b19; border: 1px solid rgba(28,27,25,.12); }
 .tip { color: #9c9a93; margin-bottom: 4px; line-height: 1.6; }
 .hint { margin-top: 8px; font-size: 11px; color: #9c9a93; line-height: 1.7; }
 .hint.red { color: #a32d2d; }
-.prize {
-  background: #faeeda; border-radius: 8px; padding: 9px 10px; margin: 8px 0;
-}
+.prize { background: #faeeda; border-radius: 8px; padding: 9px 10px; margin: 8px 0; }
 .prize .gold { color: #ba7517; margin-bottom: 3px; }
 .prize-text { font-size: 13px; font-weight: 600; }
 .dlg-actions { display: grid; grid-template-columns: 1fr 1.5fr; gap: 8px; margin-top: 16px; }

@@ -2908,12 +2908,10 @@ def member_grant_cards(sess: Session, uid: int, tpl_id: int, qty: int, reason: s
 
 
 def member_revoke_cards(sess: Session, uid: int, tpl_id: int, qty: int, reason: str, admin: dict,
-                        *, roles: tuple[str, ...] = ("BOSS", "MANAGER")) -> dict:
+                        *, roles: tuple[str, ...] = ("BOSS", "MANAGER"), require_reason: bool = True) -> dict:
     if admin["role"] not in roles:
         raise ValueError("无权扣减卡券")
-    reason = (reason or "").strip()
-    if len(reason) < 2:
-        raise ValueError("原因至少 2 个字")
+    reason = _adj_reason(reason, required=require_reason)
     qty = int(qty or 0)
     if qty < 1:
         raise ValueError("数量至少为 1")
@@ -2934,8 +2932,8 @@ def member_revoke_cards(sess: Session, uid: int, tpl_id: int, qty: int, reason: 
         raise ValueError(f"未使用「{tm.name}」仅剩 {len(cards)} 张，无法扣减 {qty} 张")
     for c in cards:
         c.status = "VOID"
-        c.void_reason = f"手动扣减 · {reason}"[:64]
-    log(sess, "CARD_REVOKE", f"扣减 {user.nick} · {tm.name} ×{qty} · 原因：{reason}", uid, admin)
+        c.void_reason = f"手动扣减 · {reason or '快速调整'}"[:64]
+    log(sess, "CARD_REVOKE", f"快速扣减 {user.nick} · {tm.name} ×{qty}{_reason_tail(reason)}", uid, admin)
     sess.flush()
     return {"ok": True, "qty": qty}
 
