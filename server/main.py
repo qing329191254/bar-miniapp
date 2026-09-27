@@ -2127,12 +2127,18 @@ def admin_refund_order(oid: int, body: ReasonIn, admin: dict = Depends(admin_use
 
 @app.post("/api/admin/ops/purge-test-data")
 def admin_purge_test_data(body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
-    """Launch cleanup: keep BOSS accounts + agreements/catalog config; wipe test business data."""
+    """Launch / handover cleanup. confirm=
+    - PURGE_KEEP_BOSSES: wipe members & transactional data
+    - PURGE_DEMO_CATALOG: wipe demo menu/tables/exchange cards for shop re-entry
+    """
     if admin.get("role") != "BOSS":
         raise HTTPException(403, "仅老板可执行")
     data = body.data or {}
+    confirm = str(data.get("confirm") or "").strip()
     try:
-        return L.purge_test_data_keep_bosses(db, admin, str(data.get("confirm") or ""))
+        if confirm == L.PURGE_DEMO_CATALOG_CONFIRM:
+            return L.purge_demo_catalog_for_handover(db, admin, confirm)
+        return L.purge_test_data_keep_bosses(db, admin, confirm)
     except ValueError as e:
         fail(e)
 

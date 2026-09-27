@@ -3570,6 +3570,7 @@ def reports_page(
 
 
 PURGE_KEEP_BOSSES_CONFIRM = "PURGE_KEEP_BOSSES"
+PURGE_DEMO_CATALOG_CONFIRM = "PURGE_DEMO_CATALOG"
 
 # Transactional / demo rows to wipe. Keep: settings(agreements/content/config),
 # catalog (products/cats/projects/card_tpls/tiers/tables/sign_rules), and BOSS users.
@@ -3596,34 +3597,11 @@ _PURGE_FULL_CLEAR_MODELS = (
 )
 
 
-def purge_test_data_keep_bosses(sess: Session, admin: dict, confirm: str) -> dict:
-    """One-shot launch cleanup: keep boss accounts + shop config, wipe test business data."""
-    if admin.get("role") != "BOSS":
-        raise ValueError("仅老板可执行清库")
-    if (confirm or "").strip() != PURGE_KEEP_BOSSES_CONFIRM:
-        raise ValueError(f"确认口令不正确，请传入 {PURGE_KEEP_BOSSES_CONFIRM}")
-
-    bosses = sess.query(User).filter(User.role == "BOSS").order_by(User.id).all()
-    if not bosses:
-        raise ValueError("未找到老板账号，已中止")
-    boss_ids = [b.id for b in bosses]
+def _purge_reset_bosses(sess: Session, bosses: list[User]) -> list[dict]:
     kept = [
         {"id": b.id, "no": b.no, "nick": b.nick, "phone": b.phone, "tail": b.tail}
         for b in bosses
     ]
-
-    deleted: dict[str, int] = {}
-    for model in _PURGE_FULL_CLEAR_MODELS:
-        n = sess.query(model).delete(synchronize_session=False)
-        deleted[model.__tablename__] = int(n or 0)
-
-    deleted["wallets_others"] = int(
-        sess.query(Wallet).filter(~Wallet.user_id.in_(boss_ids)).delete(synchronize_session=False) or 0
-    )
-    deleted["users_others"] = int(
-        sess.query(User).filter(~User.id.in_(boss_ids)).delete(synchronize_session=False) or 0
-    )
-
     for b in bosses:
         b.team_id = None
         b.last_active_at = 0.0
@@ -3635,6 +3613,38 @@ def purge_test_data_keep_bosses(sess: Session, admin: dict, confirm: str) -> dic
         w.point_av = w.point_wg = w.point_mg = w.point_pd = w.point_wd = w.point_fz = 0
         w.shard_w = w.shard_t = 0
         w.sign_streak = 0
+    return kept
+
+
+def _purge_non_boss_users(sess: Session, boss_ids: list[int]) -> dict[str, int]:
+    return {
+        "wallets_others": int(
+            sess.query(Wallet).filter(~Wallet.user_id.in_(boss_ids)).delete(synchronize_session=False) or 0
+        ),
+        "users_others": int(
+            sess.query(User).filter(~User.id.in_(boss_ids)).delete(synchronize_session=False) or 0
+        ),
+    }
+
+
+def purge_test_data_keep_bosses(sess: Session, admin: dict, confirm: str) -> dict:
+    """One-shot launch cleanup: keep boss accounts + shop config, wipe test business data."""
+    if admin.get("role") != "BOSS":
+        raise ValueError("仅老板可执行清库")
+    if (confirm or "").strip() != PURGE_KEEP_BOSSES_CONFIRM:
+        raise ValueError(f"确认口令不正确，请传入 {PURGE_KEEP_BOSSES_CONFIRM}")
+
+    bosses = sess.query(User).filter(User.role == "BOSS").order_by(User.id).all()
+    if not bosses:
+        raise ValueError("未找到老板账号，已中止")
+    boss_ids = [b.id for b in bosses]
+    kept = _purge_reset_bosses(sess, bosses)
+
+    deleted: dict[str, int] = {}
+    for model in _PURGE_FULL_CLEAR_MODELS:
+        n = sess.query(model).delete(synchronize_session=False)
+        deleted[model.__tablename__] = int(n or 0)
+    deleted.update(_purge_non_boss_users(sess, boss_ids))
 
     log(
         sess,
@@ -3651,5 +3661,75 @@ def purge_test_data_keep_bosses(sess: Session, admin: dict, confirm: str) -> dic
         "kept": [
             "settings(agreements/content/config/…)",
             "products", "cats", "projects", "card_tpls", "tiers", "shop_tables", "sign_rules",
+        ],
+    }
+
+
+def purge_demo_catalog_for_handover(sess: Session, admin: dict, confirm: str) -> dict:
+    """Handover cleanup: wipe demo menu/tables/exchange cards so the shop re-enters them.
+
+    Keeps agreements/privacy/content/config, game projects, and treasure reward card templates.
+    """
+    if admin.get("role") != "BOSS":
+        raise ValueError("仅老板可执行清库")
+    if (confirm or "").strip() != PURGE_DEMO_CATALOG_CONFIRM:
+        raise ValueError(f"确认口令不正确，请传入 {PURGE_DEMO_CATALOG_CONFIRM}")
+
+    bosses = sess.query(User).filter(User.role == "BOSS").order_by(User.id).all()
+    if not bosses:
+        raise ValueError("未找到老板账号，已中止")
+    boss_ids = [b.id for b in bosses]
+    kept = _purge_reset_bosses(sess, bosses)
+
+    deleted: dict[str, int] = {
+        "products": int(sess.query(Product).delete(synchronize_session=False) or 0),
+        "cats": int(sess.query(Category).delete(synchronize_session=False) or 0),
+        "shop_tables": int(sess.query(TableSeat).delete(synchronize_session=False) or 0),
+        "tiers": int(sess.query(Tier).delete(synchronize_session=False) or 0),
+        "sign_rules": int(sess.query(SignRule).delete(synchronize_session=False) or 0),
+    }
+    # Keep system treasure reward templates used by weekly settlement.
+    treasure_ids = [
+        t.id for t in sess.query(CardTpl).all()
+        if str(t.sub or "").startswith("TREASURE_")
+    ]
+    if treasure_ids:
+        deleted["card_tpls"] = int(
+            sess.query(CardTpl).filter(~CardTpl.id.in_(treasure_ids)).delete(synchronize_session=False) or 0
+        )
+        deleted["card_tpls_kept_treasure"] = len(treasure_ids)
+    else:
+        deleted["card_tpls"] = int(sess.query(CardTpl).delete(synchronize_session=False) or 0)
+        deleted["card_tpls_kept_treasure"] = 0
+
+    # Clear demo gallery images; keep shopInfo / FAQ / howToPlay text.
+    content = dict(setting(sess, "content") or {})
+    if content.get("gallery"):
+        deleted["content_gallery"] = len(content.get("gallery") or [])
+        content["gallery"] = []
+        save_setting(sess, "content", content)
+    else:
+        deleted["content_gallery"] = 0
+
+    deleted.update(_purge_non_boss_users(sess, boss_ids))
+
+    log(
+        sess,
+        "DATA_PURGE",
+        "交付清库：清空演示商品/分类/台桌/兑换卡券/签到档，保留协议与周榜宝箱模板",
+        None,
+        admin,
+    )
+    sess.flush()
+    return {
+        "ok": True,
+        "keptBosses": kept,
+        "deleted": deleted,
+        "kept": [
+            "settings.agreements(用户协议/隐私政策正文)",
+            "settings.content(shopInfo/faq/howToPlay)",
+            "settings.config / settlement-config / push",
+            "projects(对局项目)",
+            "card_tpls where sub=TREASURE_* (周榜宝箱)",
         ],
     }
