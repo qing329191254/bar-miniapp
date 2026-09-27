@@ -161,6 +161,10 @@ watch(search, () => {});
       <view v-else-if="rows.length" class="more muted">没有更多了</view>
       <view class="safe" />
     </scroll-view>
+
+    <view class="foot-note">
+      调整立即入账并同步到顾客端。碎片计入本周排名，直接影响宝箱卡归属。
+    </view>
   </view>
 </template>
 
@@ -284,6 +288,16 @@ watch(search, () => {});
   opacity: 0.7;
 }
 .safe {
-  height: calc(24px + env(safe-area-inset-bottom));
+  height: 12px;
+}
+.foot-note {
+  flex: none;
+  margin: 0 14px calc(12px + env(safe-area-inset-bottom));
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #e6f1fb;
+  color: #185fa5;
+  font-size: 12px;
+  line-height: 1.65;
 }
 </style>
