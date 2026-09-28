@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
-import { api, loadCart, saveCart, savedUser, toastText } from "@/utils/api";
+import { api, loadCart, requireLogin, saveCart, savedUser, toastText } from "@/utils/api";
 
 const products = ref([]);
 const tables = ref([]);
@@ -16,6 +16,7 @@ const timeout = ref(30);
 const meUser = ref(savedUser() || {});
 
 onShow(async () => {
+  if (!requireLogin()) return;
   const r = await api("/products");
   products.value = r.products || [];
   tables.value = r.tables || [];

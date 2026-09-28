@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
-import { api, go, loadCart, media, saveCart, savedUser, toastText } from "@/utils/api";
+import { api, go, loadCart, media, requireLogin, saveCart, savedUser, toastText } from "@/utils/api";
 
 const cats = ref([]);
 const products = ref([]);
@@ -104,6 +104,7 @@ function addSpec() {
 }
 function checkout() {
   if (total.value <= 0) return;
+  if (!requireLogin()) return;
   persist();
   go("/pages/c/checkout");
 }

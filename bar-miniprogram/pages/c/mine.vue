@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
-import { api, clearSession, go, hideWxHomeButton, isStaffRole, relaunch, savedUser, setPortal, toastText } from "@/utils/api";
+import { api, clearSession, go, hideWxHomeButton, isLoggedIn, isStaffRole, relaunch, savedUser, setPortal, toastText } from "@/utils/api";
 import { getMemberMineCache, setMemberMineCache } from "@/utils/staff-page-cache";
 import { startStaffReminder, stopStaffReminder } from "@/utils/staff-reminder";
 import { iconSrc } from "@/utils/icons";
@@ -82,6 +82,11 @@ const FAQ_DEFAULT = {
 
 onShow(async () => {
   hideWxHomeButton();
+  // redirectTo：避免未登录栈底留空白「我的」，暂不登录可回到上一页
+  if (!isLoggedIn()) {
+    uni.redirectTo({ url: "/pages/login/login" });
+    return;
+  }
   const hasCache = !!me.value;
   try {
     me.value = await api("/me", { loading: !hasCache, silent: hasCache });
@@ -109,7 +114,7 @@ function fmt(n) {
 }
 function logout() {
   clearSession();
-  relaunch("/pages/login/login");
+  relaunch("/pages/c/home");
 }
 function switchToStaff() {
   if (!isStaffRole(me.value?.user || savedUser())) {

@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
-import { api, go, hideWxHomeButton, media, toastText } from "@/utils/api";
+import { api, go, hideWxHomeButton, media, requireLogin, toastText } from "@/utils/api";
 import { getMemberHomeCache, setMemberHomeCache } from "@/utils/staff-page-cache";
 import { iconSrc } from "@/utils/icons";
 
@@ -44,6 +44,11 @@ onShow(() => {
   hideWxHomeButton();
   load();
 });
+
+function needLoginThen(fn) {
+  if (!requireLogin()) return;
+  fn();
+}
 onMounted(() => {
   timer = setInterval(() => {
     const n = gallery.value.length;
@@ -189,6 +194,7 @@ function ruleReward(r) {
 }
 
 function openSignSheet() {
+  if (!requireLogin()) return;
   showSign.value = true;
   msg.value = "";
 }
@@ -241,15 +247,15 @@ async function doSign() {
     </view>
 
     <view class="home-kg">
-      <view class="kg-i" @tap="go('/pages/c/order')">
+      <view class="kg-i" @tap="needLoginThen(() => go('/pages/c/order'))">
         <app-icon name="order" tone="teal" size="lg" shape="round" />
         <text>点单</text>
       </view>
-      <view class="kg-i" @tap="go('/pages/c/cards')">
+      <view class="kg-i" @tap="needLoginThen(() => go('/pages/c/cards'))">
         <app-icon name="card" tone="blue" size="lg" shape="round" />
         <text>用卡</text>
       </view>
-      <view class="kg-i" @tap="go('/pages/c/points')">
+      <view class="kg-i" @tap="needLoginThen(() => go('/pages/c/points'))">
         <app-icon name="point" tone="pink" size="lg" shape="round" />
         <text>积分</text>
       </view>
@@ -268,7 +274,7 @@ async function doSign() {
       </view>
       <image class="chev" :src="chevSrc" mode="aspectFit" />
     </view>
-    <view class="home-op" @tap="go('/pages/c/recharge')">
+    <view class="home-op" @tap="needLoginThen(() => go('/pages/c/recharge'))">
       <app-icon name="recharge" tone="gold" size="md" shape="sq" />
       <view class="home-txt">
         <view class="ht">充值有奖</view>
@@ -381,6 +387,10 @@ async function doSign() {
         <view v-else-if="howToPlay.pic" class="play-ph">{{ howToPlay.pic }}</view>
       </scroll-view>
     </view>
+  </view>
+  <view class="pbody" v-else-if="msg">
+    <view class="err">{{ msg }}</view>
+    <tab-bar current="home" />
   </view>
 </template>
 

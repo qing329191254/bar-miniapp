@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
-import { api, go } from "@/utils/api";
+import { api, go, requireLogin } from "@/utils/api";
 
 const TABS = [
   { k: "GAME", n: "游戏卡", color: "#534AB7" },
@@ -17,6 +17,7 @@ const sel = ref([]);
 const msg = ref("");
 
 onShow(async () => {
+  if (!requireLogin()) return;
   list.value = await api("/cards");
 });
 

@@ -57,7 +57,7 @@ onShow(() => {
 
 function logout() {
   clearSession();
-  relaunch("/pages/login/login");
+  relaunch("/pages/c/home");
 }
 function switchToCustomer() {
   setPortal("customer");

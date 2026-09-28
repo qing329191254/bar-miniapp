@@ -380,6 +380,29 @@ def bind_wx_phone(sess: Session, user: User, phone_full: str) -> None:
     user.tail = tail
 
 
+def user_matches_phone(user: User | None, phone_full: str) -> bool:
+    """True when stored phone/tail matches the given 11-digit mobile."""
+    if not user:
+        return False
+    d11 = phone_digits(phone_full)
+    if len(d11) != 11:
+        return False
+    masked, tail = mask_phone(d11)
+    if (user.tail or "") != tail:
+        return False
+    return (user.phone or "") in (d11, masked, f"{d11[:3]}****{d11[-4:]}")
+
+
+def claim_wx_openid(sess: Session, user: User, openid: str) -> None:
+    """Attach openid to user; clear it from any other account first."""
+    oid = (openid or "").strip()
+    if not oid:
+        return
+    for other in sess.query(User).filter(User.wx_openid == oid, User.id != user.id).all():
+        other.wx_openid = ""
+    user.wx_openid = oid
+
+
 def users_by_phone(sess: Session, phone_full: str) -> list[User]:
     d11 = phone_digits(phone_full)
     if len(d11) != 11:
@@ -431,20 +454,31 @@ def resolve_password_login_user(sess: Session, account: str) -> tuple[User | Non
 
 
 def register_or_bind_phone(sess: Session, phone_full: str, openid: str | None = None) -> User:
+    """Resolve account by phone; WeChat openid is secondary.
+
+    Same WeChat authorizing a *different* phone must not overwrite the previous
+    account's phone (that bug let one openid keep staff role while rewriting boss
+    mobile in admin). Identity follows the authorized phone number.
+    """
     d11 = phone_digits(phone_full)
     if len(d11) != 11:
         raise ValueError("请填写有效手机号")
+    openid = (openid or "").strip() or None
 
     if openid:
         found = sess.query(User).filter(User.wx_openid == openid).first()
-        if found:
+        if found and user_matches_phone(found, d11):
             bind_wx_phone(sess, found, d11)
             return found
+        if found and not user_matches_phone(found, d11):
+            # Keep old account phone/role; release openid for the phone-based account.
+            found.wx_openid = ""
+            sess.flush()
 
     user = find_user_by_phone(sess, d11)
     if user:
-        if openid and not user.wx_openid:
-            user.wx_openid = openid
+        if openid:
+            claim_wx_openid(sess, user, openid)
         bind_wx_phone(sess, user, d11)
         return user
 

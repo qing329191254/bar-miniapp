@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
-import { api } from "@/utils/api";
+import { api, requireLogin } from "@/utils/api";
 
 const data = ref(null);
 const selId = ref(null);
@@ -28,7 +28,10 @@ async function load() {
     selId.value = rec ? rec.id : data.value.tiers[0].id;
   }
 }
-onShow(load);
+onShow(() => {
+  if (!requireLogin()) return;
+  load();
+});
 
 function pick(id) {
   selId.value = id;

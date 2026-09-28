@@ -96,7 +96,7 @@ export function exitStaffToCustomer({ user, message } = {}) {
 export function applyMeUser(user) {
   if (!user || typeof user !== "object") return false;
   const hadStaff = isStaffRole(savedUser());
-  const onStaffUi = getPortal() === "staff" || (hadStaff && getPortal() !== "customer");
+  const onStaffUi = getPortal() === "staff";
   syncSessionUser(user);
   if (hadStaff && user.role === "CUSTOMER" && onStaffUi) {
     exitStaffToCustomer({ user, message: "员工权限已撤销，已切换到会员端" });
@@ -132,28 +132,39 @@ export function clearPortal() {
   uni.removeStorageSync(PORTAL_KEY);
 }
 
-/** Staff role + not in member portal → staff UI / reminders */
+/** Staff role + currently in staff portal UI */
 export function isStaffPortal(user = savedUser()) {
-  return isStaffRole(user) && getPortal() !== "customer";
+  return isStaffRole(user) && getPortal() === "staff";
 }
 
 /**
- * Where to send a logged-in user.
- * forceChoose: after fresh login, staff must pick again.
+ * Where to send a user after boot / login.
+ * Default is always member home; staff only go staff UI if they last chose staff.
  */
 export function resolveHomeUrl({ forceChoose = false } = {}) {
   const u = savedUser();
-  if (!u?.role) return "/pages/login/login";
+  if (!u?.role) return "/pages/c/home";
   if (u.role === "CUSTOMER") {
     setPortal("customer");
     return "/pages/c/home";
   }
-  if (!forceChoose) {
-    const portal = getPortal();
-    if (portal === "customer") return "/pages/c/home";
-    if (portal === "staff") return "/pages/s/todo";
+  // Staff / manager / boss: default member端; honor remembered staff choice.
+  if (!forceChoose && getPortal() === "staff") {
+    return "/pages/s/todo";
   }
-  return "/pages/login/portal";
+  setPortal("customer");
+  return "/pages/c/home";
+}
+
+/** Navigate to login if needed. Returns true when already logged in. */
+export function requireLogin() {
+  if (token() && savedUser()?.role) return true;
+  go("/pages/login/login");
+  return false;
+}
+
+export function isLoggedIn() {
+  return !!(token() && savedUser()?.role);
 }
 
 const CART_KEY = "wanka_cart";

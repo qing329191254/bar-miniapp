@@ -1,6 +1,10 @@
 {
 	"pages": [
 		{
+			"path": "pages/c/home",
+			"style": { "navigationBarTitleText": "玩咖" }
+		},
+		{
 			"path": "pages/boot/boot",
 			"style": {
 				"navigationBarTitleText": "玩咖桌游酒吧",
@@ -25,8 +29,13 @@
 			"style": { "navigationBarTitleText": "账号登录" }
 		},
 		{
-			"path": "pages/c/home",
-			"style": { "navigationBarTitleText": "玩咖" }
+			"path": "pages/guest/welcome",
+			"style": {
+				"navigationBarTitleText": "玩咖桌游酒吧",
+				"navigationBarBackgroundColor": "#F5F4F0",
+				"backgroundColor": "#F5F4F0",
+				"disableScroll": true
+			}
 		},
 		{
 			"path": "pages/c/order",

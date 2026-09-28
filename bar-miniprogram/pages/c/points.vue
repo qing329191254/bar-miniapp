@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
-import { api, go } from "@/utils/api";
+import { api, go, requireLogin } from "@/utils/api";
 
 const data = ref(null);
 
@@ -19,7 +19,10 @@ const showUrgency = computed(() => daysLeft.value <= 7 && !negative.value && av.
 async function load() {
   data.value = await api("/points");
 }
-onShow(load);
+onShow(() => {
+  if (!requireLogin()) return;
+  load();
+});
 </script>
 
 <template>

@@ -1,6 +1,6 @@
 <script setup>
 import { onMounted } from "vue";
-import { isStaffPortal, hideWxHomeButton } from "@/utils/api";
+import { hideWxHomeButton, isLoggedIn, isStaffPortal, requireLogin } from "@/utils/api";
 import { iconSrc as svgIcon } from "@/utils/icons";
 import { reminderState } from "@/utils/staff-reminder";
 
@@ -17,7 +17,7 @@ const tabs = isStaff
   : [
       { key: "home", url: "/pages/c/home", label: "首页", icon: "home" },
       { key: "rank", url: "/pages/c/rank", label: "榜单", icon: "rank" },
-      { key: "mine", url: "/pages/c/mine", label: "我的", icon: "mine" },
+      { key: "mine", url: "/pages/c/mine", label: "我的", icon: "mine", needLogin: true },
     ];
 
 function iconSrc(t) {
@@ -27,6 +27,7 @@ function iconSrc(t) {
 
 function tap(t) {
   if (t.key === props.current) return;
+  if (t.needLogin && !isLoggedIn() && !requireLogin()) return;
   hideWxHomeButton();
   uni.redirectTo({ url: t.url });
 }
