@@ -567,35 +567,50 @@ def find_user_by_phone(sess: Session, phone_full: str) -> User | None:
     staff_active = [u for u in staff if (u.status or "ACTIVE") == "ACTIVE"]
     if staff_active:
         return staff_active[0]
-    if staff:
-        return staff[0]
+    # Never bind commerce login to inactive staff shells (DISABLED legacy etc.).
     customers = [u for u in users if u.role == "CUSTOMER"]
     active = [u for u in customers if (u.status or "ACTIVE") == "ACTIVE"]
     if active:
         return active[0]
-    # Never bind login to a DEACTIVATED / disabled customer shell.
+    # Never bind login to a DEACTIVATED / DISABLED customer shell.
     return None
 
 
-def release_deactivated_login_identity(sess: Session, user: User | None) -> None:
-    """Free phone + WeChat so the person can register a new ACTIVE account."""
-    if not user or user.status != "DEACTIVATED":
+def release_inactive_login_identity(sess: Session, user: User | None) -> None:
+    """Free phone + WeChat so the person can register / be hired again."""
+    if not user:
+        return
+    status = user.status or "ACTIVE"
+    if status not in ("DEACTIVATED", "DISABLED"):
         return
     uid = int(user.id or 0)
     user.wx_openid = ""
+    label = "已注销" if status == "DEACTIVATED" else "已停用"
     # Break users_by_phone match (tail + phone variants) while keeping the row for audit.
-    user.phone = f"已注销-{user.no or uid}"
+    user.phone = f"{label}-{user.no or uid}"
     user.tail = f"Z{uid % 10000:04d}"
     sess.flush()
 
 
-def release_deactivated_accounts_for_phone(sess: Session, phone_full: str) -> int:
+def release_deactivated_login_identity(sess: Session, user: User | None) -> None:
+    """Backward-compatible alias: only releases DEACTIVATED rows."""
+    if not user or user.status != "DEACTIVATED":
+        return
+    release_inactive_login_identity(sess, user)
+
+
+def release_inactive_accounts_for_phone(sess: Session, phone_full: str) -> int:
     n = 0
     for row in users_by_phone(sess, phone_full):
-        if row.role == "CUSTOMER" and row.status == "DEACTIVATED":
-            release_deactivated_login_identity(sess, row)
+        if (row.status or "ACTIVE") in ("DEACTIVATED", "DISABLED"):
+            release_inactive_login_identity(sess, row)
             n += 1
     return n
+
+
+def release_deactivated_accounts_for_phone(sess: Session, phone_full: str) -> int:
+    """Backward-compatible alias."""
+    return release_inactive_accounts_for_phone(sess, phone_full)
 
 
 def resolve_password_login_user(sess: Session, account: str) -> tuple[User | None, str | None]:
@@ -643,8 +658,8 @@ def register_or_bind_phone(sess: Session, phone_full: str, openid: str | None = 
 
     if openid:
         found = sess.query(User).filter(User.wx_openid == openid).first()
-        if found and found.status == "DEACTIVATED":
-            release_deactivated_login_identity(sess, found)
+        if found and (found.status or "ACTIVE") in ("DEACTIVATED", "DISABLED"):
+            release_inactive_login_identity(sess, found)
             found = None
         if found and user_matches_phone(found, d11):
             bind_wx_phone(sess, found, d11)
@@ -654,17 +669,25 @@ def register_or_bind_phone(sess: Session, phone_full: str, openid: str | None = 
             found.wx_openid = ""
             sess.flush()
 
-    release_deactivated_accounts_for_phone(sess, d11)
+    release_inactive_accounts_for_phone(sess, d11)
 
     user = find_user_by_phone(sess, d11)
     if user:
-        if user.status == "DEACTIVATED":
-            release_deactivated_login_identity(sess, user)
+        if (user.status or "ACTIVE") in ("DEACTIVATED", "DISABLED"):
+            release_inactive_login_identity(sess, user)
         else:
             if openid:
                 claim_wx_openid(sess, user, openid)
             bind_wx_phone(sess, user, d11)
             return user
+
+    # Re-check after releasing shells (mitigates concurrent register races).
+    user = find_user_by_phone(sess, d11)
+    if user and (user.status or "ACTIVE") == "ACTIVE":
+        if openid:
+            claim_wx_openid(sess, user, openid)
+        bind_wx_phone(sess, user, d11)
+        return user
 
     masked, tail = mask_phone(d11)
     member_no = alloc_member_no(sess)
@@ -1036,7 +1059,17 @@ def do_exchange(sess: Session, uid: int, tid: int, qty: int) -> bool:
         err("兑换失败，积分不足")
     per = t.per_limit
     if per >= 0:
-        got = sess.query(Card).filter_by(uid=uid, tpl=t.id, src="EXCHANGE").count()
+        # VOID (staff revoke / admin void) must not burn lifetime exchange quota.
+        got = (
+            sess.query(Card)
+            .filter(
+                Card.uid == uid,
+                Card.tpl == t.id,
+                Card.src == "EXCHANGE",
+                Card.status != "VOID",
+            )
+            .count()
+        )
         if got + qty > per:
             err("兑换失败，已达每人上限")
     stk = t.stock
@@ -2785,18 +2818,27 @@ def create_staff(sess: Session, data: dict, admin: dict) -> dict:
         raise ValueError("店员无需后台密码")
     d11 = phone_digits(phone_raw)
     masked, tail = mask_phone(d11)
-    staff = next((u for u in users_by_phone(sess, d11) if u.role in STAFF_ROLES), None)
+    # Free DEACTIVATED/DISABLED shells (member or former staff) so the phone can be hired again.
+    release_inactive_accounts_for_phone(sess, d11)
+    staff = next(
+        (u for u in users_by_phone(sess, d11)
+         if u.role in STAFF_ROLES and (u.status or "ACTIVE") == "ACTIVE"),
+        None,
+    )
     if staff:
         raise ValueError("该手机号已绑定员工")
-    customer = next((u for u in users_by_phone(sess, d11) if u.role == "CUSTOMER"), None)
+    customer = next(
+        (u for u in users_by_phone(sess, d11)
+         if u.role == "CUSTOMER" and (u.status or "ACTIVE") == "ACTIVE"),
+        None,
+    )
     hashed = hash_pwd(password) if need_pwd else ""
     default_nick = "老板" if role == "BOSS" else "员工"
     if customer:
-        if customer.status == "DEACTIVATED":
-            raise ValueError("该账号已注销，无法授权为员工")
-        if customer.status == "DISABLED":
-            raise ValueError("该账号已停用")
+        if (customer.status or "ACTIVE") != "ACTIVE":
+            raise ValueError("该账号当前不可授权为员工")
         customer.role = role
+        customer.status = "ACTIVE"
         if need_pwd:
             customer.pwd = hashed
         if nick_in:
@@ -3157,6 +3199,9 @@ def member_revoke_cards(sess: Session, uid: int, tpl_id: int, qty: int, reason: 
     for c in cards:
         c.status = "VOID"
         c.void_reason = f"手动扣减 · {reason or '快速调整'}"[:64]
+        # Exchange stock was decremented on redeem; restore when unused exch cards are voided.
+        if c.src == "EXCHANGE" and tm.stock is not None and int(tm.stock) >= 0:
+            tm.stock = int(tm.stock or 0) + 1
     log(sess, "CARD_REVOKE", f"快速扣减 {user.nick} · {tm.name} ×{qty}{_reason_tail(reason)}", uid, admin)
     sess.flush()
     return {"ok": True, "qty": qty}

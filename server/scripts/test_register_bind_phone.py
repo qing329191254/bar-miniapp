@@ -40,6 +40,34 @@ class RegisterOrBindPhoneTests(unittest.TestCase):
         self.assertFalse(L.user_matches_phone(gone, "13121309366"))
         sess.flush.assert_called()
 
+    def test_disabled_openid_same_phone_creates_new_member(self):
+        gone = _user(id=8, status="DISABLED", phone="131****9366", tail="9366", wx_openid="oid-d", no="000008")
+        created = []
+
+        def query_side_effect(model):
+            q = MagicMock()
+            q.filter.return_value.first.return_value = gone if gone.wx_openid == "oid-d" else None
+            q.filter.return_value.all.return_value = []
+            return q
+
+        sess = MagicMock()
+        sess.query.side_effect = query_side_effect
+        sess.add.side_effect = lambda u: created.append(u)
+
+        with patch.object(L, "find_user_by_phone", return_value=None), \
+             patch.object(L, "release_inactive_accounts_for_phone", return_value=0), \
+             patch.object(L, "new_id", return_value=101), \
+             patch.object(L, "alloc_member_no", return_value="100101"), \
+             patch.object(L, "wallet_of"), \
+             patch.object(L, "demo_starter_enabled", return_value=False):
+            out = L.register_or_bind_phone(sess, "13121309366", "oid-d")
+
+        self.assertEqual(gone.wx_openid, "")
+        self.assertTrue(str(gone.phone).startswith("已停用-"))
+        self.assertEqual(out.status, "ACTIVE")
+        self.assertEqual(out.wx_openid, "oid-d")
+        self.assertTrue(created)
+
     def test_deactivated_openid_same_phone_creates_new_member(self):
         gone = _user(id=7, status="DEACTIVATED", phone="131****9366", tail="9366", wx_openid="oid-a", no="000007")
         created = []
