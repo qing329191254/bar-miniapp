@@ -564,10 +564,38 @@ def find_user_by_phone(sess: Session, phone_full: str) -> User | None:
     if not users:
         return None
     staff = [u for u in users if u.role in STAFF_ROLES]
+    staff_active = [u for u in staff if (u.status or "ACTIVE") == "ACTIVE"]
+    if staff_active:
+        return staff_active[0]
     if staff:
         return staff[0]
     customers = [u for u in users if u.role == "CUSTOMER"]
-    return customers[0] if customers else users[0]
+    active = [u for u in customers if (u.status or "ACTIVE") == "ACTIVE"]
+    if active:
+        return active[0]
+    # Never bind login to a DEACTIVATED / disabled customer shell.
+    return None
+
+
+def release_deactivated_login_identity(sess: Session, user: User | None) -> None:
+    """Free phone + WeChat so the person can register a new ACTIVE account."""
+    if not user or user.status != "DEACTIVATED":
+        return
+    uid = int(user.id or 0)
+    user.wx_openid = ""
+    # Break users_by_phone match (tail + phone variants) while keeping the row for audit.
+    user.phone = f"已注销-{user.no or uid}"
+    user.tail = f"Z{uid % 10000:04d}"
+    sess.flush()
+
+
+def release_deactivated_accounts_for_phone(sess: Session, phone_full: str) -> int:
+    n = 0
+    for row in users_by_phone(sess, phone_full):
+        if row.role == "CUSTOMER" and row.status == "DEACTIVATED":
+            release_deactivated_login_identity(sess, row)
+            n += 1
+    return n
 
 
 def resolve_password_login_user(sess: Session, account: str) -> tuple[User | None, str | None]:
@@ -604,6 +632,9 @@ def register_or_bind_phone(sess: Session, phone_full: str, openid: str | None = 
     Same WeChat authorizing a *different* phone must not overwrite the previous
     account's phone (that bug let one openid keep staff role while rewriting boss
     mobile in admin). Identity follows the authorized phone number.
+
+    DEACTIVATED customer shells release phone/openid so the same person can
+    register again as a new ACTIVE member (avoids 「账号不可用」 dead-end).
     """
     d11 = phone_digits(phone_full)
     if len(d11) != 11:
@@ -612,6 +643,9 @@ def register_or_bind_phone(sess: Session, phone_full: str, openid: str | None = 
 
     if openid:
         found = sess.query(User).filter(User.wx_openid == openid).first()
+        if found and found.status == "DEACTIVATED":
+            release_deactivated_login_identity(sess, found)
+            found = None
         if found and user_matches_phone(found, d11):
             bind_wx_phone(sess, found, d11)
             return found
@@ -620,12 +654,17 @@ def register_or_bind_phone(sess: Session, phone_full: str, openid: str | None = 
             found.wx_openid = ""
             sess.flush()
 
+    release_deactivated_accounts_for_phone(sess, d11)
+
     user = find_user_by_phone(sess, d11)
     if user:
-        if openid:
-            claim_wx_openid(sess, user, openid)
-        bind_wx_phone(sess, user, d11)
-        return user
+        if user.status == "DEACTIVATED":
+            release_deactivated_login_identity(sess, user)
+        else:
+            if openid:
+                claim_wx_openid(sess, user, openid)
+            bind_wx_phone(sess, user, d11)
+            return user
 
     masked, tail = mask_phone(d11)
     member_no = alloc_member_no(sess)
@@ -2235,6 +2274,8 @@ def exec_deactivation(sess: Session, did: int, action: str, reason: str, admin: 
             usr.status = "DEACTIVATED"
             usr.deact = None
             usr.team_id = None
+            # Free mobile / WeChat immediately so they can re-register.
+            release_deactivated_login_identity(sess, usr)
         void_n = 0
         w.coin_p = 0
         w.coin_b = 0

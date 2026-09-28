@@ -17,9 +17,11 @@ def _user(**kwargs):
     u = MagicMock()
     u.id = kwargs.get("id", 1)
     u.role = kwargs.get("role", "CUSTOMER")
+    u.status = kwargs.get("status", "ACTIVE")
     u.phone = kwargs.get("phone", "")
     u.tail = kwargs.get("tail", "")
     u.wx_openid = kwargs.get("wx_openid", "")
+    u.no = kwargs.get("no", "000001")
     return u
 
 
@@ -29,12 +31,52 @@ class RegisterOrBindPhoneTests(unittest.TestCase):
         self.assertTrue(L.user_matches_phone(u, "13121309366"))
         self.assertFalse(L.user_matches_phone(u, "18811479069"))
 
+    def test_release_deactivated_identity_breaks_phone_match(self):
+        gone = _user(id=7, status="DEACTIVATED", phone="131****9366", tail="9366", wx_openid="oid-x", no="000007")
+        sess = MagicMock()
+        L.release_deactivated_login_identity(sess, gone)
+        self.assertEqual(gone.wx_openid, "")
+        self.assertTrue(str(gone.phone).startswith("已注销-"))
+        self.assertFalse(L.user_matches_phone(gone, "13121309366"))
+        sess.flush.assert_called()
+
+    def test_deactivated_openid_same_phone_creates_new_member(self):
+        gone = _user(id=7, status="DEACTIVATED", phone="131****9366", tail="9366", wx_openid="oid-a", no="000007")
+        created = []
+
+        def query_side_effect(model):
+            q = MagicMock()
+            q.filter.return_value.first.return_value = gone if gone.wx_openid == "oid-a" else None
+            q.filter.return_value.all.return_value = []
+            return q
+
+        sess = MagicMock()
+        sess.query.side_effect = query_side_effect
+        sess.add.side_effect = lambda u: created.append(u)
+
+        with patch.object(L, "find_user_by_phone", return_value=None), \
+             patch.object(L, "release_deactivated_accounts_for_phone", return_value=0), \
+             patch.object(L, "new_id", return_value=100), \
+             patch.object(L, "alloc_member_no", return_value="100100"), \
+             patch.object(L, "wallet_of"), \
+             patch.object(L, "demo_starter_enabled", return_value=False):
+            out = L.register_or_bind_phone(sess, "13121309366", "oid-a")
+
+        self.assertEqual(gone.wx_openid, "")
+        self.assertTrue(str(gone.phone).startswith("已注销-"))
+        self.assertEqual(out.role, "CUSTOMER")
+        self.assertEqual(out.status, "ACTIVE")
+        self.assertEqual(out.phone, "131****9366")
+        self.assertEqual(out.wx_openid, "oid-a")
+        self.assertTrue(created)
+
     def test_same_openid_same_phone_returns_existing(self):
         boss = _user(id=1, role="BOSS", phone="131****9366", tail="9366", wx_openid="oid-a")
         sess = MagicMock()
         sess.query.return_value.filter.return_value.first.return_value = boss
 
-        with patch.object(L, "find_user_by_phone") as find_phone:
+        with patch.object(L, "find_user_by_phone") as find_phone, \
+             patch.object(L, "release_deactivated_accounts_for_phone", return_value=0):
             out = L.register_or_bind_phone(sess, "13121309366", "oid-a")
             find_phone.assert_not_called()
         self.assertIs(out, boss)
@@ -55,7 +97,8 @@ class RegisterOrBindPhoneTests(unittest.TestCase):
         sess = MagicMock()
         sess.query.side_effect = query_side_effect
 
-        with patch.object(L, "find_user_by_phone", return_value=customer):
+        with patch.object(L, "find_user_by_phone", return_value=customer), \
+             patch.object(L, "release_deactivated_accounts_for_phone", return_value=0):
             out = L.register_or_bind_phone(sess, "18811479069", "oid-a")
 
         self.assertIs(out, customer)
@@ -81,6 +124,7 @@ class RegisterOrBindPhoneTests(unittest.TestCase):
         sess.add.side_effect = lambda u: created.append(u)
 
         with patch.object(L, "find_user_by_phone", return_value=None), \
+             patch.object(L, "release_deactivated_accounts_for_phone", return_value=0), \
              patch.object(L, "new_id", return_value=99), \
              patch.object(L, "alloc_member_no", return_value="100099"), \
              patch.object(L, "wallet_of"), \
