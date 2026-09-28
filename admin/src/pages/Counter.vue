@@ -6,6 +6,7 @@ import AppAsyncPage from "../components/AppAsyncPage.vue";
 
 defineOptions({ name: "Counter" });
 
+type Scene = "order" | "pay" | "recharge" | "withdrawal";
 type Bucket = { count: number; ids: number[] };
 type Summary = {
   accept: Bucket;
@@ -20,11 +21,19 @@ type Summary = {
 
 const ALERT_EVENTS = new Set(["order.created", "recharge.created", "withdrawal.created"]);
 
-const SPEECH_TEXT: Record<"order" | "pay" | "recharge" | "withdrawal", string> = {
-  order: "您有新的订单待接单",
-  pay: "您有新的订单待收款",
-  recharge: "您有新的充值待确认",
-  withdrawal: "您有新的提分待确认",
+/** Pre-recorded lines with original business wording（待接单/待收款…）. */
+const SPEECH_SRC: Record<Scene, string> = {
+  order: "/audio/speak-order.wav",
+  pay: "/audio/speak-pay.wav",
+  recharge: "/audio/speak-recharge.wav",
+  withdrawal: "/audio/speak-withdrawal.wav",
+};
+
+const SPEECH_LABEL: Record<Scene, string> = {
+  order: "接单",
+  pay: "收款",
+  recharge: "充值",
+  withdrawal: "提分",
 };
 
 const summary = ref<Summary | null>(null);
@@ -53,6 +62,7 @@ let lastAlertAt = 0;
 let repeatedTimes = 0;
 let audio: HTMLAudioElement | null = null;
 let weakAudio: HTMLAudioElement | null = null;
+let speechAudio: HTMLAudioElement | null = null;
 
 const statusText = computed(() => {
   if (!running.value) return "值守未启动";
@@ -80,31 +90,41 @@ function playChime(volume: number) {
   player.play().catch(() => undefined);
 }
 
-function speakAfterChime(text: string) {
+function stopSpeech() {
+  window.clearTimeout(speakTimer);
+  if (!speechAudio) return;
   try {
-    if (!("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
-    window.clearTimeout(speakTimer);
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = "zh-CN";
-    utter.rate = 0.95;
-    utter.volume = 1;
-    // Let the chime finish first, then read the scene line.
-    speakTimer = window.setTimeout(() => {
-      try {
-        window.speechSynthesis.speak(utter);
-      } catch { /* chime already played */ }
-    }, 420);
-  } catch { /* chime remains the audible fallback */ }
+    speechAudio.pause();
+    speechAudio.currentTime = 0;
+  } catch { /* ignore */ }
 }
 
-function speakScene(scene: "order" | "pay" | "recharge" | "withdrawal") {
+function speakAfterChime(scene: Scene) {
+  window.clearTimeout(speakTimer);
+  speakTimer = window.setTimeout(() => {
+    try {
+      if (speechAudio) {
+        speechAudio.pause();
+        speechAudio.src = "";
+      }
+      speechAudio = new Audio(SPEECH_SRC[scene]);
+      speechAudio.volume = 1;
+      speechAudio.play().catch(() => undefined);
+    } catch { /* chime remains the audible fallback */ }
+  }, 420);
+}
+
+function speakScene(scene: Scene, opts: { force?: boolean } = {}) {
   const cfg = summary.value?.reminder || {};
-  if (!soundReady.value || cfg.enabled === false || cfg.pcVoice === false) return;
-  if (cfg[scene] === false) return;
+  if (!opts.force) {
+    if (!soundReady.value || cfg.enabled === false || cfg.pcVoice === false) return;
+    if (cfg[scene] === false) return;
+  } else if (!soundReady.value) {
+    return;
+  }
   const strong = scene === "order";
   playChime(strong ? 1 : 0.55);
-  speakAfterChime(SPEECH_TEXT[scene]);
+  speakAfterChime(scene);
   if (strong) lastAlertAt = Date.now();
 }
 
@@ -253,21 +273,22 @@ function stop() {
   socket?.close();
   socket = null;
   window.clearTimeout(reconnectTimer);
-  window.clearTimeout(speakTimer);
+  stopSpeech();
   window.clearInterval(pollTimer);
   window.clearInterval(heartbeatTimer);
   window.clearInterval(repeatTimer);
-  try {
-    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
-  } catch { /* ignore */ }
 }
 
-function testSound() {
-  if (!soundReady.value) {
-    start();
-    return;
-  }
-  speakNewOrder();
+async function ensureSoundReady() {
+  if (soundReady.value) return true;
+  await start();
+  return soundReady.value;
+}
+
+async function testScene(scene: Scene) {
+  const ok = await ensureSoundReady();
+  if (!ok) return;
+  speakScene(scene, { force: true });
 }
 
 function toggleFullscreen() {
@@ -316,21 +337,30 @@ onBeforeUnmount(() => {
 
     <div class="counter-metrics">
       <button type="button" class="counter-metric primary" @click="openQueue('accept')"><span>待接单</span><b>{{ summary?.accept.count || 0 }}</b><small>强提醒：提示音 + 语音，可重复催单</small></button>
-      <button type="button" class="counter-metric" @click="openQueue('pay')"><span>待收款</span><b>{{ summary?.payOrder.count || 0 }}</b><small>提示音 +「待收款」语音</small></button>
-      <button type="button" class="counter-metric" @click="openQueue('recharge')"><span>待确认充值</span><b>{{ summary?.recharge.count || 0 }}</b><small>提示音 +「充值」语音</small></button>
-      <button type="button" class="counter-metric" @click="openQueue('withdrawal')"><span>待确认提分</span><b>{{ summary?.withdrawal.count || 0 }}</b><small>提示音 +「提分」语音</small></button>
+      <button type="button" class="counter-metric" @click="openQueue('pay')"><span>待收款</span><b>{{ summary?.payOrder.count || 0 }}</b><small>提示音 + 「待收款」语音</small></button>
+      <button type="button" class="counter-metric" @click="openQueue('recharge')"><span>待确认充值</span><b>{{ summary?.recharge.count || 0 }}</b><small>提示音 + 「待确认」语音</small></button>
+      <button type="button" class="counter-metric" @click="openQueue('withdrawal')"><span>待确认提分</span><b>{{ summary?.withdrawal.count || 0 }}</b><small>提示音 + 「待确认」语音</small></button>
     </div>
 
     <div class="counter-panel">
       <div class="counter-panel-copy">
         <b>{{ running ? "值守运行中" : "点击开始值守，启用电脑语音" }}</b>
-        <span>营业期间请保持此页面打开，并确认电脑未静音、音响为默认输出设备。</span>
+        <span>营业期间请保持此页面打开，并确认电脑未静音、音响为默认输出设备。语音为预录音频，不依赖本机朗读引擎。</span>
       </div>
       <div class="counter-actions">
         <button v-if="!running" class="btn gold counter-main-btn" @click="start">开始值守</button>
         <button v-else class="btn ghost counter-main-btn" @click="stop">暂停值守</button>
-        <button class="btn ghost" @click="testSound">测试强提醒</button>
         <button class="btn ghost" @click="toggleFullscreen">全屏显示</button>
+      </div>
+    </div>
+
+    <div class="counter-test">
+      <div class="counter-test-label">试听提醒</div>
+      <div class="counter-test-actions">
+        <button class="btn ghost" @click="testScene('order')">测试{{ SPEECH_LABEL.order }}</button>
+        <button class="btn ghost" @click="testScene('pay')">测试{{ SPEECH_LABEL.pay }}</button>
+        <button class="btn ghost" @click="testScene('recharge')">测试{{ SPEECH_LABEL.recharge }}</button>
+        <button class="btn ghost" @click="testScene('withdrawal')">测试{{ SPEECH_LABEL.withdrawal }}</button>
       </div>
     </div>
 
@@ -353,6 +383,7 @@ onBeforeUnmount(() => {
 .counter-alert{padding:10px 13px;border-radius:10px;background:#fcebeb;color:#a32d2d;font-size:12px}
 .counter-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.counter-metric{min-height:190px;padding:22px;border:1px solid var(--line);border-radius:18px;background:#fff;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;box-shadow:var(--shadow);font:inherit;text-align:left;color:inherit;cursor:pointer;transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease}.counter-metric:hover{transform:translateY(-2px);border-color:rgba(185,120,34,.38);box-shadow:0 12px 28px rgba(74,52,28,.1)}.counter-metric:focus-visible{outline:2px solid rgba(185,120,34,.5);outline-offset:2px}.counter-metric.primary{background:linear-gradient(145deg,#fff7e9,#fae3bd);border-color:rgba(185,120,34,.3)}.counter-metric span{font-size:14px;color:var(--ink2)}.counter-metric b{margin:6px 0;font-size:64px;line-height:1;font-variant-numeric:tabular-nums}.counter-metric.primary b{color:#9d6118}.counter-metric small{color:var(--ink3);font-size:11px}
 .counter-panel{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:20px;border:1px solid var(--line);border-radius:18px;background:#fff}.counter-panel-copy b,.counter-panel-copy span{display:block}.counter-panel-copy b{font-size:15px}.counter-panel-copy span{margin-top:4px;color:var(--ink3);font-size:12px}.counter-actions{display:flex;align-items:center;gap:8px;flex:none}.counter-actions .btn{margin:0}.counter-main-btn{min-width:118px}
+.counter-test{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 18px;border:1px solid var(--line);border-radius:14px;background:#fff}.counter-test-label{flex:none;font-size:13px;font-weight:600;color:var(--ink2)}.counter-test-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}.counter-test-actions .btn{margin:0}
 .counter-footnote{display:flex;gap:10px;align-items:center;padding:13px 16px;border-radius:12px;background:#f6f3ed;color:var(--ink3);font-size:11px}.counter-footnote b{margin-right:16px;color:var(--ink2)}
-@media(max-width:900px){.counter-metrics{grid-template-columns:repeat(2,1fr)}.counter-metric{min-height:145px}.counter-panel{align-items:flex-start;flex-direction:column}.counter-actions{width:100%;flex-wrap:wrap}}
+@media(max-width:900px){.counter-metrics{grid-template-columns:repeat(2,1fr)}.counter-metric{min-height:145px}.counter-panel,.counter-test{align-items:flex-start;flex-direction:column}.counter-actions,.counter-test-actions{width:100%;flex-wrap:wrap;justify-content:flex-start}}
 </style>
