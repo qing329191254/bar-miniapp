@@ -203,11 +203,9 @@ class CardTpl(Base):
             rule_text.append("仅限" + "、".join(names[x - 1] for x in sorted(set(weekdays))))
         d = {"id": self.id, "name": self.name, "cat": self.cat, "desc": self.desc, "cost": self.cost,
              "days": self.days, "use": self.use, "rules": rules, "ruleText": list(dict.fromkeys(rule_text)),
-             "perLimit": self.per_limit, "stock": self.stock}
+             "perLimit": self.per_limit, "stock": self.stock, "exch": bool(self.exch)}
         if self.sub:
             d["sub"] = self.sub
-        if not self.exch:
-            d["exch"] = False
         if self.prize:
             d["prize"] = self.prize
         return d

@@ -15,14 +15,16 @@ const defaults:Config={rankDim:"WEEK",rankRange:3,prizeMap:{1:"TREASURE_DIAMOND"
 const cfg=ref<Config>({...defaults,prizeMap:{...defaults.prizeMap}}), templates=ref<CardTpl[]>([]);
 const loading=ref(true), loaded=ref(false), err=ref(""), saving=ref(false);
 const fallback=["TREASURE_DIAMOND","TREASURE_GOLD","TREASURE_SILVER"];
-const personalSubs=["TREASURE_DIAMOND","TREASURE_GOLD","TREASURE_SILVER","TREASURE_TEAM"];
-const teamSubs=["TREASURE_TEAM","TREASURE_SILVER","TREASURE_DIAMOND"];
+const fallbackSubs=["TREASURE_DIAMOND","TREASURE_GOLD","TREASURE_SILVER","TREASURE_TEAM"];
 
 const templateMap=computed(()=>Object.fromEntries(templates.value.map(t=>[t.sub,t])));
 const prizeRows=computed(()=>{const half=Math.ceil(cfg.value.rankRange/2);return Array.from({length:half},(_,i)=>[i+1,i+1+half<=cfg.value.rankRange?i+1+half:0])});
-const dimHint=computed(()=>cfg.value.rankDim==="WEEK"?"周一 00:00 重置 · 结算发宝箱卡":"按自然月累计 · 随每月 1 日 12:00 清零归零");
-const personalOpts=computed(()=>personalSubs.map((sub)=>({value:sub,label:optionName(sub)})));
-const teamOpts=computed(()=>teamSubs.map((sub)=>({value:sub,label:optionName(sub)})));
+const dimHint=computed(()=>cfg.value.rankDim==="WEEK"?"每周一 12:00 结算重置 · 结算发宝箱卡":"按自然月累计 · 次月 1 日 12:00 结算 · 1 日 13:00 积分清零");
+/** 个人奖与战队奖共用全部宝箱卡型（接口返回的 OTHER 类模板） */
+const rewardOpts=computed(()=>{
+  const fromApi=templates.value.filter((t)=>t.sub).map((t)=>({value:t.sub,label:t.name||optionName(t.sub)}));
+  return fromApi.length?fromApi:fallbackSubs.map((sub)=>({value:sub,label:optionName(sub)}));
+});
 
 function setRange(value:number|string){
   const n=Math.max(1,Math.min(20,Math.floor(Number(value)||1))); cfg.value.rankRange=n;
@@ -51,7 +53,7 @@ onMounted(load);
         <div class="tb-wrap"><table class="tb2 prize-table"><thead><tr><th>名次</th><th>奖励卡型</th><th>名次</th><th>奖励卡型</th></tr></thead><tbody>
           <tr v-for="pair in prizeRows" :key="pair[0]">
             <template v-for="rank in pair" :key="rank||'empty'">
-              <template v-if="rank"><td>第 {{ rank }} 名</td><td><AppSelect v-model="cfg.prizeMap[String(rank)]" :options="personalOpts" compact no-margin class="prize-select" /></td></template>
+              <template v-if="rank"><td>第 {{ rank }} 名</td><td><AppSelect v-model="cfg.prizeMap[String(rank)]" :options="rewardOpts" compact no-margin class="prize-select" /></td></template>
               <template v-else><td></td><td></td></template>
             </template>
           </tr>
@@ -62,7 +64,7 @@ onMounted(load);
       <section class="card">
         <div class="st">战队奖励</div>
         <label class="setting-row"><span><b>夺冠战队奖励</b><small>战队榜第 1 全员发放</small></span><input v-model="cfg.teamReward" type="checkbox" class="ui-toggle"/></label>
-        <label v-if="cfg.teamReward" class="setting-row"><span><b>奖励卡型</b></span><AppSelect v-model="cfg.teamCard" :options="teamOpts" no-margin class="team-select" /></label>
+        <label v-if="cfg.teamReward" class="setting-row"><span><b>奖励卡型</b></span><AppSelect v-model="cfg.teamCard" :options="rewardOpts" no-margin class="team-select" /></label>
         <label class="setting-row"><span><b>本人需有碎片</b><small>碎片为 0 的成员跳过，结算记录标记为「本周期无碎片」</small></span><input v-model="cfg.reqShard" type="checkbox" class="ui-toggle"/></label>
       </section>
 
@@ -75,7 +77,7 @@ onMounted(load);
       </section>
 
       <button class="btn pri save-btn" :disabled="saving" @click="save">{{ saving?'保存中…':'保存规则' }}</button>
-      <div class="note final-note"><b>口径说明：</b>碎片榜「历史」= 永久累计；积分榜「历史」= 当月累计（随每月 1 日 12:00 清零归零）。<b>发奖以冻结快照为准</b>，结算后调队不影响已发放奖励；极端并列无上界，结算预览页会显示发放总量。</div>
+      <div class="note final-note"><b>口径说明：</b>碎片榜「历史」= 永久累计；积分榜「历史」= 当月累计（随每月 1 日 13:00 清零归零）。周维度每周一 12:00 自动结算；月维度次月 1 日 12:00 自动结算。<b>发奖以冻结快照为准</b>，结算后调队不影响已发放奖励；极端并列无上界，结算预览页会显示发放总量。</div>
     </AppAsyncPage>
   </div>
 </template>

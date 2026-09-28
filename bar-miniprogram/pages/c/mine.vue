@@ -25,61 +25,6 @@ const editMsg = ref("");
 const deactReason = ref("");
 const deactMsg = ref("");
 
-const TERMS_TEXT_DEFAULT = `一、协议主体与适用范围：您与玩咖桌游酒吧就使用本店微信小程序会员服务达成的协议。
-二、账号注册与信息收集：收集微信昵称头像（展示身份）、手机号（绑定会员与订单）、性别/姓名（选填，姓名仅线下核销核对）。存储至注销后 6 个月。
-三、金币规则：1 元=1 金币；本金金币可退，赠送金币不可退/提现/转让；消费优先扣本金；充值需到吧台付款由店员确认后到账，30 分钟未付自动关闭。
-四、积分规则：对局与签到获得；每月 1 日 12:00 清零不结转；不可兑换现金。积分提取需生成提分单并由店员当面确认发放：30 分钟未确认自动关闭，冻结积分全额退回可用、不予没收；同一用户 24 小时内达到 3 次超时未确认的，暂停其提交提分单，随时间自然恢复、无需申请；提分单冻结期间的积分不参与月清零，待单据终结后再按当时规则处理。
-五、碎片规则：荣誉值，仅用于周榜排名与周奖励评定。
-六、卡券规则：游戏卡/酒水卡 30 天有效，宝箱卡 7 天有效，过期作废不补偿；核销码 5 分钟有效。
-七、订单与消费：金币支付订单店员接单时扣款，拒单全额退回；到吧台付款 30 分钟超时关闭。
-八、战队：由本店分组，会员不可自建或申请加入。
-九、账号注销：可在小程序内提交注销申请，由店长核对资产结清后执行；积分碎片清零、卡券作废、本金金币可退、赠送不退；个人信息 6 个月内删除。
-十、争议解决：适用中华人民共和国法律，协商不成向本店所在地法院起诉。`;
-
-const PRIVACY_TEXT_DEFAULT = `一、收集信息：微信昵称头像（必需）、手机号（必需）、性别与姓名（选填）。自动收集：微信账号标识、订单信息、对局记录、相关服务记录。
-二、不收集：精确地理位置、通讯录/相册/麦克风权限（扫码时主动调起）、微信好友关系、支付账户信息（不接入线上支付）。
-三、使用目的：提供服务、客户服务、匿名经营分析；不做自动化决策与精准营销。
-四、对外提供：昵称头像在排行榜展示；门店待办提醒由吧台电脑值守页与员工小程序前台实时提示，不使用微信订阅消息推送；不出售个人信息。登录可通过微信授权手机号或短信验证码。
-五、存储：境内存储，注销后 6 个月内删除。
-六、您的权利：查阅更正、查看资产明细、申请注销、撤回授权、投诉举报。
-七、未成年人保护：本店为酒类经营场所，未成年人不得饮酒。
-八、联系我们：门店名称、地址、电话见「我的 → 帮助与联系 → 联系店员」，15 个工作日内答复。`;
-
-const SHOP_DEFAULT = {
-  name: "玩咖桌游酒吧（万象城店）",
-  addr: "广州市天河区天河路 208 号万象城 B2-17",
-  tel: "020-8866 2043",
-  hours: "周一至周日 14:00 - 次日 02:00（最后入场 01:00）",
-  notice: "本店为酒类经营场所，未成年人不得饮酒。桌游包桌建议提前一天电话预约。",
-};
-
-const FAQ_DEFAULT = {
-  title: "常见问题",
-  sub: "资产与规则说明",
-  items: [
-    {
-      q: "金币可以退款吗？",
-      a: "充值的本金金币未消费部分可到店申请退还；赠送金币不可退、不可提现、不可转让。消费时优先扣减本金金币。",
-    },
-    {
-      q: "积分什么时候清零？",
-      a: "积分有效期为自然月，每月 1 日 12:00 清零，不结转到下月。请在清零前兑换卡券或到吧台提取。",
-    },
-    {
-      q: "卡券过期了还能用吗？",
-      a: "不能。游戏卡与酒水小食卡 30 天有效，宝箱卡 7 天有效，过期自动作废且不补偿，请留意卡包中的临期红标。",
-    },
-    {
-      q: "碎片有什么用？",
-      a: "碎片是荣誉值，只用于周榜排名与周奖励评定，不能兑换任何实物或抵扣消费，也不会清零。",
-    },
-    {
-      q: "怎么加入战队？",
-      a: "战队由本店统一分组，会员不能自建或自行申请加入，到吧台联系店员安排即可。",
-    },
-  ],
-};
-
 onShow(async () => {
   hideWxHomeButton();
   // redirectTo：避免未登录栈底留空白「我的」，暂不登录可回到上一页
@@ -163,11 +108,11 @@ function openTeamDetail() {
 const shop = computed(() => {
   const s = me.value?.shop || {};
   return {
-    name: s.name || SHOP_DEFAULT.name,
-    addr: s.addr || SHOP_DEFAULT.addr,
-    tel: s.tel || SHOP_DEFAULT.tel,
-    hours: s.hours || SHOP_DEFAULT.hours,
-    notice: s.notice || SHOP_DEFAULT.notice,
+    name: String(s.name || "").trim(),
+    addr: String(s.addr || "").trim(),
+    tel: String(s.tel || "").trim(),
+    hours: String(s.hours || "").trim(),
+    notice: String(s.notice || "").trim(),
   };
 });
 
@@ -187,12 +132,17 @@ function callShop() {
 }
 
 const faq = computed(() => {
-  const f = me.value?.content?.faq || {};
-  const items = (f.items || []).length ? f.items : FAQ_DEFAULT.items;
+  const f = me.value?.content?.faq;
+  if (f == null) {
+    return { title: "常见问题", sub: "", items: [] };
+  }
+  if (Array.isArray(f)) {
+    return { title: "常见问题", sub: "", items: f };
+  }
   return {
-    title: f.title || FAQ_DEFAULT.title,
-    sub: f.sub || FAQ_DEFAULT.sub,
-    items,
+    title: String(f.title || "").trim() || "常见问题",
+    sub: String(f.sub || "").trim(),
+    items: Array.isArray(f.items) ? f.items : [],
   };
 });
 
@@ -210,12 +160,11 @@ function closeFaqSheet() {
 
 const terms = computed(() => {
   const doc = me.value?.agreements?.terms || {};
-  const text = String(doc.text || "").trim();
   return {
     title: doc.title || "玩咖会员服务协议",
-    ver: doc.ver || 2,
-    pub: doc.pub || "08-20 14:30",
-    text: text || TERMS_TEXT_DEFAULT,
+    ver: doc.ver || 1,
+    pub: doc.pub || "",
+    text: String(doc.text || "").trim(),
   };
 });
 
@@ -227,7 +176,8 @@ const termsSub = computed(() => {
 });
 
 const termsMeta = computed(() => {
-  let s = `当前生效版本 v${terms.value.ver} · ${terms.value.pub} 发布`;
+  let s = `当前生效版本 v${terms.value.ver}`;
+  if (terms.value.pub) s += ` · ${terms.value.pub} 发布`;
   const agreed = me.value?.user?.agreedVersion;
   if (agreed != null) s += ` · 你已同意 v${agreed}`;
   return s;
@@ -242,18 +192,21 @@ function closeTermsSheet() {
 
 const privacy = computed(() => {
   const doc = me.value?.agreements?.privacy || {};
-  const text = String(doc.text || "").trim();
   return {
     title: doc.title || "玩咖隐私政策",
     ver: doc.ver || 1,
-    pub: doc.pub || "06-01 09:00",
-    text: text || PRIVACY_TEXT_DEFAULT,
+    pub: doc.pub || "",
+    text: String(doc.text || "").trim(),
   };
 });
 
 const privacySub = computed(() => `当前生效 v${privacy.value.ver} · 信息收集与使用说明`);
 
-const privacyMeta = computed(() => `当前生效版本 v${privacy.value.ver} · ${privacy.value.pub} 发布`);
+const privacyMeta = computed(() => {
+  let s = `当前生效版本 v${privacy.value.ver}`;
+  if (privacy.value.pub) s += ` · ${privacy.value.pub} 发布`;
+  return s;
+});
 
 function openPrivacySheet() {
   showPrivacy.value = true;
@@ -457,18 +410,18 @@ async function submitDeact() {
       </view>
       <scroll-view scroll-y :show-scrollbar="false" class="shop-body sheet-scroll">
         <view class="card shop-card">
-          <view style="font-weight:600;font-size:14px">{{ shop.name }}</view>
+          <view style="font-weight:600;font-size:14px">{{ shop.name || "商家尚未配置门店名称" }}</view>
           <view class="shop-line">
             <text class="tiny shop-k">地址</text>
-            <text class="shop-v">{{ shop.addr }}</text>
+            <text class="shop-v">{{ shop.addr || "未配置" }}</text>
           </view>
           <view class="shop-line">
             <text class="tiny shop-k">电话</text>
-            <text class="shop-v">{{ shop.tel }}</text>
+            <text class="shop-v">{{ shop.tel || "未配置" }}</text>
           </view>
           <view class="shop-line">
             <text class="tiny shop-k">营业</text>
-            <text class="shop-v">{{ shop.hours }}</text>
+            <text class="shop-v">{{ shop.hours || "未配置" }}</text>
           </view>
         </view>
         <view v-if="shop.notice" class="card shop-notice">
@@ -490,7 +443,7 @@ async function submitDeact() {
         <text class="shop-close" @tap="closeFaqSheet">关闭</text>
       </view>
       <scroll-view scroll-y :show-scrollbar="false" class="faq-body sheet-scroll">
-        <view class="tiny faq-sub">{{ faq.sub }} · 共 {{ faq.items.length }} 条</view>
+        <view class="tiny faq-sub">{{ faq.sub ? faq.sub + " · " : "" }}共 {{ faq.items.length }} 条</view>
         <view v-if="faq.items.length" class="faq-list">
           <view v-for="(it, i) in faq.items" :key="i" class="card faq-item">
             <view style="font-weight:600;font-size:13px">{{ i + 1 }}. {{ it.q }}</view>
@@ -510,7 +463,8 @@ async function submitDeact() {
       </view>
       <scroll-view scroll-y :show-scrollbar="false" class="terms-body sheet-scroll">
         <view class="tiny terms-meta">{{ termsMeta }}</view>
-        <view class="terms-text">{{ terms.text }}</view>
+        <view v-if="terms.text" class="terms-text">{{ terms.text }}</view>
+        <view v-else class="card tiny" style="text-align:center;padding:24px">商家尚未配置协议正文</view>
         <view class="note terms-tip">
           协议为常驻可查入口，历史版本与你的同意记录由本店永久保留。如对条款有疑问可到吧台咨询店员。
         </view>
@@ -525,7 +479,8 @@ async function submitDeact() {
       </view>
       <scroll-view scroll-y :show-scrollbar="false" class="terms-body sheet-scroll">
         <view class="tiny terms-meta">{{ privacyMeta }}</view>
-        <view class="terms-text">{{ privacy.text }}</view>
+        <view v-if="privacy.text" class="terms-text">{{ privacy.text }}</view>
+        <view v-else class="card tiny" style="text-align:center;padding:24px">商家尚未配置隐私政策正文</view>
         <view class="note terms-tip">
           协议为常驻可查入口，历史版本与你的同意记录由本店永久保留。如对条款有疑问可到吧台咨询店员。
         </view>

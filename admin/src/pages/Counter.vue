@@ -20,6 +20,13 @@ type Summary = {
 
 const ALERT_EVENTS = new Set(["order.created", "recharge.created", "withdrawal.created"]);
 
+const SPEECH_TEXT: Record<"order" | "pay" | "recharge" | "withdrawal", string> = {
+  order: "您有新的订单待接单",
+  pay: "您有新的订单待收款",
+  recharge: "您有新的充值待确认",
+  withdrawal: "您有新的提分待确认",
+};
+
 const summary = ref<Summary | null>(null);
 const router = useRouter();
 const loading = ref(true);
@@ -31,6 +38,7 @@ const lastSync = ref<Date | null>(null);
 const clock = ref(new Date());
 const err = ref("");
 const lastAcceptIds = ref<Set<number> | null>(null);
+const lastPayOrderIds = ref<Set<number> | null>(null);
 const lastRechargeIds = ref<Set<number> | null>(null);
 const lastWithdrawalIds = ref<Set<number> | null>(null);
 let socket: WebSocket | null = null;
@@ -39,6 +47,7 @@ let pollTimer = 0;
 let heartbeatTimer = 0;
 let clockTimer = 0;
 let repeatTimer = 0;
+let speakTimer = 0;
 let reconnectAttempt = 0;
 let lastAlertAt = 0;
 let repeatedTimes = 0;
@@ -63,29 +72,44 @@ function hasNewIds(nextIds: Set<number>, lastIds: Set<number> | null) {
   return Boolean(lastIds && [...nextIds].some((id) => !lastIds.has(id)));
 }
 
-function speakNewOrder() {
-  if (!soundReady.value || summary.value?.reminder?.enabled === false || summary.value?.reminder?.order === false || summary.value?.reminder?.pcVoice === false) return;
-  audio!.volume = 1;
-  audio?.play().catch(() => undefined);
-  try {
-    if ("speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-      const utter = new SpeechSynthesisUtterance("您有新的订单，请及时处理");
-      utter.lang = "zh-CN";
-      utter.rate = 0.95;
-      utter.volume = 1;
-      window.speechSynthesis.speak(utter);
-    }
-  } catch { /* the chime above remains the audible fallback */ }
-  lastAlertAt = Date.now();
+function playChime(volume: number) {
+  const player = volume >= 0.9 ? audio : weakAudio;
+  if (!player) return;
+  player.volume = volume;
+  player.currentTime = 0;
+  player.play().catch(() => undefined);
 }
 
-function speakWeak(sceneKey: "recharge" | "withdrawal") {
+function speakAfterChime(text: string) {
+  try {
+    if (!("speechSynthesis" in window)) return;
+    window.speechSynthesis.cancel();
+    window.clearTimeout(speakTimer);
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = "zh-CN";
+    utter.rate = 0.95;
+    utter.volume = 1;
+    // Let the chime finish first, then read the scene line.
+    speakTimer = window.setTimeout(() => {
+      try {
+        window.speechSynthesis.speak(utter);
+      } catch { /* chime already played */ }
+    }, 420);
+  } catch { /* chime remains the audible fallback */ }
+}
+
+function speakScene(scene: "order" | "pay" | "recharge" | "withdrawal") {
   const cfg = summary.value?.reminder || {};
-  if (!soundReady.value || cfg.enabled === false || cfg.pcVoice === false || cfg[sceneKey] === false) return;
-  weakAudio!.volume = 0.42;
-  weakAudio!.currentTime = 0;
-  weakAudio?.play().catch(() => undefined);
+  if (!soundReady.value || cfg.enabled === false || cfg.pcVoice === false) return;
+  if (cfg[scene] === false) return;
+  const strong = scene === "order";
+  playChime(strong ? 1 : 0.55);
+  speakAfterChime(SPEECH_TEXT[scene]);
+  if (strong) lastAlertAt = Date.now();
+}
+
+function speakNewOrder() {
+  speakScene("order");
 }
 
 function checkRepeatReminder() {
@@ -102,20 +126,24 @@ function checkRepeatReminder() {
 }
 
 function processAlerts(next: Summary) {
-  const canAlert = lastAcceptIds.value || lastRechargeIds.value || lastWithdrawalIds.value;
-  if (!canAlert) return;
+  const warmed =
+    lastAcceptIds.value || lastPayOrderIds.value || lastRechargeIds.value || lastWithdrawalIds.value;
+  if (!warmed) return;
 
   const nextAccept = new Set(next.accept.ids || []);
+  const nextPay = new Set(next.payOrder.ids || []);
   const nextRecharge = new Set(next.recharge.ids || []);
   const nextWithdrawal = new Set(next.withdrawal.ids || []);
 
   if (hasNewIds(nextAccept, lastAcceptIds.value)) {
     repeatedTimes = 0;
-    speakNewOrder();
+    speakScene("order");
+  } else if (hasNewIds(nextPay, lastPayOrderIds.value)) {
+    speakScene("pay");
   } else if (hasNewIds(nextRecharge, lastRechargeIds.value)) {
-    speakWeak("recharge");
+    speakScene("recharge");
   } else if (hasNewIds(nextWithdrawal, lastWithdrawalIds.value)) {
-    speakWeak("withdrawal");
+    speakScene("withdrawal");
   }
 }
 
@@ -124,6 +152,7 @@ async function syncSummary(allowAlert = true) {
     const next = await api<Summary>("/staff/todo-summary");
     if (allowAlert) processAlerts(next);
     lastAcceptIds.value = new Set(next.accept.ids || []);
+    lastPayOrderIds.value = new Set(next.payOrder.ids || []);
     lastRechargeIds.value = new Set(next.recharge.ids || []);
     lastWithdrawalIds.value = new Set(next.withdrawal.ids || []);
     summary.value = next;
@@ -224,9 +253,13 @@ function stop() {
   socket?.close();
   socket = null;
   window.clearTimeout(reconnectTimer);
+  window.clearTimeout(speakTimer);
   window.clearInterval(pollTimer);
   window.clearInterval(heartbeatTimer);
   window.clearInterval(repeatTimer);
+  try {
+    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+  } catch { /* ignore */ }
 }
 
 function testSound() {
@@ -282,10 +315,10 @@ onBeforeUnmount(() => {
     <div v-if="err" class="counter-alert">{{ err }}</div>
 
     <div class="counter-metrics">
-      <button type="button" class="counter-metric primary" @click="openQueue('accept')"><span>待接单</span><b>{{ summary?.accept.count || 0 }}</b><small>强提醒：完整语音 + 可重复催单</small></button>
-      <button type="button" class="counter-metric" @click="openQueue('pay')"><span>待收款</span><b>{{ summary?.payOrder.count || 0 }}</b><small>仅更新角标，不单独播报</small></button>
-      <button type="button" class="counter-metric" @click="openQueue('recharge')"><span>待确认充值</span><b>{{ summary?.recharge.count || 0 }}</b><small>弱提醒：短促提示音</small></button>
-      <button type="button" class="counter-metric" @click="openQueue('withdrawal')"><span>待确认提分</span><b>{{ summary?.withdrawal.count || 0 }}</b><small>弱提醒：短促提示音</small></button>
+      <button type="button" class="counter-metric primary" @click="openQueue('accept')"><span>待接单</span><b>{{ summary?.accept.count || 0 }}</b><small>强提醒：提示音 + 语音，可重复催单</small></button>
+      <button type="button" class="counter-metric" @click="openQueue('pay')"><span>待收款</span><b>{{ summary?.payOrder.count || 0 }}</b><small>提示音 +「待收款」语音</small></button>
+      <button type="button" class="counter-metric" @click="openQueue('recharge')"><span>待确认充值</span><b>{{ summary?.recharge.count || 0 }}</b><small>提示音 +「充值」语音</small></button>
+      <button type="button" class="counter-metric" @click="openQueue('withdrawal')"><span>待确认提分</span><b>{{ summary?.withdrawal.count || 0 }}</b><small>提示音 +「提分」语音</small></button>
     </div>
 
     <div class="counter-panel">

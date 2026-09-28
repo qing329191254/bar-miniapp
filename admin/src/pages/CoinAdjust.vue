@@ -80,8 +80,8 @@ function openReject(row: any) {
   dlg.value = { mode: "reject", row };
   reason.value = "";
 }
-function closeDlg() {
-  if (acting.value) return;
+function closeDlg(force = false) {
+  if (acting.value && !force) return;
   dlg.value = null;
   reason.value = "";
 }
@@ -99,7 +99,7 @@ async function submitDlg() {
       method: "POST",
       body: mode === "reject" ? { reason: reason.value.trim() } : {},
     });
-    closeDlg();
+    closeDlg(true);
     showToast(mode === "approve" ? "已通过，金币已调整" : "已驳回");
     await load();
   } catch (e: any) {

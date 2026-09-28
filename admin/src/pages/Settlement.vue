@@ -145,7 +145,7 @@ onMounted(loadPage);
         <span class="pill" :class="preview.blocked ? 'preview-blocked' : 'preview-ok'">{{ preview.blocked ? "超过上限 · 执行后将整批拦截" : "未超限" }}</span>
       </div>
       <div class="preview-detail">
-        <p><b>规则摘要</b> · {{ preview.cfg?.rankDim === "MONTH" ? "月维度" : "周维度（周一 00:00 重置）" }} · 个人前 {{ preview.cfg?.rankRange || data.cfg?.rankRange || 3 }} 名 · 战队奖 {{ preview.cfg?.teamReward ? "开" : "关" }} · {{ preview.cfg?.stack ? "可叠加" : "不可叠加" }}</p>
+        <p><b>规则摘要</b> · {{ preview.cfg?.rankDim === "MONTH" ? "月维度（次月 1 日 12:00 结算）" : "周维度（每周一 12:00 结算）" }} · 个人前 {{ preview.cfg?.rankRange || data.cfg?.rankRange || 3 }} 名 · 战队奖 {{ preview.cfg?.teamReward ? "开" : "关" }} · {{ preview.cfg?.stack ? "可叠加" : "不可叠加" }}</p>
         <p><b>个人榜</b>（碎片{{ preview.cfg?.rankDim === "MONTH" ? "月" : "周" }}榜）{{ personalPreviewText }}</p>
         <p><b>战队奖</b> {{ teamPreviewText }}</p>
         <p v-if="preview.missingRanks?.length" class="preview-missing">第 {{ preview.missingRanks.join("、") }} 名未配置卡型，结算时将跳过。</p>

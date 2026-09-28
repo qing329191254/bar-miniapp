@@ -90,15 +90,9 @@ function preview(i) {
 
 const PLAY_DEFAULT = {
   title: "店铺玩法",
-  sub: "桌游规则与场地",
-  items: [
-    "狼人杀 8-12 人，每局约 2 小时",
-    "德州扑克 6-9 人，提供筹码与牌具",
-    "台球 8 球，2-4 人",
-    "剧本杀 6-8 人，需提前预约",
-    "场地提供卡座 / 散台 / 吧台区域",
-  ],
-  pic: "场地示意图",
+  sub: "",
+  items: [],
+  pic: "",
 };
 
 function isPicUrl(v) {
@@ -110,29 +104,34 @@ const play = computed(() => {
   if (!h || Array.isArray(h)) {
     return {
       title: PLAY_DEFAULT.title,
-      sub: PLAY_DEFAULT.sub,
+      sub: Array.isArray(h) ? "" : PLAY_DEFAULT.sub,
     };
   }
   return {
-    title: h.title || PLAY_DEFAULT.title,
-    sub: h.sub || PLAY_DEFAULT.sub,
+    title: String(h.title || "").trim() || PLAY_DEFAULT.title,
+    sub: String(h.sub || "").trim(),
   };
 });
 
 const howToPlay = computed(() => {
   const h = data.value?.howToPlay;
-  if (!h || Array.isArray(h)) {
+  // Missing entirely or bare list → no demo item mask; empty merchant save stays empty
+  if (h == null) {
+    return { ...PLAY_DEFAULT, picUrl: "" };
+  }
+  if (Array.isArray(h)) {
     return {
-      ...PLAY_DEFAULT,
-      items: Array.isArray(h) && h.length ? h : PLAY_DEFAULT.items,
+      title: PLAY_DEFAULT.title,
+      sub: "",
+      items: h,
       picUrl: "",
     };
   }
   const picRaw = h.picUrl || h.pic || "";
   return {
-    title: h.title || PLAY_DEFAULT.title,
-    sub: h.sub || PLAY_DEFAULT.sub,
-    items: (h.items || []).length ? h.items : PLAY_DEFAULT.items,
+    title: String(h.title || "").trim() || PLAY_DEFAULT.title,
+    sub: String(h.sub || "").trim(),
+    items: Array.isArray(h.items) ? h.items : [],
     pic: isPicUrl(picRaw) ? "" : (h.pic || ""),
     picUrl: isPicUrl(picRaw) ? media(picRaw) : "",
   };
@@ -270,7 +269,7 @@ async function doSign() {
       <app-icon name="play" tone="purple" size="md" shape="sq" />
       <view class="home-txt">
         <view class="ht">{{ play.title }}</view>
-        <view class="hs">{{ play.sub }}</view>
+        <view class="hs">{{ play.sub || "查看规则与场地" }}</view>
       </view>
       <image class="chev" :src="chevSrc" mode="aspectFit" />
     </view>
@@ -358,7 +357,7 @@ async function doSign() {
           @tap="doSign"
         >{{ signedToday ? "今日已签到" : "签到" }}</button>
         <view class="note sign-note">
-          签到积分立即到账，同样受<text style="font-weight:600">每月 1 日 12:00 清零</text>约束。漏签不可补签，<text style="font-weight:600">断签后连续天数从 1 重新累计</text>。
+          签到积分立即到账，同样受<text style="font-weight:600">每月 1 日 13:00 清零</text>约束。漏签不可补签，<text style="font-weight:600">断签后连续天数从 1 重新累计</text>。
         </view>
         <view class="err" v-if="msg">{{ msg }}</view>
       </scroll-view>
@@ -372,10 +371,11 @@ async function doSign() {
       </view>
       <scroll-view scroll-y class="play-body">
         <view class="card play-card">
-          <view style="font-weight:600;font-size:13px">{{ howToPlay.sub }}</view>
-          <view class="play-list">
+          <view v-if="howToPlay.sub" style="font-weight:600;font-size:13px">{{ howToPlay.sub }}</view>
+          <view v-if="howToPlay.items.length" class="play-list">
             <view v-for="(line, i) in howToPlay.items" :key="i" class="play-line">· {{ line }}</view>
           </view>
+          <view v-else class="tiny" style="padding:8px 0">商家尚未配置玩法说明</view>
         </view>
         <image
           v-if="howToPlay.picUrl"

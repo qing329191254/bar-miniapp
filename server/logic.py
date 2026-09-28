@@ -49,9 +49,9 @@ def today_day() -> int:
 
 
 def next_point_clear_at() -> datetime:
-    """Next monthly points clear: 1st of month at 12:00 Asia/Shanghai."""
+    """Next monthly points clear: 1st of month at 13:00 Asia/Shanghai."""
     now = business_now()
-    candidate = now.replace(day=1, hour=12, minute=0, second=0, microsecond=0)
+    candidate = now.replace(day=1, hour=13, minute=0, second=0, microsecond=0)
     if now >= candidate:
         if candidate.month == 12:
             candidate = candidate.replace(year=candidate.year + 1, month=1)
@@ -65,7 +65,7 @@ def point_period() -> dict:
     clear_at = next_point_clear_at()
     days_left = (clear_at.date() - now.date()).days
     return {
-        "clearLabel": f"{clear_at.month} 月 {clear_at.day} 日 12:00 清零",
+        "clearLabel": f"{clear_at.month} 月 {clear_at.day} 日 13:00 清零",
         "daysLeft": max(0, days_left),
         "clearAt": clear_at.isoformat(),
     }
@@ -124,6 +124,138 @@ def save_setting(sess: Session, key: str, value):
         return
     row.v = value
     flag_modified(row, "v")
+
+
+def normalize_gallery(raw) -> dict:
+    """Always {title, items:[...]} — never a bare list (JSON drops Array.items extras)."""
+    title_default = "店铺相册"
+    if isinstance(raw, list):
+        src_items = raw
+        title = title_default
+    elif isinstance(raw, dict):
+        title = str(raw.get("title") or title_default).strip() or title_default
+        src_items = raw.get("items") if isinstance(raw.get("items"), list) else []
+    else:
+        return {"title": title_default, "items": []}
+    items = []
+    for x in src_items:
+        if not isinstance(x, dict):
+            continue
+        url = str(x.get("url") or "").strip()
+        if not url:
+            continue
+        items.append({
+            "id": int(x.get("id") or 0) or (len(items) + 1),
+            "name": str(x.get("name") or "").strip(),
+            "desc": str(x.get("desc") or "").strip(),
+            "url": url,
+        })
+    return {"title": title, "items": items}
+
+
+def normalize_how_to_play(raw) -> dict:
+    """Always {title, sub, items:[str], pic} — never a bare list."""
+    if isinstance(raw, list):
+        items = [str(x).strip() for x in raw if str(x).strip()]
+        return {"title": "店铺玩法", "sub": "", "items": items, "pic": ""}
+    if not isinstance(raw, dict):
+        return {"title": "店铺玩法", "sub": "", "items": [], "pic": ""}
+    src = raw.get("items") if isinstance(raw.get("items"), list) else []
+    return {
+        "title": str(raw.get("title") or "店铺玩法").strip() or "店铺玩法",
+        "sub": str(raw.get("sub") or "").strip(),
+        "items": [str(x).strip() for x in src if str(x).strip()],
+        "pic": str(raw.get("pic") or "").strip(),
+    }
+
+
+def normalize_faq(raw) -> dict:
+    """Always {title, sub, items:[{q,a}]} — never a bare list."""
+    if isinstance(raw, list):
+        src = raw
+        title, sub = "常见问题", "资产与规则说明"
+    elif isinstance(raw, dict):
+        title = str(raw.get("title") or "常见问题").strip() or "常见问题"
+        sub = str(raw.get("sub") or "资产与规则说明").strip() or "资产与规则说明"
+        src = raw.get("items") if isinstance(raw.get("items"), list) else []
+    else:
+        return {"title": "常见问题", "sub": "资产与规则说明", "items": []}
+    items = []
+    for x in src:
+        if not isinstance(x, dict):
+            continue
+        q = str(x.get("q") or "").strip()
+        a = str(x.get("a") or "").strip()
+        if q or a:
+            items.append({"q": q, "a": a})
+    return {"title": title, "sub": sub, "items": items}
+
+
+def normalize_shop_info(raw) -> dict:
+    if not isinstance(raw, dict):
+        return {}
+    biz = raw.get("bizDayStart")
+    try:
+        biz_n = max(0, min(23, int(biz))) if biz is not None and str(biz).strip() != "" else 6
+    except (TypeError, ValueError):
+        biz_n = 6
+    return {
+        "name": str(raw.get("name") or "").strip(),
+        "addr": str(raw.get("addr") or "").strip(),
+        "tel": str(raw.get("tel") or "").strip(),
+        "hours": str(raw.get("hours") or "").strip(),
+        "notice": str(raw.get("notice") or "").strip(),
+        "bizDayStart": biz_n,
+    }
+
+
+def gallery_shape_broken(raw) -> bool:
+    """True when stored gallery cannot round-trip uploads (bare list / missing items)."""
+    return not isinstance(raw, dict) or not isinstance(raw.get("items"), list)
+
+
+def content_part_broken(key: str, raw) -> bool:
+    if key == "gallery":
+        return gallery_shape_broken(raw)
+    if key in ("howToPlay", "faq"):
+        return not isinstance(raw, dict) or not isinstance(raw.get("items"), list)
+    if key == "shopInfo":
+        return raw is not None and not isinstance(raw, dict)
+    return False
+
+
+def content_setting(sess: Session, *, repair: bool = True) -> dict:
+    """Load content settings; repair broken nested shapes in place (bare [] etc.)."""
+    content = dict(setting(sess, "content") or {})
+    dirty = False
+
+    gal_raw = content.get("gallery")
+    gal = normalize_gallery(gal_raw)
+    if repair and content_part_broken("gallery", gal_raw):
+        dirty = True
+    content["gallery"] = gal
+
+    play_raw = content.get("howToPlay")
+    play = normalize_how_to_play(play_raw)
+    if repair and content_part_broken("howToPlay", play_raw):
+        dirty = True
+    content["howToPlay"] = play
+
+    faq_raw = content.get("faq")
+    faq = normalize_faq(faq_raw)
+    if repair and content_part_broken("faq", faq_raw):
+        dirty = True
+    content["faq"] = faq
+
+    shop_raw = content.get("shopInfo")
+    shop = normalize_shop_info(shop_raw) if shop_raw is not None else normalize_shop_info({})
+    if repair and content_part_broken("shopInfo", shop_raw):
+        dirty = True
+    content["shopInfo"] = shop
+
+    if dirty:
+        save_setting(sess, "content", content)
+    return content
 
 
 def next_seq(sess: Session, key: str) -> int:
@@ -340,6 +472,19 @@ def alloc_member_no(sess: Session) -> str:
     return f"{n:06d}"
 
 
+def default_member_nick(member_no: str) -> str:
+    """Default display name: 玩咖用户 + 6-digit member no (unique, ≤12 chars)."""
+    no = "".join(ch for ch in str(member_no or "") if ch.isdigit())[-6:].zfill(6)
+    return f"玩咖用户{no}"
+
+
+def is_default_member_nick(nick: str | None) -> bool:
+    s = (nick or "").strip()
+    if s == "玩咖用户":
+        return True
+    return len(s) == 10 and s.startswith("玩咖用户") and s[4:].isdigit()
+
+
 STAFF_ROLES = ("STAFF", "MANAGER", "BOSS")
 # Staff may use the member portal (same account) to order/recharge for themselves.
 MEMBER_COMMERCE_ROLES = ("CUSTOMER",) + STAFF_ROLES
@@ -483,10 +628,11 @@ def register_or_bind_phone(sess: Session, phone_full: str, openid: str | None = 
         return user
 
     masked, tail = mask_phone(d11)
+    member_no = alloc_member_no(sess)
     user = User(
         id=new_id(sess, User),
-        no=alloc_member_no(sess),
-        nick="玩咖用户",
+        no=member_no,
+        nick=default_member_nick(member_no),
         phone=masked,
         tail=tail,
         gender=0,
@@ -603,10 +749,11 @@ def register(sess: Session, nick: str, agreed: bool) -> User:
     agreements = setting(sess, "agreements")
     ver = int((agreements.get("terms") or {}).get("ver") or 1)
     tail = rand_digits(4)
+    member_no = alloc_member_no(sess)
     user = User(
         id=new_id(sess, User),
-        no=alloc_member_no(sess),
-        nick=nick or "玩咖用户",
+        no=member_no,
+        nick=(nick or "").strip() or default_member_nick(member_no),
         phone=f"1******{tail}",
         tail=tail,
         gender=0,
@@ -1631,7 +1778,8 @@ def dashboard(sess: Session, role: str) -> dict:
     tpl_cats = {r.id: r.cat for r in sess.query(CardTpl.id, CardTpl.cat).all()}
     treasure = sum(1 for c in sess.query(Card).filter_by(status="UNUSED").all() if tpl_cats.get(c.tpl) == "OTHER")
     content = setting(sess, "content")
-    shop = (content or {}).get("shopInfo") or {}
+    shop_raw = (content or {}).get("shopInfo")
+    shop = shop_raw if isinstance(shop_raw, dict) else {}
     block = not (shop.get("name") and shop.get("addr") and shop.get("tel"))
     week = [x.to_dict() for x in sess.query(DailyBiz).order_by(DailyBiz.d.desc()).limit(7).all()]
     pt_alert = point_today_ratio(sess)
@@ -2612,7 +2760,7 @@ def create_staff(sess: Session, data: dict, admin: dict) -> dict:
             customer.pwd = hashed
         if nick_in:
             customer.nick = nick_in
-        elif role == "BOSS" and (not customer.nick or customer.nick == "玩咖用户"):
+        elif role == "BOSS" and (not customer.nick or is_default_member_nick(customer.nick)):
             customer.nick = default_nick
         bind_wx_phone(sess, customer, d11)
         log(
@@ -3045,6 +3193,239 @@ ADJUST_LOG_ACTIONS = (
     "SHARD_ADJUST", "POINT_ADJUST", "CARD_GRANT", "CARD_REVOKE",
     "CARD_VERIFY_STAFF", "CARD_VERIFY",
 )
+
+# Customer-visible asset change log (orders / tip-outs / adjusts / cards / recharges).
+_WDR_STATUS = {
+    "PENDING_CONFIRM": ("待确认", "gold"),
+    "GRANTED": ("已发放", "green"),
+    "REJECTED": ("已驳回", "red"),
+    "CANCELLED": ("已取消", "grey"),
+    "CLOSED_TIMEOUT": ("超时关闭", "red"),
+}
+_RC_STATUS = {
+    "PENDING_PAY": ("待确认", "gold"),
+    "PAID": ("已到账", "green"),
+    "DONE": ("已到账", "green"),
+    "CANCELLED": ("已取消", "grey"),
+    "CLOSED": ("已关闭", "grey"),
+    "REJECTED": ("已拒绝", "red"),
+}
+_ORDER_STATUS = {
+    "PENDING_PAY": ("待付款", "gold"),
+    "PENDING_ACCEPT": ("待接单", "blue"),
+    "MAKING": ("制作中", "blue"),
+    "FINISHED": ("已完成", "green"),
+    "CANCELLED": ("已取消", "grey"),
+    "CLOSED": ("已关闭", "grey"),
+    "REFUNDED": ("已退款", "red"),
+}
+_CARD_STATUS = {
+    "UNUSED": ("未使用", "blue"),
+    "USED": ("已核销", "green"),
+    "EXPIRED": ("已过期", "grey"),
+    "VOID": ("已作废", "red"),
+}
+
+
+def _ledger_sort_at(raw: str, fallback_id: int = 0) -> str:
+    text = str(raw or "").strip()
+    if len(text) >= 16 and text[4] == "-":
+        return text[:16]
+    if len(text) >= 11 and text[2] == "-":
+        return f"{business_now().year}-{text[:11]}"
+    return f"0000-00-00 {int(fallback_id):08d}"
+
+
+def _ledger_item(
+    *,
+    key: str,
+    kind: str,
+    typ: str,
+    title: str,
+    amount: str,
+    status: str,
+    tone: str,
+    meta: str,
+    at: str,
+    sort_id: int = 0,
+    order: dict | None = None,
+) -> dict:
+    item = {
+        "id": key,
+        "kind": kind,
+        "type": typ,
+        "title": title,
+        "amount": amount,
+        "status": status,
+        "statusTone": tone,
+        "meta": meta,
+        "at": at,
+        "_sort": _ledger_sort_at(at, sort_id),
+    }
+    if order is not None:
+        item["order"] = order
+    return item
+
+
+def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80) -> list[dict]:
+    """Aggregate customer-visible asset changes for 金币/积分/卡券订单页."""
+    kind = (kind or "all").upper()
+    if kind not in ("ALL", "COIN", "POINT", "CARD"):
+        kind = "ALL"
+    limit = max(1, min(int(limit or 80), 200))
+    rows: list[dict] = []
+
+    if kind in ("ALL", "POINT"):
+        for w in sess.query(Withdrawal).filter_by(uid=uid).order_by(Withdrawal.id.desc()).limit(60):
+            st, tone = _WDR_STATUS.get(w.status, (w.status or "—", "grey"))
+            when = w.grant_at or w.closed_at or w.at or w.created or ""
+            meta_parts = [when, w.no]
+            if w.reject_remark:
+                meta_parts.append(w.reject_remark)
+            rows.append(_ledger_item(
+                key=f"wdr-{w.id}", kind="point", typ="withdraw",
+                title="积分提取", amount=f"−{int(w.pts or 0):,}",
+                status=st, tone=tone, meta=" · ".join(p for p in meta_parts if p),
+                at=when or w.created or "", sort_id=w.id,
+            ))
+        for log_row in (
+            sess.query(OpLog)
+            .filter(OpLog.uid == uid, OpLog.action == "POINT_ADJUST")
+            .order_by(OpLog.id.desc())
+            .limit(60)
+        ):
+            detail = str(log_row.detail or "")
+            m = re.search(r"积分\s*([+-]?\d+)", detail)
+            delta = m.group(1) if m else ""
+            amount = f"{'+' if delta and not delta.startswith(('+', '-')) else ''}{delta}" if delta else "调整"
+            reason = ""
+            if "原因：" in detail:
+                reason = detail.split("原因：", 1)[-1].strip()
+            rows.append(_ledger_item(
+                key=f"plog-{log_row.id}", kind="point", typ="adjust",
+                title="店员调整积分", amount=amount if amount != "调整" else "积分调整",
+                status="已生效", tone="blue",
+                meta=" · ".join(p for p in [log_row.t, reason or detail] if p),
+                at=log_row.t or "", sort_id=log_row.id,
+            ))
+        for c in sess.query(Card).filter_by(uid=uid, src="EXCHANGE").order_by(Card.id.desc()).limit(60):
+            tm = tpl(sess, c.tpl)
+            name = tm.name if tm else "卡券"
+            cost = int(tm.cost or 0) if tm else 0
+            rows.append(_ledger_item(
+                key=f"ex-{c.id}", kind="point", typ="exchange",
+                title=f"积分兑换 · {name}", amount=f"−{cost:,}" if cost else "兑换",
+                status="兑换成功", tone="blue",
+                meta=" · ".join(p for p in [c.src_desc or "积分兑换", c.no] if p),
+                at="", sort_id=c.id,
+            ))
+
+    if kind in ("ALL", "COIN"):
+        for o in sess.query(Order).filter_by(uid=uid).order_by(Order.id.desc()).limit(60):
+            st, tone = _ORDER_STATUS.get(o.status, (o.status or "—", "grey"))
+            title = "、".join(
+                f"{it.get('name') or '商品'}{('×' + str(it.get('qty'))) if int(it.get('qty') or 1) > 1 else ''}"
+                for it in (o.items or [])
+            ) or o.no
+            pay = "金币支付" if o.pay_type == "COIN" else "到吧台付款"
+            rows.append(_ledger_item(
+                key=f"ord-{o.id}", kind="coin", typ="order",
+                title=title, amount=f"−{int(o.total or 0):,}",
+                status=st, tone=tone,
+                meta=" · ".join(p for p in [o.ago or o.at, o.table_name or "未指定桌台", f"{pay} {o.total}"] if p),
+                at=o.at or o.ago or "", sort_id=int(o.id),
+                order=o.to_dict(),
+            ))
+        for r in sess.query(Recharge).filter_by(uid=uid).order_by(Recharge.id.desc()).limit(60):
+            st, tone = _RC_STATUS.get(r.status, (r.status or "—", "grey"))
+            bonus = int(r.bonus or 0)
+            amt = int(r.amount or 0)
+            amount = f"+{amt + bonus:,}" if r.status in ("PAID", "DONE") else f"{amt:,}"
+            title = "金币充值" + (f"（含赠送 {bonus}）" if bonus else "")
+            meta_parts = [r.at or r.created, r.no]
+            if r.reject_remark:
+                meta_parts.append(r.reject_remark)
+            rows.append(_ledger_item(
+                key=f"rc-{r.id}", kind="coin", typ="recharge",
+                title=title, amount=amount,
+                status=st, tone=tone, meta=" · ".join(p for p in meta_parts if p),
+                at=r.at or r.created or "", sort_id=int(r.id),
+            ))
+        for adj in (
+            sess.query(CoinAdjust).filter_by(uid=uid).order_by(CoinAdjust.id.desc()).limit(40)
+        ):
+            st_map = {"PENDING": ("待审批", "gold"), "APPROVED": ("已生效", "green"), "REJECTED": ("已驳回", "red")}
+            st, tone = st_map.get(adj.status, (adj.status or "—", "grey"))
+            delta = int(adj.delta or 0)
+            amount = f"{'+' if delta > 0 else ''}{delta:,}"
+            when = adj.audit_at or adj.at or ""
+            rows.append(_ledger_item(
+                key=f"cadj-{adj.id}", kind="coin", typ="adjust",
+                title="店员调整金币", amount=amount,
+                status=st, tone=tone,
+                meta=" · ".join(p for p in [when, adj.reason, adj.audit_remark] if p),
+                at=when, sort_id=adj.id,
+            ))
+        # Boss direct COIN_ADJUST may not create CoinAdjust row — include OpLog.
+        for log_row in (
+            sess.query(OpLog)
+            .filter(OpLog.uid == uid, OpLog.action.in_(("COIN_ADJUST", "COIN_ADJUST_APPROVE")))
+            .order_by(OpLog.id.desc())
+            .limit(40)
+        ):
+            # Skip if we already have a matching CoinAdjust APPROVED row covering it (best-effort by time).
+            detail = str(log_row.detail or "")
+            m = re.search(r"金币\s*([+-]?\d+)", detail)
+            delta = m.group(1) if m else ""
+            amount = f"{'+' if delta and not delta.startswith(('+', '-')) else ''}{delta}" if delta else "调整"
+            reason = detail.split("原因：", 1)[-1].strip() if "原因：" in detail else detail
+            rows.append(_ledger_item(
+                key=f"clog-{log_row.id}", kind="coin", typ="adjust",
+                title="店员调整金币", amount=amount if amount != "调整" else "金币调整",
+                status="已生效", tone="blue",
+                meta=" · ".join(p for p in [log_row.t, reason] if p),
+                at=log_row.t or "", sort_id=log_row.id,
+            ))
+
+    if kind in ("ALL", "CARD"):
+        for c in sess.query(Card).filter_by(uid=uid).order_by(Card.id.desc()).limit(80):
+            tm = tpl(sess, c.tpl)
+            name = tm.name if tm else "卡券"
+            st, tone = _CARD_STATUS.get(c.status, (c.status or "—", "grey"))
+            src = c.src_desc or ({
+                "EXCHANGE": "积分兑换", "SIGN": "签到奖励", "GAME": "对局赠送",
+                "SETTLE_REWARD": "榜单奖励", "GRANT": "店员发放", "MANUAL": "店员发放",
+            }.get(c.src, c.src or "获得卡券"))
+            meta_parts = [src, c.no]
+            if c.void_reason:
+                meta_parts.append(c.void_reason)
+            if c.expire:
+                meta_parts.append(f"有效至 {c.expire}")
+            rows.append(_ledger_item(
+                key=f"card-{c.id}", kind="card", typ="card",
+                title=name, amount="",
+                status=st, tone=tone, meta=" · ".join(p for p in meta_parts if p),
+                at="", sort_id=c.id,
+            ))
+
+    rows.sort(key=lambda x: (x.get("_sort") or "", x.get("id") or ""), reverse=True)
+    for r in rows:
+        r.pop("_sort", None)
+    # Deduplicate coin adjusts: prefer CoinAdjust rows over OpLog with same day+delta (keep both if unsure).
+    # Soft dedupe: drop OpLog COIN_ADJUST when an APPROVED CoinAdjust exists with same delta and close time.
+    if kind in ("ALL", "COIN"):
+        adj_keys = {
+            (str(x.get("amount")), str(x.get("at") or "")[:10])
+            for x in rows if x.get("type") == "adjust" and str(x.get("id") or "").startswith("cadj-")
+        }
+        rows = [
+            x for x in rows
+            if not (
+                str(x.get("id") or "").startswith("clog-")
+                and (str(x.get("amount")), str(x.get("at") or "")[:10]) in adj_keys
+            )
+        ]
+    return rows[:limit]
 
 
 def staff_member_adjust_detail(sess: Session, uid: int) -> dict:
@@ -3520,7 +3901,7 @@ def _report_liab(sess: Session, _preset: str, _date_from: str, _date_to: str, _t
     rows = [
         {"key": "coinP", "label": "未消费金币 · 本金", "display": f"¥{coin_p:,}", "color": "#A32D2D", "desc": "真实资金负债 · 顾客可要求退还", "link": "/liabCoin"},
         {"key": "coinB", "label": "未消费金币 · 赠送", "display": f"¥{coin_b:,}", "color": "#BA7517", "desc": "营销负债 · 不可退不可提现", "link": "/liabCoin"},
-        {"key": "ptAv", "label": "未清零积分 · 可用", "display": f"{ident['endAv']:,}", "color": "#185FA5", "desc": "每月 1 日 12:00 清零后归零", "link": "/liabPoint"},
+        {"key": "ptAv", "label": "未清零积分 · 可用", "display": f"{ident['endAv']:,}", "color": "#185FA5", "desc": "每月 1 日 13:00 清零后归零", "link": "/liabPoint"},
         {"key": "ptFz", "label": "未清零积分 · 冻结", "display": f"{ident['endFz']:,}", "color": "#BA7517", "desc": "提分单待确认占用 · 不参与清零", "link": "/liabPoint"},
         {"key": "cards", "label": "未核销卡券", "display": f"{len(unused)} 张", "color": "#534AB7", "desc": f"含 {treasure} 张宝箱卡（7 天有效）", "link": "/liabCard"},
     ]
@@ -3738,12 +4119,10 @@ def purge_demo_catalog_for_handover(sess: Session, admin: dict, confirm: str) ->
 
     # Clear demo gallery images; keep shopInfo / FAQ / howToPlay text.
     content = dict(setting(sess, "content") or {})
-    if content.get("gallery"):
-        deleted["content_gallery"] = len(content.get("gallery") or [])
-        content["gallery"] = []
-        save_setting(sess, "content", content)
-    else:
-        deleted["content_gallery"] = 0
+    gal = normalize_gallery(content.get("gallery"))
+    deleted["content_gallery"] = len(gal.get("items") or [])
+    content["gallery"] = {"title": gal.get("title") or "店铺相册", "items": []}
+    save_setting(sess, "content", content)
 
     deleted.update(_purge_non_boss_users(sess, boss_ids))
 

@@ -7,20 +7,11 @@ const TABS = [
   { key: "coin", label: "金币订单" },
   { key: "card", label: "卡包订单" },
   { key: "point", label: "积分订单" },
+  { key: "all", label: "全部变更" },
 ];
-const STATUS = {
-  PENDING_PAY: { text: "待付款", tone: "gold" },
-  PENDING_ACCEPT: { text: "待接单", tone: "blue" },
-  MAKING: { text: "制作中", tone: "blue" },
-  FINISHED: { text: "已完成", tone: "green" },
-  CANCELLED: { text: "已取消", tone: "grey" },
-  CLOSED: { text: "已关闭", tone: "grey" },
-  REFUNDED: { text: "已退款", tone: "red" },
-};
 
 const tab = ref("coin");
-const orders = ref([]);
-const cards = ref([]);
+const items = ref([]);
 const loading = ref(false);
 const msg = ref("");
 const notice = ref("");
@@ -29,29 +20,13 @@ const cancelOrder = ref(null);
 const canceling = ref(false);
 let noticeTimer = null;
 
-const shownCards = computed(() => {
-  if (tab.value === "card") return cards.value.filter((card) => card.status === "USED");
-  if (tab.value === "point") return cards.value.filter((card) => card.src === "EXCHANGE");
-  return [];
+const emptyHint = computed(() => {
+  if (tab.value === "coin") return "暂无金币相关记录";
+  if (tab.value === "card") return "暂无卡券相关记录";
+  if (tab.value === "point") return "暂无积分相关记录";
+  return "暂无变更记录";
 });
 
-function statusOf(order) {
-  return STATUS[order.status] || { text: order.status || "未知状态", tone: "grey" };
-}
-function titleOf(order) {
-  return (order.items || []).map((item) => item.name + (item.qty > 1 ? "×" + item.qty : "")).join("、") || order.no;
-}
-function payText(order) {
-  return order.payType === "COIN" ? "金币支付" : "到吧台付款";
-}
-function orderMeta(order) {
-  const parts = [order.ago || order.at, order.tableName || "未指定桌台", payText(order) + " " + order.total];
-  if (order.remark) parts.push("备注：" + order.remark);
-  return parts.filter(Boolean).join(" · ");
-}
-function cardMeta(card) {
-  return card.srcDesc || (tab.value === "point" ? "积分兑换" : "卡券核销");
-}
 function showNotice(text) {
   if (noticeTimer) clearTimeout(noticeTimer);
   notice.value = text;
@@ -78,20 +53,18 @@ function qrCells(code) {
 function switchTab(next) {
   tab.value = next;
   msg.value = "";
+  load();
 }
 
 async function load() {
   loading.value = true;
   msg.value = "";
   try {
-    const [orderList, cardList] = await Promise.all([
-      api("/orders", { silent: true }),
-      api("/cards", { silent: true }),
-    ]);
-    orders.value = Array.isArray(orderList) ? orderList : [];
-    cards.value = Array.isArray(cardList) ? cardList : [];
+    const res = await api(`/ledger?kind=${tab.value}`, { silent: true });
+    items.value = Array.isArray(res?.items) ? res.items : [];
   } catch (error) {
     msg.value = error.message || "加载失败";
+    items.value = [];
   } finally {
     loading.value = false;
   }
@@ -163,42 +136,36 @@ function reorder(order) {
       >{{ item.label }}</button>
     </view>
 
-    <view v-if="loading && !orders.length && !cards.length" class="empty">加载中…</view>
-    <view v-else-if="msg && !orders.length && !cards.length" class="card empty-box">
+    <view class="order-hint">以下为资产变更明细，含下单、充值、提分、兑换与店员调整</view>
+
+    <view v-if="loading && !items.length" class="empty">加载中…</view>
+    <view v-else-if="msg && !items.length" class="card empty-box">
       <view class="err">{{ msg }}</view>
       <button class="btn ghost" @tap="load">重新加载</button>
     </view>
+    <view v-else-if="!items.length" class="empty">{{ emptyHint }}</view>
 
-    <template v-else-if="tab === 'coin'">
-      <view v-if="!orders.length" class="empty">暂无订单，去点一单吧</view>
-      <view v-for="order in orders" :key="order.id" class="card order-card">
-        <view class="between">
-          <text class="order-name">{{ titleOf(order) }}</text>
-          <text class="order-status" :class="'status-' + statusOf(order).tone">{{ statusOf(order).text }}</text>
-        </view>
-        <view class="order-meta">{{ orderMeta(order) }}</view>
-        <view v-if="order.status === 'PENDING_PAY'" class="order-actions">
-          <button class="btn ghost" @tap="cancel(order)">取消订单</button>
-          <button class="btn" @tap="showOrderCode(order)">出示订单码</button>
-        </view>
-        <button v-else-if="order.status === 'FINISHED'" class="btn ghost reorder-btn" @tap="reorder(order)">再来一单</button>
+    <view v-for="row in items" :key="row.id" class="card order-card">
+      <view class="between">
+        <text class="order-name">{{ row.title }}</text>
+        <text class="order-status" :class="'status-' + (row.statusTone || 'grey')">{{ row.status }}</text>
       </view>
-    </template>
-
-    <template v-else>
-      <view v-if="!shownCards.length" class="empty">暂无记录</view>
-      <view v-for="card in shownCards" :key="card.id" class="card order-card">
-        <view class="between">
-          <text class="order-name">{{ card.tplInfo?.name || "卡券" }}</text>
-          <text class="order-status" :class="tab === 'card' ? 'status-green' : 'status-blue'">
-            {{ tab === "card" ? "已核销" : "兑换成功" }}
-          </text>
-        </view>
-        <view class="order-meta">{{ cardMeta(card) }}</view>
+      <view class="order-meta">
+        <text v-if="row.amount" class="order-amt" :class="{ plus: String(row.amount).startsWith('+'), minus: String(row.amount).startsWith('−') || String(row.amount).startsWith('-') }">{{ row.amount }}</text>
+        <text>{{ row.meta }}</text>
       </view>
-    </template>
+      <view v-if="row.type === 'order' && row.order?.status === 'PENDING_PAY'" class="order-actions">
+        <button class="btn ghost" @tap="cancel(row.order)">取消订单</button>
+        <button class="btn" @tap="showOrderCode(row.order)">出示订单码</button>
+      </view>
+      <button
+        v-else-if="row.type === 'order' && row.order?.status === 'FINISHED'"
+        class="btn ghost reorder-btn"
+        @tap="reorder(row.order)"
+      >再来一单</button>
+    </view>
 
-    <view v-if="msg && (orders.length || cards.length)" class="err">{{ msg }}</view>
+    <view v-if="msg && items.length" class="err">{{ msg }}</view>
 
     <view v-if="codeOrder" class="code-mask" @tap="closeOrderCode">
       <view class="code-sheet" @tap.stop>
@@ -250,7 +217,7 @@ function reorder(order) {
   text-overflow: ellipsis;
   box-shadow: 0 8px 20px rgba(28, 27, 25, .18);
 }
-.order-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+.order-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
 .order-tab {
   margin: 0;
   padding: 8px 14px;
@@ -263,6 +230,12 @@ function reorder(order) {
   line-height: 1.2;
 }
 .order-tab.on { border-color: #1c1b19; background: #1c1b19; color: #fff; }
+.order-hint {
+  margin: 0 0 12px;
+  color: #9c9a93;
+  font-size: 12px;
+  line-height: 1.5;
+}
 .order-card { margin-bottom: 12px; padding: 15px 14px 13px; }
 .order-name { max-width: 68%; font-size: 15px; font-weight: 600; line-height: 1.4; }
 .order-status { flex: none; margin-left: 10px; font-size: 13px; }
@@ -272,6 +245,9 @@ function reorder(order) {
 .status-grey { color: #6b6a65; }
 .status-red { padding: 3px 10px; border-radius: 99px; background: #fcebeb; color: #a32d2d; }
 .order-meta { margin-top: 6px; color: #6b6a65; font-size: 13px; line-height: 1.55; }
+.order-amt { margin-right: 8px; font-weight: 600; color: #1c1b19; }
+.order-amt.plus { color: #3b6d11; }
+.order-amt.minus { color: #a32d2d; }
 .order-actions { display: flex; gap: 8px; margin-top: 12px; }
 .order-actions .btn, .reorder-btn { flex: 1; margin: 0; padding: 9px 10px; font-size: 13px; }
 .reorder-btn { display: block; width: 100%; margin-top: 12px; }

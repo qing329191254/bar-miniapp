@@ -71,10 +71,10 @@ function gamePlayers(g: any) {
 }
 function monthEnd(m: string) {
   const [y, mo] = String(m || "").split("-").map(Number);
-  if (!y || !mo) return "每月 1 日 12:00";
-  // Clear runs on the 1st of the *next* month at 12:00
+  if (!y || !mo) return "每月 1 日 13:00";
+  // Clear runs on the 1st of the *next* month at 13:00
   const next = mo === 12 ? { y: y + 1, m: 1 } : { y, m: mo + 1 };
-  return `${next.m}-1 12:00 清零`;
+  return `${next.m}-1 13:00 清零`;
 }
 function fmtDay(dt: Date) {
   const y = dt.getFullYear();
@@ -125,8 +125,8 @@ async function openVoid(g: any) {
   }
 }
 
-function closeVoid() {
-  if (voiding.value) return;
+function closeVoid(force = false) {
+  if (voiding.value && !force) return;
   voidPreview.value = null;
   voidReason.value = "";
 }
@@ -144,7 +144,8 @@ async function submitVoid() {
       method: "POST",
       body: { reason: voidReason.value.trim(), voidCards: voidCards.value },
     });
-    closeVoid();
+    closeVoid(true);
+    showToast("对局已作废");
     await load();
   } catch (e: any) {
     showToast(e?.message || "作废失败", true);
@@ -245,7 +246,7 @@ watch([tablePage, tablePageSize], () => load());
           </table>
           <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
         </div>
-        <div class="note"><b>清零规则：</b>每月 1 日 12:00 清零可用积分，待兑付的冻结积分不受影响，负余额会一并归零。清零前兑换需求通常较高，请提前检查卡券库存和每人兑换上限。</div>
+        <div class="note"><b>清零规则：</b>每月 1 日 13:00 清零可用积分，待兑付的冻结积分不受影响，负余额会一并归零。清零前兑换需求通常较高，请提前检查卡券库存和每人兑换上限。</div>
       </template>
 
       <template v-else-if="kind === 'card'">

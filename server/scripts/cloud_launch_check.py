@@ -97,8 +97,8 @@ def main():
             if name == "agreements":
                 for k in ("terms", "privacy"):
                     doc = d.get(k) or {}
-                    body = doc.get("body") or doc.get("html") or doc.get("content") or ""
-                    print(f"  {k} ver={doc.get('ver')} bodyLen={len(str(body))}")
+                    body = doc.get("text") or doc.get("body") or doc.get("html") or doc.get("content") or ""
+                    print(f"  {k} ver={doc.get('ver')} title={doc.get('title')} textLen={len(str(body))}")
         else:
             print(f"\n[{name}] {list(d.keys())[:12]}")
 

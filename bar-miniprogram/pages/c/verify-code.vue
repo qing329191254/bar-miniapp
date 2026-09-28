@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onUnmounted, ref, watch } from "vue";
-import { onLoad } from "@dcloudio/uni-app";
-import { api } from "@/utils/api";
+import { onLoad, onHide, onShow } from "@dcloudio/uni-app";
+import { api, toastText } from "@/utils/api";
 import UQRCode from "@/utils/uqrcode-es.js";
 
 const data = ref(null);
@@ -12,6 +12,10 @@ const qrSize = 150;
 const showFullCode = ref(false);
 let timer = null;
 let revealTimer = null;
+let pollTimer = null;
+let backTimer = null;
+let codeKey = "";
+let leaving = false;
 
 const REVEAL_SEC = 60;
 const revealLeft = ref(0);
@@ -45,13 +49,67 @@ async function drawQr(code) {
   await qr.drawCanvas();
 }
 
+function stopPoll() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+function finishVerified(count) {
+  if (leaving) return;
+  leaving = true;
+  stopPoll();
+  hideFullCode();
+  const n = Number(count || 0);
+  toastText(n > 0 ? `核销成功，已核销 ${n} 张` : "核销成功", 1800);
+  if (backTimer) clearTimeout(backTimer);
+  backTimer = setTimeout(() => {
+    uni.navigateBack({
+      fail: () => uni.redirectTo({ url: "/pages/c/cards" }),
+    });
+  }, 900);
+}
+
+function startPoll() {
+  stopPoll();
+  if (!codeKey || leaving) return;
+  pollTimer = setInterval(async () => {
+    if (leaving || !codeKey) return;
+    if (data.value?.status !== "VALID") {
+      stopPoll();
+      return;
+    }
+    try {
+      const next = await api(`/cards/verify-code/${encodeURIComponent(codeKey)}`, {
+        loading: false,
+        silent: true,
+      });
+      data.value = next;
+      if (next?.status === "USED") {
+        finishVerified(next.cards?.length || 0);
+      } else if (next?.status === "EXPIRED" || Number(next?.expireAt || 0) <= Date.now()) {
+        stopPoll();
+      }
+    } catch {
+      /* keep showing current QR; next tick retries */
+    }
+  }, 1500);
+}
+
 async function load(code) {
   loading.value = true;
   error.value = "";
   try {
     data.value = await api(`/cards/verify-code/${encodeURIComponent(code)}`);
+    if (data.value?.status === "USED") {
+      loading.value = false;
+      finishVerified(data.value.cards?.length || 0);
+      return;
+    }
     if (data.value?.status === "VALID" && Number(data.value.expireAt || 0) > Date.now()) {
       await drawQr(data.value.code);
+      startPoll();
     }
   } catch (e) {
     error.value = e.message || "核销码加载失败";
@@ -89,6 +147,7 @@ function revealFullCode() {
 
 function backToCards() {
   hideFullCode();
+  stopPoll();
   uni.navigateBack({
     fail: () => uni.redirectTo({ url: "/pages/c/cards" }),
   });
@@ -101,17 +160,27 @@ onLoad((options) => {
     loading.value = false;
     return;
   }
-  load(code);
+  codeKey = String(code);
+  load(codeKey);
   timer = setInterval(() => { now.value = Date.now(); }, 1000);
+});
+onShow(() => {
+  if (data.value?.status === "VALID" && !leaving) startPoll();
+});
+onHide(() => {
+  stopPoll();
 });
 onUnmounted(() => {
   clearInterval(timer);
   clearRevealTimer();
+  stopPoll();
+  if (backTimer) clearTimeout(backTimer);
 });
 </script>
 
 <template>
   <view class="verify-page">
+    <app-toast />
     <view v-if="loading" class="tiny loading-text">正在加载核销码</view>
     <view v-else-if="error" class="state-card">
       <view class="state-title">核销码无法使用</view>
@@ -122,8 +191,7 @@ onUnmounted(() => {
     <view v-else-if="data?.status === 'USED'" class="state-card success-card">
       <view class="success-ring">✓</view>
       <view class="state-title">核销成功</view>
-      <view class="tiny">已核销 {{ data.cards?.length || 0 }} 张卡券</view>
-      <button class="btn block" @tap="backToCards">返回卡包</button>
+      <view class="tiny">已核销 {{ data.cards?.length || 0 }} 张卡券，即将返回</view>
     </view>
 
     <view v-else-if="data?.status === 'EXPIRED' || expired" class="state-card">

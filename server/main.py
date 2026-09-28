@@ -383,6 +383,7 @@ def me(user: dict = Depends(current_user), db: Session = Depends(get_db)):
         L.touch_customer_active(db, user["id"])
     cards = db.query(Card).filter_by(uid=user["id"], status="UNUSED").all()
     days = L.signed_days(db, user["id"])
+    content = L.content_setting(db)
     return {
         "user": user,
         "signedToday": L.today_day() in days,
@@ -393,10 +394,10 @@ def me(user: dict = Depends(current_user), db: Session = Depends(get_db)):
         "expiring": sum(1 for c in cards if (c.days_left or 0) <= 3),
         "config": L.setting(db, "config"),
         "cfg": L.setting(db, "cfg"),
-        "shop": (L.setting(db, "content") or {}).get("shopInfo"),
+        "shop": content.get("shopInfo") or {},
         "agreements": L.setting(db, "agreements"),
         "push": push_config_normalized(db),
-        "content": L.setting(db, "content"),
+        "content": content,
     }
 
 
@@ -433,7 +434,7 @@ def home(
 ):
     uid = uid_from_headers(authorization)
     user = L.public_user(db, L.u(db, uid)) if uid else None
-    content = L.setting(db, "content") or {}
+    content = L.content_setting(db)
     days = L.signed_days(db, uid) if uid else []
     streak = 0
     if uid:
@@ -441,7 +442,7 @@ def home(
         streak = int(w.sign_streak or 0) if w else 0
     return {
         "user": user,
-        "gallery": content.get("gallery") or [],
+        "gallery": content.get("gallery") or {"title": "店铺相册", "items": []},
         "shop": content.get("shopInfo") or {},
         "howToPlay": content.get("howToPlay") or {},
         "signed": days,
@@ -456,7 +457,7 @@ def home(
 
 @app.get("/api/content")
 def content(db: Session = Depends(get_db)):
-    return L.setting(db, "content")
+    return L.content_setting(db)
 
 
 @app.get("/api/agreements")
@@ -543,6 +544,12 @@ def points(user: dict = Depends(current_user), db: Session = Depends(get_db)):
     tpls = [t.to_dict() for t in db.query(CardTpl).all() if t.exch is not False and (t.cost or 0) > 0]
     return {"point": p, "pending": pw.to_dict() if pw else None, "history": his, "tpls": tpls,
             "remain": L.remain(pw.expire_at) if pw else None, **L.point_period()}
+
+
+@app.get("/api/ledger")
+def customer_ledger(kind: str = "all", user: dict = Depends(current_user), db: Session = Depends(get_db)):
+    """Customer asset change log for 金币/卡券/积分订单页."""
+    return {"items": L.customer_ledger(db, user["id"], kind=kind)}
 
 
 @app.post("/api/withdrawals")
@@ -1700,6 +1707,8 @@ def admin_list(
     if coll in ("agreements", "content", "config", "cfg", "push"):
         if coll == "push":
             return push_config_normalized(db)
+        if coll == "content":
+            return L.content_setting(db)
         return L.setting(db, coll)
     if coll == "members":
         q = db.query(User).filter(User.role == "CUSTOMER")
@@ -1754,13 +1763,33 @@ def save_card_template(tid: int, body: PatchIn, admin: dict = Depends(admin_user
     if not card_tpl:
         raise HTTPException(404, "卡券模板不存在")
     item = body.data or {}
-    for key, attr in (
-        ("name", "name"), ("cat", "cat"), ("desc", "desc"), ("cost", "cost"), ("days", "days"),
-        ("use", "use"), ("perLimit", "per_limit"), ("stock", "stock"), ("exch", "exch"),
-        ("prize", "prize"),
-    ):
-        if key in item:
-            setattr(card_tpl, attr, item[key])
+    if "name" in item:
+        name = str(item.get("name") or "").strip()
+        if not name:
+            raise HTTPException(400, "请填写卡券名称")
+        card_tpl.name = name
+    if "cat" in item:
+        cat = str(item.get("cat") or "GAME")
+        if cat not in ("GAME", "FOOD", "OTHER"):
+            raise HTTPException(400, "卡券分类不正确")
+        card_tpl.cat = cat
+    if "desc" in item:
+        card_tpl.desc = str(item.get("desc") or "")
+    if "cost" in item:
+        card_tpl.cost = max(0, int(item.get("cost") or 0))
+    if "days" in item:
+        card_tpl.days = max(1, int(item.get("days") or 30))
+    if "use" in item:
+        card_tpl.use = str(item.get("use") or "")
+    if "perLimit" in item:
+        card_tpl.per_limit = int(item.get("perLimit", -1))
+    if "stock" in item:
+        card_tpl.stock = int(item.get("stock", -1))
+    if "prize" in item:
+        card_tpl.prize = str(item.get("prize") or "") or None
+    if "exch" in item or "cost" in item:
+        want = bool(item["exch"]) if "exch" in item else bool(card_tpl.exch)
+        card_tpl.exch = want and int(card_tpl.cost or 0) > 0
     if "rules" in item:
         raw = item.get("rules") or {}
         try:
@@ -1770,6 +1799,7 @@ def save_card_template(tid: int, body: PatchIn, admin: dict = Depends(admin_user
             raise HTTPException(400, "卡券限制规则格式不正确")
         card_tpl.rules = {"durationMinutes": duration, "weekdays": weekdays}
     L.log(db, "CARD_TEMPLATE_UPDATE", f"更新卡券模板：{card_tpl.name}", None, admin)
+    db.flush()
     return card_tpl.to_dict()
 
 
@@ -1894,6 +1924,14 @@ def admin_put(coll: str, body: PatchIn, admin: dict = Depends(admin_user), db: S
         data = dict(body.data or {})
         if coll == "push":
             data.pop("miniVibrate", None)
+        if coll == "content" and "gallery" in data:
+            data["gallery"] = L.normalize_gallery(data.get("gallery"))
+        if coll == "content" and "howToPlay" in data:
+            data["howToPlay"] = L.normalize_how_to_play(data.get("howToPlay"))
+        if coll == "content" and "faq" in data:
+            data["faq"] = L.normalize_faq(data.get("faq"))
+        if coll == "content" and "shopInfo" in data:
+            data["shopInfo"] = L.normalize_shop_info(data.get("shopInfo"))
         cur.update(data)
         if coll == "push":
             cur.pop("miniVibrate", None)

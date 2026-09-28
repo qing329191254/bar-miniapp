@@ -118,8 +118,8 @@ function openReject() {
   dlg.value = "reject";
   reason.value = "";
 }
-function closeDlg() {
-  if (acting.value) return;
+function closeDlg(force = false) {
+  if (acting.value && !force) return;
   dlg.value = null;
   reason.value = "";
 }
@@ -137,7 +137,7 @@ async function submitDlg() {
       method: "POST",
       body: dlg.value === "reject" ? { reason: reason.value.trim() } : {},
     });
-    closeDlg();
+    closeDlg(true);
     showToast(action === "exec" ? "已注销" : "已驳回");
     await load();
   } catch (e: any) {

@@ -92,6 +92,7 @@ class RegisterOrBindPhoneTests(unittest.TestCase):
         self.assertEqual(out.role, "CUSTOMER")
         self.assertEqual(out.phone, "188****9069")
         self.assertEqual(out.wx_openid, "oid-a")
+        self.assertEqual(out.nick, "玩咖用户100099")
         self.assertTrue(created)
 
 

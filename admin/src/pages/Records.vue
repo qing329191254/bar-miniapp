@@ -80,8 +80,8 @@ async function openVoid(game: any) {
     voidPreview.value = { id: game.id, pname: game.pname, rows: [], _err: true };
   }
 }
-function closeVoid() {
-  if (voiding.value) return;
+function closeVoid(force = false) {
+  if (voiding.value && !force) return;
   voidPreview.value = null;
   voidReason.value = "";
 }
@@ -98,7 +98,8 @@ async function submitVoid() {
       method: "POST",
       body: { reason: voidReason.value.trim(), voidCards: voidCards.value },
     });
-    closeVoid();
+    closeVoid(true);
+    showToast("对局已作废");
     await load();
   } catch (e: any) {
     showToast(e?.message || "作废失败", true);

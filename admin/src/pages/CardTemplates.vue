@@ -74,9 +74,13 @@ function openNew() {
 function openEdit(row: any) {
   isNew.value = false;
   editingId.value = row.id;
+  const cost = Number(row.cost || 0);
   form.value = {
     ...blank(),
     ...row,
+    cost,
+    // to_dict omits exch:true; cost=0 cannot appear on exchange page
+    exch: cost > 0 && row.exch !== false,
     rules: {
       durationMinutes: Number(row.rules?.durationMinutes || 0),
       weekdays: (row.rules?.weekdays || []).map(Number),
@@ -99,7 +103,7 @@ function normalized() {
     days: Math.max(1, Number(form.value.days || 30)),
     perLimit: Number(form.value.perLimit ?? -1),
     stock: Number(form.value.stock ?? -1),
-    exch: form.value.exch !== false,
+    exch: cost > 0 && form.value.exch !== false,
     use: String(form.value.use || ""),
     prize: String(form.value.prize || ""),
     desc: String(form.value.desc || ""),
@@ -213,7 +217,7 @@ onMounted(load);
             <div class="st tips-title">兑换配置要点</div>
             <div class="tiny tips-body">
               · 设置积分价并开启「兑换页展示」后，顾客即可在小程序兑换<br />
-              · 每月 1 日 12:00 清零前可集中兑换，需配置库存与每人上限防挤兑<br />
+              · 每月 1 日 13:00 清零前可集中兑换，需配置库存与每人上限防挤兑<br />
               · 宝箱卡积分价 0、不出现兑换页，仅奖励发放
             </div>
           </section>
@@ -254,8 +258,8 @@ onMounted(load);
             </div>
 
             <label class="toggle-row">
-              <span class="tiny">出现在兑换页（积分可兑换）</span>
-              <input v-model="form.exch" type="checkbox" class="ui-toggle" />
+              <span class="tiny">出现在兑换页（积分可兑换）{{ Number(form.cost || 0) <= 0 ? " · 积分价须大于 0" : "" }}</span>
+              <input v-model="form.exch" type="checkbox" class="ui-toggle" :disabled="Number(form.cost || 0) <= 0" />
             </label>
 
             <div v-if="form.cat === 'OTHER'" class="field">

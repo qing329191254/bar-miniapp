@@ -6,6 +6,7 @@ import { api, go } from "@/utils/api";
 const GROUPS = [
   { cat: "GAME", title: "游戏卡" },
   { cat: "FOOD", title: "酒水小食卡" },
+  { cat: "OTHER", title: "其他卡券" },
 ];
 
 const data = ref(null);
@@ -25,6 +26,8 @@ const av = computed(() => data.value?.point?.av || 0);
 function tplsOf(cat) {
   return (data.value?.tpls || []).filter((t) => t.cat === cat);
 }
+
+const visibleGroups = computed(() => GROUPS.filter((g) => tplsOf(g.cat).length));
 
 function gotCount(tid) {
   return cards.value.filter((c) => c.tpl === tid && c.src === "EXCHANGE").length;
@@ -115,9 +118,9 @@ onShow(load);
   <page-meta :page-style="`overflow:${dlg ? 'hidden' : 'visible'}`" />
   <view class="pbody" v-if="data">
     <view v-if="notice" class="exchange-notice">{{ notice }}</view>
-    <view v-for="g in GROUPS" :key="g.cat">
+    <view v-for="g in visibleGroups" :key="g.cat">
       <view class="st exchange-head"><text class="exchange-title">{{ g.title }}</text><text class="st-sub">有效期以卡券说明为准</text></view>
-      <view class="card" v-if="tplsOf(g.cat).length">
+      <view class="card">
         <view class="li exch-li" v-for="t in tplsOf(g.cat)" :key="t.id">
           <view class="ph-lg">卡</view>
           <view class="gr">
@@ -132,7 +135,8 @@ onShow(load);
         </view>
       </view>
     </view>
-    <view class="note">宝箱卡需到店核销领取，不在此页兑换。一次兑换多张时，积分需足够支付全部数量。</view>
+    <view v-if="!(data.tpls || []).length" class="card tiny" style="text-align:center;padding:24px">暂无可兑换卡券</view>
+    <view class="note">仅展示已开启「积分兑换」且积分价大于 0 的卡券。周榜宝箱一般由结算发放，不在此兑换。一次兑换多张时，积分需足够支付全部数量。</view>
     <view class="err" v-if="msg">{{ msg }}</view>
 
     <view v-if="dlg" class="mask" @tap="closeDlg">

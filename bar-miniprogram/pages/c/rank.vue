@@ -56,8 +56,8 @@ function chooseKind(value) {
   dim.value = "WEEK";
 }
 function metricHint(value) {
-  if (value === "WEEK") return "周一 00:00 重置";
-  if (kind.value === "POINT") return "随每月 1 日 12:00 清零归零";
+  if (value === "WEEK") return "每周一 12:00 结算重置";
+  if (kind.value === "POINT") return "随每月 1 日 13:00 清零归零";
   if (kind.value === "SHARD") return "碎片永久累计";
   return "历次冠军累计";
 }
@@ -114,7 +114,7 @@ const displayRows = computed(() => {
       <view class="rank-period" @tap="showMetric = true">{{ periodText }} <text>▾</text></view>
     </view>
     <view class="rk-reward" v-if="kind === 'SHARD'">
-      <view style="font-size:12.5px;color:#633806;font-weight:600">本周奖励 · 次周一自动发放</view>
+      <view style="font-size:12.5px;color:#633806;font-weight:600">{{ dim === "WEEK" ? "本周奖励 · 每周一 12:00 自动发放" : "本月奖励 · 次月 1 日 12:00 自动发放" }}</view>
       <view class="tiny gold" style="margin-top:3px;line-height:1.65">夺冠战队全员得战队宝箱卡 · 个人榜前三得钻石 / 黄金 / 白银宝箱卡</view>
     </view>
     <view class="rk-box">
@@ -145,7 +145,7 @@ const displayRows = computed(() => {
     <view v-if="showMetric" class="metric-mask" @tap.self="showMetric = false">
       <view class="metric-sheet">
         <view class="metric-title">统计方式 <text @tap="showMetric = false">关闭</text></view>
-        <view class="metric-option" :class="{ selected: dim === 'WEEK' }" @tap="chooseMetric('WEEK')"><view class="metric-name">当周新增 <text v-if="dim === 'WEEK'">✓</text></view><text>周一 00:00 重置</text></view>
+        <view class="metric-option" :class="{ selected: dim === 'WEEK' }" @tap="chooseMetric('WEEK')"><view class="metric-name">当周新增 <text v-if="dim === 'WEEK'">✓</text></view><text>每周一 12:00 结算重置</text></view>
         <view class="metric-option" :class="{ selected: dim !== 'WEEK' }" @tap="chooseMetric('MONTH')"><view class="metric-name">{{ kind === 'SHARD' ? '历史累计' : kind === 'CHAMPION' ? '累计冠军' : '当月累计' }} <text v-if="dim !== 'WEEK'">✓</text></view><text>{{ metricHint('MONTH') }}</text></view>
         <view class="metric-tip">不同榜单可按当周或累计查看。碎片榜可看历史累计，积分榜与冠军榜规则以门店设置为准。</view>
       </view>

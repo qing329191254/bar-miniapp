@@ -1,6 +1,7 @@
-"""Monthly points clear: available points wipe on the 1st at 12:00 Asia/Shanghai.
+"""Monthly points clear: available points wipe on the 1st at 13:00 Asia/Shanghai.
 
 Frozen withdrawal points (point_fz) are kept. Monthly gain (point_mg) resets with the clear.
+Runs one hour after monthly rank settlement (1st 12:00) so awards use the prior month's points.
 """
 from __future__ import annotations
 
@@ -18,9 +19,9 @@ def _clear_period_key(clear_at) -> str:
 
 
 def due_clear_period(now=None) -> str | None:
-    """If now is past this month's 1st 12:00, return that period key; else None."""
+    """If now is past this month's 1st 13:00, return that period key; else None."""
     now = now or L.business_now()
-    clear_at = now.replace(day=1, hour=12, minute=0, second=0, microsecond=0)
+    clear_at = now.replace(day=1, hour=13, minute=0, second=0, microsecond=0)
     if now < clear_at:
         return None
     return _clear_period_key(clear_at)
@@ -72,7 +73,7 @@ def run_monthly_point_clear(db, *, trigger: str = "auto") -> dict:
     L.log(
         db,
         "POINT_MONTH_CLEAR",
-        f"积分月清零 {period} 12:00 · 清零可用 {total_cleared} · 钱包 {touched} · {trigger}",
+        f"积分月清零 {period} 13:00 · 清零可用 {total_cleared} · 钱包 {touched} · {trigger}",
         None,
         {"nick": "系统自动", "role": "BOSS"},
     )

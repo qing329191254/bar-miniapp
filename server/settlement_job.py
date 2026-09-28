@@ -1,4 +1,10 @@
-"""Weekly settlement: plan, execute, auto-schedule, and week rollover."""
+"""Rank settlement: plan, execute, auto-schedule, and week rollover.
+
+Auto schedule (Asia/Shanghai):
+- WEEK rankDim: Monday 12:00 — settle last Mon–Sun week, then reset week counters
+- MONTH rankDim: 1st of month 12:00 — settle previous calendar month
+Point clear runs separately at 1st 13:00 (see point_clear_job).
+"""
 from __future__ import annotations
 
 import threading
@@ -98,14 +104,47 @@ def ensure_settle_week_current(db: Session):
 
 
 def pending_auto_week(now: datetime | None = None) -> dict | None:
-    """Last complete Mon–Sun week ready for automatic settlement."""
+    """Last complete Mon–Sun week ready after Monday 12:00 Asia/Shanghai."""
     now = now or L.business_now()
     if now.weekday() == 6:
         return None
-    if now.weekday() == 0 and now.hour < 4:
+    if now.weekday() == 0 and now.hour < 12:
         return None
     last_sunday = now.date() - timedelta(days=1 if now.weekday() == 0 else now.weekday() + 1)
     return week_period(last_sunday)
+
+
+def month_period(d: date) -> dict:
+    """Calendar month containing date d (MM-DD labels + year/month)."""
+    first = d.replace(day=1)
+    if first.month == 12:
+        last = date(first.year, 12, 31)
+    else:
+        last = date(first.year, first.month + 1, 1) - timedelta(days=1)
+    return {
+        "start": first.strftime("%m-%d"),
+        "end": last.strftime("%m-%d"),
+        "year": first.year,
+        "month": first.month,
+    }
+
+
+def month_key(period: dict) -> str:
+    y, m = period.get("year"), period.get("month")
+    if y and m:
+        return f"{int(y)}-{int(m):02d}"
+    start, end = str(period.get("start") or ""), str(period.get("end") or "")
+    return f"{start}~{end}" if start and end else ""
+
+
+def pending_auto_month(now: datetime | None = None) -> dict | None:
+    """Previous calendar month ready after the 1st 12:00 Asia/Shanghai."""
+    now = now or L.business_now()
+    if now.day == 1 and now.hour < 12:
+        return None
+    first_this = now.date().replace(day=1)
+    last_prev = first_this - timedelta(days=1)
+    return month_period(last_prev)
 
 
 def settlement_plan(db: Session) -> list[dict]:
@@ -227,10 +266,20 @@ def run_settlement(db: Session, week: str | None = None, admin: dict | None = No
 
 def tick_settlement(db: Session):
     ensure_settle_week_current(db)
-    target = pending_auto_week()
-    if not target:
+    cfg = L.setting(db, "cfg") or {}
+    dim = "MONTH" if cfg.get("rankDim") == "MONTH" else "WEEK"
+    if dim == "MONTH":
+        target = pending_auto_month()
+        if not target:
+            return
+        week = month_key(target)
+    else:
+        target = pending_auto_week()
+        if not target:
+            return
+        week = week_key(target)
+    if not week:
         return
-    week = week_key(target)
     auto_last = L.setting(db, "settleAutoLast") or {}
     if auto_last.get("week") == week:
         return
@@ -238,7 +287,9 @@ def tick_settlement(db: Session):
     # Only advance after a real completed run (not lock-skip / already-done / blocked).
     if result.get("ok") and not result.get("skipped") and not result.get("blocked"):
         L.save_setting(db, "settleAutoLast", {"week": week, "date": L.today_str()})
-        advance_settle_week_after_run(db)
+        if dim == "WEEK":
+            # Weekly counters reset after Monday noon settlement.
+            advance_settle_week_after_run(db)
         print(f"[settlement] auto {week}: {result.get('message')}")
     elif result.get("ok"):
         print(f"[settlement] auto {week} not advanced: {result.get('message')}")

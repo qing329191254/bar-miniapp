@@ -163,7 +163,10 @@ function startWiz() {
   resetWiz(1);
 }
 function closeDraftDlg() {
+  // 放弃旧草稿，从头开始录入（否则草稿一直在，会反复弹窗）
   showDraftDlg.value = false;
+  clearGameDraft();
+  resetWiz(1);
 }
 function confirmDraftDlg() {
   showDraftDlg.value = false;
@@ -714,12 +717,12 @@ function hasDraft() {
     <view class="err" v-if="msg">{{ msg }}</view>
     <tab-bar current="game" />
 
-    <view v-if="showDraftDlg" class="draft-mask" @tap="closeDraftDlg" @touchmove.stop.prevent>
+    <view v-if="showDraftDlg" class="draft-mask" @touchmove.stop.prevent>
       <view class="draft-dialog" @tap.stop>
         <view class="draft-title">恢复草稿</view>
         <view class="draft-body">检测到一局未提交的草稿（24 小时内有效），是否继续？</view>
         <view class="draft-actions">
-          <button class="btn ghost draft-btn" @tap="closeDraftDlg">取消</button>
+          <button class="btn ghost draft-btn" @tap="closeDraftDlg">重新开始</button>
           <button class="btn draft-btn" @tap="confirmDraftDlg">继续录入</button>
         </view>
       </view>

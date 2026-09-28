@@ -5,6 +5,7 @@ import { api, media } from "@/utils/api";
 
 const type = ref("SHOP_INFO");
 const data = ref(null);
+const agreements = ref(null);
 const err = ref("");
 
 const titles = {
@@ -20,7 +21,12 @@ onLoad(async (q) => {
   type.value = (q && q.type) || "SHOP_INFO";
   uni.setNavigationBarTitle({ title: titles[type.value] || "店铺信息" });
   try {
-    data.value = await api("/content");
+    const needAgree = type.value === "TERMS" || type.value === "PRIVACY";
+    const tasks = [api("/content")];
+    if (needAgree) tasks.push(api("/agreements"));
+    const results = await Promise.all(tasks);
+    data.value = results[0];
+    if (needAgree) agreements.value = results[1];
   } catch (e) {
     err.value = e.message || "加载失败";
   }
@@ -32,24 +38,43 @@ const play = computed(() => {
   if (!h || Array.isArray(h)) {
     return {
       title: "店铺玩法",
-      sub: "桌游规则与场地",
+      sub: "",
       items: Array.isArray(h) ? h : [],
       pic: "",
     };
   }
   return {
-    title: h.title || "店铺玩法",
-    sub: h.sub || "桌游规则与场地",
+    title: String(h.title || "").trim() || "店铺玩法",
+    sub: String(h.sub || "").trim(),
     items: (h.items || [])
       .map((x) => (typeof x === "string" ? x : x.title || x.name || x.desc || ""))
       .filter(Boolean),
     pic: h.pic || "",
   };
 });
-const faq = computed(() => data.value?.faq || {});
+const faq = computed(() => {
+  const f = data.value?.faq;
+  if (f == null) return { title: "常见问题", sub: "", items: [] };
+  if (Array.isArray(f)) return { title: "常见问题", sub: "", items: f };
+  return {
+    title: String(f.title || "").trim() || "常见问题",
+    sub: String(f.sub || "").trim(),
+    items: Array.isArray(f.items) ? f.items : [],
+  };
+});
 const gallery = computed(() => {
   const g = data.value?.gallery;
   return Array.isArray(g) ? g : g?.items || [];
+});
+const legalDoc = computed(() => {
+  const key = type.value === "PRIVACY" ? "privacy" : "terms";
+  const doc = agreements.value?.[key] || {};
+  return {
+    title: doc.title || (type.value === "PRIVACY" ? "隐私政策" : "用户协议"),
+    ver: doc.ver || 1,
+    pub: doc.pub || "",
+    text: String(doc.text || "").trim(),
+  };
 });
 function isImg(v) {
   return v && (/^\/uploads\//.test(v) || /^https?:/.test(v));
@@ -66,18 +91,18 @@ function preview(i) {
   <view class="pbody" v-if="err">
     <view class="card">{{ err }}</view>
   </view>
-  <view class="pbody" v-else-if="data">
+  <view class="pbody" v-else-if="data || agreements">
     <view v-if="type === 'SHOP_INFO'" class="card">
-      <view class="h2">{{ shop.name }}</view>
-      <view class="li"><view class="gr"><view class="tiny">地址</view><view>{{ shop.addr }}</view></view></view>
-      <view class="li"><view class="gr"><view class="tiny">电话</view><view>{{ shop.tel }}</view></view></view>
-      <view class="li"><view class="gr"><view class="tiny">营业时间</view><view>{{ shop.hours }}</view></view></view>
-      <view class="tiny" style="margin-top:8px">{{ shop.notice }}</view>
+      <view class="h2">{{ shop.name || "商家尚未配置门店名称" }}</view>
+      <view class="li"><view class="gr"><view class="tiny">地址</view><view>{{ shop.addr || "未配置" }}</view></view></view>
+      <view class="li"><view class="gr"><view class="tiny">电话</view><view>{{ shop.tel || "未配置" }}</view></view></view>
+      <view class="li"><view class="gr"><view class="tiny">营业时间</view><view>{{ shop.hours || "未配置" }}</view></view></view>
+      <view v-if="shop.notice" class="tiny" style="margin-top:8px">{{ shop.notice }}</view>
     </view>
     <view v-else-if="type === 'HOW_TO_PLAY'">
       <view class="card">
         <view class="h2">{{ play.title }}</view>
-        <view style="font-size:13px;font-weight:600;margin-bottom:8px">{{ play.sub }}</view>
+        <view v-if="play.sub" style="font-size:13px;font-weight:600;margin-bottom:8px">{{ play.sub }}</view>
         <view v-if="play.items.length" class="play-list">
           <view v-for="(it, i) in play.items" :key="i" class="play-line">· {{ it }}</view>
         </view>
@@ -115,8 +140,10 @@ function preview(i) {
       <view v-if="!(faq.items || []).length" class="card tiny">暂无常见问题</view>
     </view>
     <view v-else class="card">
-      <view class="h2">{{ type === "PRIVACY" ? "隐私政策" : "用户协议" }}</view>
-      <view class="tiny" style="line-height:1.8">本店会员服务协议与隐私政策可随时查阅。正式版将展示当前生效全文与你的同意记录。金币本金未消费可到店退还；赠送金币、积分、卡券不折现。</view>
+      <view class="h2">{{ legalDoc.title }}{{ legalDoc.ver ? ` v${legalDoc.ver}` : "" }}</view>
+      <view v-if="legalDoc.pub" class="tiny" style="margin-top:4px">{{ legalDoc.pub }} 发布</view>
+      <view v-if="legalDoc.text" class="tiny" style="margin-top:10px;line-height:1.8;white-space:pre-wrap">{{ legalDoc.text }}</view>
+      <view v-else class="tiny" style="margin-top:10px">商家尚未配置正文</view>
     </view>
   </view>
 </template>

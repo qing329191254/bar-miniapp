@@ -59,7 +59,9 @@ async function load() {
   err.value = "";
   try {
     const data = await api<any>("/admin/content");
-    const s = data?.shopInfo || {};
+    const s = data?.shopInfo && typeof data.shopInfo === "object" && !Array.isArray(data.shopInfo)
+      ? data.shopInfo
+      : {};
     form.value = {
       name: s.name || "",
       addr: s.addr || "",
