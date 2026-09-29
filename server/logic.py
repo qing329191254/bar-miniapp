@@ -3473,6 +3473,53 @@ def _parse_point_adjust_detail(detail: str) -> tuple[str, str, str]:
     return amount or "调整", proc, remark
 
 
+def shard_records(sess: Session, uid: int, limit: int = 30) -> list[dict]:
+    """碎片记录：对局获得 + 店员调整，按时间倒序。"""
+    rows: list[dict] = []
+    hits = 0
+    for g in sess.query(GameRecord).order_by(GameRecord.id.desc()).limit(400):
+        if hits >= limit:
+            break
+        p = next((x for x in (g.players or []) if int(x.get("uid") or 0) == uid), None)
+        sh = int((p or {}).get("sh") or 0)
+        if sh <= 0:
+            continue
+        hits += 1
+        voided = (g.status or "") == "VOID"
+        at = _ledger_display_time(g.time or "")
+        meta = f"{at} · 店员 {g.op or '—'} 录入" + (" · 已作废" if voided else "")
+        rows.append({
+            **g.to_dict(), "my": p,
+            "key": f"game-{g.id}", "title": " · ".join(x for x in (g.pname, g.table or "未指定桌台", g.round) if x),
+            "meta": meta, "delta": sh, "void": voided, "_sort": _ledger_sort_at(at, g.id),
+        })
+    for log_row in (
+        sess.query(OpLog)
+        .filter(OpLog.uid == uid, OpLog.action == "SHARD_ADJUST")
+        .order_by(OpLog.id.desc())
+        .limit(limit)
+    ):
+        text = str(log_row.detail or "")
+        m = re.search(r"碎片\s*([+-]?\d+)", text)
+        delta = int(m.group(1)) if m else 0
+        if not delta:
+            continue
+        reason = text.split("原因：", 1)[-1].strip() if "原因：" in text else ""
+        at = _ledger_display_time(log_row.t or "")
+        op = str(log_row.op or "").strip() or "—"
+        meta = f"{at} · 操作员 {op}" + (f" · {reason}" if reason else "")
+        rows.append({
+            "id": f"adj-{log_row.id}", "pname": "店员调整碎片", "table": "", "round": "",
+            "time": at, "op": op, "my": {"sh": delta},
+            "key": f"adj-{log_row.id}", "title": "店员调整碎片",
+            "meta": meta, "delta": delta, "void": False, "_sort": _ledger_sort_at(at, log_row.id),
+        })
+    rows.sort(key=lambda x: x["_sort"], reverse=True)
+    for r in rows:
+        r.pop("_sort", None)
+    return rows[:limit]
+
+
 def _ledger_item(
     *,
     key: str,

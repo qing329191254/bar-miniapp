@@ -635,12 +635,7 @@ def champions(user: dict = Depends(current_user), db: Session = Depends(get_db))
 
 @app.get("/api/shards")
 def shards(user: dict = Depends(current_user), db: Session = Depends(get_db)):
-    recs = []
-    for g in db.query(GameRecord).order_by(GameRecord.id.desc()).all():
-        p = next((x for x in (g.players or []) if x["uid"] == user["id"]), None)
-        if p:
-            recs.append({**g.to_dict(), "my": p})
-    return {"shard": L.shard_of(db, user["id"]), "records": recs[:30]}
+    return {"shard": L.shard_of(db, user["id"]), "records": L.shard_records(db, user["id"], 30)}
 
 
 @app.get("/api/teams/{tid}")

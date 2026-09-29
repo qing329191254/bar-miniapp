@@ -80,17 +80,17 @@ onShow(async () => {
 
     <view class="records-head">
       <text class="records-title">碎片记录</text>
-      <text class="records-period">近 30 天</text>
+      <text class="records-period">最近 30 条</text>
     </view>
 
     <view class="records-card">
       <view v-if="!data.records.length" class="empty-records">暂无碎片记录，参与桌游对局可获得碎片</view>
-      <view v-for="g in data.records" :key="g.id" class="record-row">
+      <view v-for="g in data.records" :key="g.key || g.id" class="record-row">
         <view class="record-copy">
-          <view class="record-name">{{ [g.pname, g.table || "未指定桌台", g.round].filter(Boolean).join(" · ") }}</view>
-          <view class="record-meta">{{ g.time }} · 店员 {{ g.op || "—" }} 录入</view>
+          <view class="record-name">{{ g.title }}</view>
+          <view class="record-meta">{{ g.meta }}</view>
         </view>
-        <text class="record-value">+{{ fmt(g.my?.sh) }}</text>
+        <text class="record-value" :class="{ minus: g.delta < 0, void: g.void }">{{ g.delta > 0 ? "+" : "" }}{{ fmt(g.delta) }}</text>
       </view>
     </view>
   </view>
@@ -120,5 +120,7 @@ onShow(async () => {
 .record-name { color:#1c1b19;font-size:14px;line-height:1.45; }
 .record-meta { margin-top:3px;color:#6b6a65;font-size:12px;line-height:1.45; }
 .record-value { flex:none;color:#534ab7;font-size:15px; }
+.record-value.minus { color:#a32d2d; }
+.record-value.void { color:#9c9a93;text-decoration:line-through; }
 .empty-records { padding:32px 8px;color:#9c9a93;font-size:12px;text-align:center; }
 </style>
