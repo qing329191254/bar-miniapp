@@ -15,17 +15,31 @@ if (cached?.subject) subject.value = cached.subject;
 if (cached?.dim) dim.value = cached.dim;
 const me = savedUser();
 
+const keyOf = () => `${kind.value}|${dim.value}|${subject.value}`;
+const byKey = new Map(cached?.data ? [[keyOf(), cached.data]] : []);
+const dataKey = ref(cached?.data ? keyOf() : "");
+/** Rows on screen belong to the selected board; never render another board's rows. */
+const ready = computed(() => dataKey.value === keyOf());
+
 async function load() {
-  const hasCache = !!(data.value?.rows?.length || data.value?.mine);
+  const key = keyOf();
+  const hit = byKey.get(key);
+  if (hit) {
+    data.value = hit;
+    dataKey.value = key;
+  }
   try {
     const next = await api(`/rank?kind=${kind.value}&dim=${dim.value}&subject=${subject.value}`, {
-      loading: !hasCache,
-      silent: hasCache,
+      loading: !hit,
+      silent: !!hit,
     });
+    byKey.set(key, next);
+    if (key !== keyOf()) return;
     data.value = next;
+    dataKey.value = key;
     setMemberRankCache({ kind: kind.value, subject: subject.value, dim: dim.value, data: next });
   } catch (e) {
-    if (!hasCache) throw e;
+    if (!hit) throw e;
   }
 }
 onShow(() => {
@@ -38,8 +52,8 @@ function fmt(n) {
   return Number(n || 0).toLocaleString("en-US");
 }
 function isMe(r) {
-  if (subject.value === "USER") return r.user?.id === me?.id;
-  return r.team?.id === me?.teamId;
+  if (subject.value === "USER") return !!(r.user?.id && r.user.id === me?.id);
+  return !!(r.team?.id && r.team.id === me?.teamId);
 }
 function nameOf(r) {
   return r.team?.name || r.user?.nick;
@@ -72,7 +86,7 @@ function openMetric() {
 }
 function md(d) { return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
 const periodText = computed(() => {
-  if (kind.value === "POINT") return "实时库存";
+  if (kind.value === "POINT") return "当前积分";
   if (dim.value !== "WEEK") {
     if (kind.value === "SHARD") return "历史累计";
     if (kind.value === "CHAMPION") return "累计冠军";
@@ -102,6 +116,7 @@ const emptyText = computed(() => {
 });
 /** 个人榜默认只展示前十；战队榜仍全量 */
 const displayRows = computed(() => {
+  if (!ready.value) return [];
   const rows = data.value?.rows || [];
   if (subject.value === "USER") return rows.slice(0, 10);
   return rows;
@@ -135,7 +150,8 @@ const displayRows = computed(() => {
       <view class="tiny" style="margin-top:3px;line-height:1.65;color:#185FA5">按当前可用积分排序，战队榜为成员积分之和。积分仅限本店会员权益使用，不可兑换现金、不可转让。</view>
     </view>
     <view class="rk-box">
-      <view v-if="!displayRows.length" class="empty">{{ emptyText }}</view>
+      <view v-if="!ready" class="empty"></view>
+      <view v-else-if="!displayRows.length" class="empty">{{ emptyText }}</view>
       <view v-for="r in displayRows" :key="r.rank + '-' + nameOf(r)" class="rk-row" :class="{ me: isMe(r) }">
         <view class="rk-no" :class="{ top: r.rank <= 3 }">{{ r.rank }}</view>
         <view class="av">{{ (nameOf(r) || "").slice(0, 2) }}</view>
@@ -149,12 +165,12 @@ const displayRows = computed(() => {
         <text style="font-weight:600" :style="{ color }">{{ valOf(r) }}</text>
       </view>
     </view>
-    <view class="rk-mine" v-if="data.mine">
+    <view class="rk-mine" v-if="ready && data.mine">
       <text class="rk-tag">我的{{ subject === "TEAM" ? "战队" : "排名" }}</text>
       <text style="font-weight:600">第 {{ data.mine.rank }} 名</text>
       <text class="tiny" style="margin-left:auto">{{ valOf(data.mine) }}</text>
     </view>
-    <view class="rk-mine" v-else>
+    <view class="rk-mine" v-else-if="ready">
       <text class="rk-tag">我的{{ subject === "TEAM" ? "战队" : "排名" }}</text>
       <text style="font-weight:600">暂未上榜</text>
     </view>
@@ -164,7 +180,7 @@ const displayRows = computed(() => {
         <view class="metric-title">统计方式 <text @tap="showMetric = false">关闭</text></view>
         <view class="metric-option" :class="{ selected: dim === 'WEEK' }" @tap="chooseMetric('WEEK')"><view class="metric-name">当周新增 <text v-if="dim === 'WEEK'">✓</text></view><text>每周一 12:00 结算重置</text></view>
         <view class="metric-option" :class="{ selected: dim !== 'WEEK' }" @tap="chooseMetric('MONTH')"><view class="metric-name">{{ kind === 'SHARD' ? '历史累计' : '累计冠军' }} <text v-if="dim !== 'WEEK'">✓</text></view><text>{{ metricHint('MONTH') }}</text></view>
-        <view class="metric-tip">碎片榜与冠军榜可按当周或累计查看。积分榜固定为实时可用库存，不支持周/月切换。</view>
+        <view class="metric-tip">碎片榜与冠军榜可按当周或累计查看。积分榜固定为当前可用积分，不支持周/月切换。</view>
       </view>
     </view>
   </view>
