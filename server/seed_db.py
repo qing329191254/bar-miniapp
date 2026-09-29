@@ -117,6 +117,11 @@ def seed_all(reset: bool = False):
                 conn.execute(text(
                     "ALTER TABLE sign_records ADD CONSTRAINT uk_sign_uid_month_day UNIQUE (uid, month, day)"
                 ))
+    sign_cols = {c["name"] for c in insp.get_columns("sign_records")} if insp.has_table("sign_records") else set()
+    if sign_cols and "pts" not in sign_cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE sign_records ADD COLUMN pts INTEGER NOT NULL DEFAULT 0"))
+            conn.execute(text("ALTER TABLE sign_records ADD COLUMN extra_pts INTEGER NOT NULL DEFAULT 0"))
     db = SessionLocal()
     try:
         if reset:

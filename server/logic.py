@@ -866,7 +866,7 @@ def do_sign(sess: Session, uid: int) -> dict:
             for _ in range(c["qty"]):
                 issue_card(sess, uid, tm, "SIGN_IN_REWARD", f"连续签到 {r.days} 天奖励")
             names.append(f"{tm.name}×{c['qty']}")
-    sess.add(SignRecord(uid=uid, day=today, month=month))
+    sess.add(SignRecord(uid=uid, day=today, month=month, pts=sp, extra_pts=extra_pts))
     return {"points": sp, "extraPts": extra_pts, "cards": names, "streak": w.sign_streak}
 
 
@@ -3350,6 +3350,54 @@ _CARD_STATUS = {
 }
 
 
+def _sign_record_date(month: str, day: int) -> date | None:
+    try:
+        y, m = str(month or "").split("-", 1)
+        return date(int(y), int(m), int(day))
+    except (TypeError, ValueError):
+        return None
+
+
+def _signed_date_set(sess: Session, uid: int) -> set[date]:
+    out: set[date] = set()
+    for row in sess.query(SignRecord).filter_by(uid=uid).all():
+        d = _sign_record_date(row.month, row.day)
+        if d:
+            out.add(d)
+    return out
+
+
+def _streak_ending_on(signed: set[date], on: date) -> int:
+    if on not in signed:
+        return 0
+    n = 0
+    cur = on
+    while cur in signed:
+        n += 1
+        cur -= timedelta(days=1)
+    return n
+
+
+def _sign_award_for_record(sess: Session, row: SignRecord, signed: set[date] | None = None) -> tuple[int, int, int]:
+    """Return (base_pts, extra_pts, streak). Prefer stored amounts; else reconstruct."""
+    stored = int(getattr(row, "pts", 0) or 0)
+    stored_extra = int(getattr(row, "extra_pts", 0) or 0)
+    on = _sign_record_date(row.month, row.day)
+    signed = signed if signed is not None else _signed_date_set(sess, int(row.uid))
+    streak = _streak_ending_on(signed, on) if on else int(0)
+    if stored or stored_extra:
+        return stored, stored_extra, streak or 1
+    cfg = setting(sess, "config") or {}
+    base = int(cfg.get("signPoints") or 0)
+    extra = 0
+    if streak:
+        for rule in sess.query(SignRule).all():
+            if rule.enabled is False or int(rule.days or 0) != streak:
+                continue
+            extra += int(rule.pts or 0)
+    return base, extra, streak
+
+
 def _ledger_sort_at(raw: str, fallback_id: int = 0) -> str:
     text = str(raw or "").strip()
     if len(text) >= 16 and text[4] == "-":
@@ -3442,6 +3490,59 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
                 meta=" · ".join(p for p in [c.src_desc or "积分兑换", c.no] if p),
                 at="", sort_id=c.id,
             ))
+        # 签到积分（含连续签到额外积分）
+        signed_dates = _signed_date_set(sess, uid)
+        for sr in (
+            sess.query(SignRecord)
+            .filter_by(uid=uid)
+            .order_by(SignRecord.month.desc(), SignRecord.day.desc())
+            .limit(90)
+        ):
+            base, extra, streak = _sign_award_for_record(sess, sr, signed_dates)
+            total = base + extra
+            if total <= 0:
+                continue
+            on = _sign_record_date(sr.month, sr.day)
+            when = on.strftime("%m-%d") if on else f"{sr.month}-{int(sr.day):02d}"
+            meta_parts = [when]
+            if streak:
+                meta_parts.append(f"连续 {streak} 天")
+            if extra:
+                meta_parts.append(f"含连续奖励 +{extra:,}")
+            rows.append(_ledger_item(
+                key=f"sign-{sr.id}", kind="point", typ="sign",
+                title="签到积分", amount=f"+{total:,}",
+                status="已到账", tone="green",
+                meta=" · ".join(meta_parts),
+                at=when, sort_id=int(sr.id or 0),
+            ))
+        # 对局录入积分
+        game_hits = 0
+        for g in sess.query(GameRecord).order_by(GameRecord.id.desc()).limit(400):
+            if game_hits >= 60:
+                break
+            player = next(
+                (p for p in (g.players or []) if int(p.get("uid") or 0) == uid),
+                None,
+            )
+            if not player:
+                continue
+            pts = int(player.get("pts") or 0)
+            if pts <= 0:
+                continue
+            game_hits += 1
+            voided = (g.status or "") == "VOID"
+            title = f"对局积分 · {g.pname or '对局'}"
+            rows.append(_ledger_item(
+                key=f"game-pts-{g.id}", kind="point", typ="game",
+                title=title, amount=f"+{pts:,}",
+                status="已作废" if voided else "已到账",
+                tone="red" if voided else "green",
+                meta=" · ".join(
+                    p for p in [g.time or "", g.table or "", g.round or "", g.op or ""] if p
+                ),
+                at=g.time or "", sort_id=int(g.id),
+            ))
 
     if kind in ("ALL", "COIN"):
         for o in sess.query(Order).filter_by(uid=uid).order_by(Order.id.desc()).limit(60):
@@ -3516,8 +3617,15 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
             name = tm.name if tm else "卡券"
             st, tone = _CARD_STATUS.get(c.status, (c.status or "—", "grey"))
             src = c.src_desc or ({
-                "EXCHANGE": "积分兑换", "SIGN": "签到奖励", "GAME": "对局赠送",
-                "SETTLE_REWARD": "榜单奖励", "GRANT": "店员发放", "MANUAL": "店员发放",
+                "EXCHANGE": "积分兑换",
+                "SIGN": "签到奖励",
+                "SIGN_IN_REWARD": "签到奖励",
+                "GAME": "对局赠送",
+                "GAME_GIFT": "对局赠送",
+                "SETTLE_REWARD": "榜单奖励",
+                "SETTLE_MANUAL": "榜单补发",
+                "GRANT": "店员发放",
+                "MANUAL": "店员发放",
             }.get(c.src, c.src or "获得卡券"))
             meta_parts = [src, c.no]
             if c.void_reason:

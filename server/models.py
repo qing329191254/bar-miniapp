@@ -417,6 +417,9 @@ class SignRecord(Base):
     uid: Mapped[int] = mapped_column(Integer, index=True)
     day: Mapped[int] = mapped_column(Integer)
     month: Mapped[str] = mapped_column(String(7), default=lambda: datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m"))
+    # Points awarded at sign time (0 for legacy rows → ledger reconstructs from rules).
+    pts: Mapped[int] = mapped_column(Integer, default=0)
+    extra_pts: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class GameRecord(Base):
