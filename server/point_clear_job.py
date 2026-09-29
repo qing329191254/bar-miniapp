@@ -49,6 +49,8 @@ def run_monthly_point_clear(db, *, trigger: str = "auto") -> dict:
             continue
         if av > 0:
             total_cleared += av
+        if av:
+            L.point_log(db, w.user_id, f"clear-{period}", av, 0)
         w.point_av = 0
         w.point_pd = 0
         w.point_mg = 0

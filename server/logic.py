@@ -3748,6 +3748,17 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
                 content=f"兑换 {name}",
                 process=balance(f"ex-{c.id}"), operator=str(getattr(c, "op", "") or "") or "本人",
             ))
+        for x in plogs.values():
+            if not str(x.ref).startswith("clear-"):
+                continue
+            before = int(x.before or 0)
+            rows.append(_ledger_item(
+                key=str(x.ref), kind="point", typ="clear",
+                title="积分月清零", amount=f"−{before:,}" if before > 0 else f"+{-before:,}",
+                status="已清零", tone="grey", meta="",
+                at=x.at or "", sort_id=int(x.id or 0),
+                content="每月 1 日 13:00 可用积分清零", process=balance(str(x.ref)), operator="系统",
+            ))
         # 签到积分（含连续签到额外积分）
         signed_dates = _signed_date_set(sess, uid)
         for sr in (

@@ -56,6 +56,7 @@ class CustomerLedgerPointSourcesTests(unittest.TestCase):
                 q.filter.return_value.order_by.return_value.limit.return_value = [
                     SimpleNamespace(ref="sign-11", before=0, after=150, at="2026-09-28 09:15"),
                     SimpleNamespace(ref="game-pts-77", before=150, after=450, at="2026-09-28 21:00"),
+                    SimpleNamespace(id=99, ref="clear-2026-09-01", before=2000, after=0, at="2026-09-01 13:00"),
                 ]
             else:
                 q.filter_by.return_value.order_by.return_value.limit.return_value = []
@@ -84,6 +85,11 @@ class CustomerLedgerPointSourcesTests(unittest.TestCase):
         game_row = next(x for x in items if x["title"] == "对局积分")
         self.assertEqual(game_row["amount"], "+300")
         self.assertEqual(game_row["process"], "150→450")
+
+        clear_row = next(x for x in items if x["title"] == "积分月清零")
+        self.assertEqual(clear_row["amount"], "−2,000")
+        self.assertEqual(clear_row["process"], "2,000→0")
+        self.assertEqual(clear_row["operator"], "系统")
         self.assertEqual(game_row["operator"], "店员小王")
         self.assertIn("德扑", game_row["content"])
 
