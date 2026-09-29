@@ -1,9 +1,10 @@
 <script setup>
 import { computed, ref } from "vue";
-import { onShow } from "@dcloudio/uni-app";
-import { api } from "@/utils/api";
+import { onReachBottom, onShow } from "@dcloudio/uni-app";
+import { api, toastText } from "@/utils/api";
 
 const data = ref(null);
+const loadingMore = ref(false);
 const personalRank = ref({ rows: [], mine: null });
 const teamRank = ref({ rows: [], mine: null });
 
@@ -51,6 +52,24 @@ onShow(async () => {
   personalRank.value = personal;
   teamRank.value = team;
 });
+
+async function loadMore() {
+  const cur = data.value;
+  if (!cur?.hasMore || loadingMore.value) return;
+  loadingMore.value = true;
+  try {
+    const res = await api(`/shards/records?limit=30&before=${encodeURIComponent(cur.cursor || "")}`, { silent: true, loading: false });
+    if (data.value !== cur) return;
+    const seen = new Set(cur.records.map((g) => g.key || g.id));
+    const more = (res?.items || []).filter((g) => !seen.has(g.key || g.id));
+    data.value = { ...cur, records: [...cur.records, ...more], cursor: res?.cursor || cur.cursor, hasMore: !!res?.hasMore };
+  } catch (error) {
+    toastText(error.message || "加载失败");
+  } finally {
+    loadingMore.value = false;
+  }
+}
+onReachBottom(() => loadMore());
 </script>
 
 <template>
@@ -80,7 +99,7 @@ onShow(async () => {
 
     <view class="records-head">
       <text class="records-title">碎片记录</text>
-      <text class="records-period">最近 30 条</text>
+      <text class="records-period">按时间倒序</text>
     </view>
 
     <view class="records-card">
@@ -92,6 +111,9 @@ onShow(async () => {
         </view>
         <text class="record-value" :class="{ minus: g.delta < 0, void: g.void }">{{ g.delta > 0 ? "+" : "" }}{{ fmt(g.delta) }}</text>
       </view>
+    </view>
+    <view v-if="data.records.length" class="list-foot" @tap="loadMore">
+      {{ loadingMore ? "加载中…" : data.hasMore ? "上拉或点此加载更早记录" : `已显示全部 ${data.records.length} 条` }}
     </view>
   </view>
 </template>
@@ -123,4 +145,5 @@ onShow(async () => {
 .record-value.minus { color:#a32d2d; }
 .record-value.void { color:#9c9a93;text-decoration:line-through; }
 .empty-records { padding:32px 8px;color:#9c9a93;font-size:12px;text-align:center; }
+.list-foot { padding:14px 0 4px;text-align:center;color:#9c9a93;font-size:12px; }
 </style>

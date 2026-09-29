@@ -1,6 +1,6 @@
 <script setup>
 import { computed, ref } from "vue";
-import { onLoad, onShow } from "@dcloudio/uni-app";
+import { onLoad, onReachBottom, onShow } from "@dcloudio/uni-app";
 import { api, go, saveCart, toastText } from "@/utils/api";
 
 const TABS = [
@@ -10,10 +10,14 @@ const TABS = [
   { key: "all", label: "全部变更" },
 ];
 
+const PAGE_SIZE = 30;
 const tab = ref("coin");
 const items = ref([]);
 const cacheByTab = ref({});
+const pageByTab = ref({});
 const loading = ref(false);
+const loadingMore = ref(false);
+const hasMore = computed(() => !!pageByTab.value[tab.value]?.hasMore);
 const msg = ref("");
 const notice = ref("");
 const codeOrder = ref(null);
@@ -70,10 +74,11 @@ async function load({ soft = false } = {}) {
   if (!soft || !hasCache) loading.value = !hasCache;
   msg.value = "";
   try {
-    const res = await api(`/ledger?kind=${kind}`, { silent: true, loading: false });
+    const res = await api(`/ledger?kind=${kind}&limit=${PAGE_SIZE}`, { silent: true, loading: false });
     if (seq !== loadSeq || tab.value !== kind) return;
     const list = Array.isArray(res?.items) ? res.items : [];
     cacheByTab.value = { ...cacheByTab.value, [kind]: list };
+    pageByTab.value = { ...pageByTab.value, [kind]: { cursor: res?.cursor || "", hasMore: !!res?.hasMore } };
     items.value = list;
   } catch (error) {
     if (seq !== loadSeq || tab.value !== kind) return;
@@ -83,7 +88,35 @@ async function load({ soft = false } = {}) {
     if (seq === loadSeq) loading.value = false;
   }
 }
+
+function rowKey(row) {
+  return `${row.kind}-${row.id}`;
+}
+
+async function loadMore() {
+  const kind = tab.value;
+  const page = pageByTab.value[kind];
+  if (!page?.hasMore || loadingMore.value || loading.value) return;
+  const seq = loadSeq;
+  loadingMore.value = true;
+  try {
+    const before = encodeURIComponent(page.cursor || "");
+    const res = await api(`/ledger?kind=${kind}&limit=${PAGE_SIZE}&before=${before}`, { silent: true, loading: false });
+    if (seq !== loadSeq || tab.value !== kind) return;
+    const seen = new Set(items.value.map(rowKey));
+    const more = (Array.isArray(res?.items) ? res.items : []).filter((row) => !seen.has(rowKey(row)));
+    const list = [...items.value, ...more];
+    cacheByTab.value = { ...cacheByTab.value, [kind]: list };
+    pageByTab.value = { ...pageByTab.value, [kind]: { cursor: res?.cursor || page.cursor, hasMore: !!res?.hasMore } };
+    items.value = list;
+  } catch (error) {
+    if (seq === loadSeq && tab.value === kind) toastText(error.message || "加载失败");
+  } finally {
+    loadingMore.value = false;
+  }
+}
 onShow(() => load({ soft: true }));
+onReachBottom(() => loadMore());
 onLoad((options) => {
   if (TABS.some((item) => item.key === options?.tab)) tab.value = options.tab;
   if (options?.notice) showNotice(decodeURIComponent(options.notice));
@@ -161,7 +194,7 @@ function reorder(order) {
     </view>
     <view v-else-if="!items.length" class="empty">{{ emptyHint }}</view>
 
-    <view v-for="row in items" :key="tab + '-' + row.id" class="card order-card">
+    <view v-for="row in items" :key="tab + '-' + rowKey(row)" class="card order-card">
       <view class="between">
         <text class="order-name">{{ row.title }}</text>
         <text class="order-status" :class="'status-' + (row.statusTone || 'grey')">{{ row.status }}</text>
@@ -237,6 +270,9 @@ function reorder(order) {
     </view>
 
     <view v-if="msg && items.length" class="err">{{ msg }}</view>
+    <view v-if="items.length" class="list-foot" @tap="loadMore">
+      {{ loadingMore ? "加载中…" : hasMore ? "上拉或点此加载更早记录" : `已显示全部 ${items.length} 条` }}
+    </view>
 
     <view v-if="codeOrder" class="code-mask" @tap="closeOrderCode">
       <view class="code-sheet" @tap.stop>
@@ -269,6 +305,7 @@ function reorder(order) {
 
 <style scoped>
 .orders-page { padding-top: 13px; }
+.list-foot { padding: 14px 0 22px; text-align: center; color: #9c9a93; font-size: 12px; }
 .order-notice {
   position: fixed;
   z-index: 100;

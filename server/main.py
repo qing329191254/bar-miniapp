@@ -547,9 +547,10 @@ def points(user: dict = Depends(current_user), db: Session = Depends(get_db)):
 
 
 @app.get("/api/ledger")
-def customer_ledger(kind: str = "all", user: dict = Depends(current_user), db: Session = Depends(get_db)):
+def customer_ledger(kind: str = "all", before: str = "", limit: int = Query(80, ge=1, le=200),
+                    user: dict = Depends(current_user), db: Session = Depends(get_db)):
     """Customer asset change log for 金币/卡券/积分订单页."""
-    return {"items": L.customer_ledger(db, user["id"], kind=kind)}
+    return L.customer_ledger_page(db, user["id"], kind=kind, before=before, limit=limit)
 
 
 @app.post("/api/withdrawals")
@@ -624,7 +625,7 @@ def rank(kind: str = "SHARD", dim: str = "WEEK", subject: str = "TEAM",
             mine = next((r for r in rows if r.get("user") and r["user"]["id"] == me.id), None)
         else:
             mine = next((r for r in rows if r.get("team") and r["team"]["id"] == me.team_id), None)
-    return {"rows": rows[:20], "mine": mine, "cfg": L.setting(db, "cfg")}
+    return {"rows": rows[:20] if subject == "USER" else rows, "mine": mine, "cfg": L.setting(db, "cfg")}
 
 
 @app.get("/api/champions")
@@ -635,7 +636,15 @@ def champions(user: dict = Depends(current_user), db: Session = Depends(get_db))
 
 @app.get("/api/shards")
 def shards(user: dict = Depends(current_user), db: Session = Depends(get_db)):
-    return {"shard": L.shard_of(db, user["id"]), "records": L.shard_records(db, user["id"], 30)}
+    page = L.shard_records_page(db, user["id"], "", 30)
+    return {"shard": L.shard_of(db, user["id"]), "records": page["items"],
+            "hasMore": page["hasMore"], "cursor": page["cursor"]}
+
+
+@app.get("/api/shards/records")
+def shard_records_more(before: str = "", limit: int = Query(30, ge=1, le=200),
+                       user: dict = Depends(current_user), db: Session = Depends(get_db)):
+    return L.shard_records_page(db, user["id"], before, limit)
 
 
 @app.get("/api/teams/{tid}")
@@ -1734,7 +1743,12 @@ def admin_list(
         if kw:
             like = f"%{kw}%"
             q = q.filter((User.nick.like(like)) | (User.no.like(like)) | (User.tail.like(like)))
-        items = [L.public_user(db, x) for x in q.order_by(User.id.desc()).all()]
+        today_ts = L._today_active_start()
+        items = [
+            {**L.public_user(db, x), "lastActiveAt": float(x.last_active_at or 0),
+             "activeToday": float(x.last_active_at or 0) >= today_ts}
+            for x in q.order_by(User.id.desc()).all()
+        ]
         if page_size <= 0:
             return items
         pg = L.paginate(items, page, page_size)
@@ -1767,7 +1781,7 @@ def admin_list(
             s: sum(1 for x in all_rows if x.get("status") == s)
             for s in ("PENDING_CONFIRM", "GRANTED", "REJECTED", "CANCELLED", "CLOSED_TIMEOUT")
         }
-        pg["pendingItems"] = [x for x in all_rows if x.get("status") == "PENDING_CONFIRM"][:30]
+        pg["pendingItems"] = [x for x in all_rows if x.get("status") == "PENDING_CONFIRM"]
     return pg
 
 

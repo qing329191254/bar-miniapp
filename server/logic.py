@@ -9,7 +9,7 @@ import time
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, inspect, text
+from sqlalchemy import and_, func, inspect, or_, text
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -4526,35 +4526,44 @@ def _flow_item(row: AssetFlow, orders: dict[int, Order]) -> dict:
     return item
 
 
-def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80) -> list[dict]:
-    """金币/积分/卡券订单页：直接读取资产流水表，按时间倒序。"""
+def _flow_page(sess: Session, uid: int, assets: tuple[str, ...], before: str, limit: int):
+    """Newest-first page of asset_flows. `before` is the cursor of the last row already shown."""
+    q = sess.query(AssetFlow).filter(AssetFlow.uid == uid, AssetFlow.asset.in_(assets))
+    if before:
+        s, _, i = str(before).rpartition("|")
+        try:
+            last_id = int(i)
+        except ValueError:
+            last_id = 0
+        q = q.filter(or_(AssetFlow.sort_at < s, and_(AssetFlow.sort_at == s, AssetFlow.id < last_id)))
+    rows = q.order_by(AssetFlow.sort_at.desc(), AssetFlow.id.desc()).limit(limit + 1).all()
+    more = len(rows) > limit
+    rows = rows[:limit]
+    cursor = f"{rows[-1].sort_at}|{rows[-1].id}" if rows else ""
+    return rows, more, cursor
+
+
+def customer_ledger_page(sess: Session, uid: int, kind: str = "all", before: str = "", limit: int = 80) -> dict:
+    """金币/积分/卡券订单页：直接读取资产流水表，按时间倒序分页。"""
     kind = (kind or "all").upper()
     assets = {"COIN": ("COIN",), "POINT": ("POINT",), "CARD": ("CARD",)}.get(kind, ("POINT", "COIN", "CARD"))
     limit = max(1, min(int(limit or 80), 200))
     _ensure_flow_history(sess, uid)
-    rows = (
-        sess.query(AssetFlow)
-        .filter(AssetFlow.uid == uid, AssetFlow.asset.in_(assets))
-        .order_by(AssetFlow.sort_at.desc(), AssetFlow.id.desc())
-        .limit(limit)
-        .all()
-    )
+    rows, more, cursor = _flow_page(sess, uid, assets, before, limit)
     order_ids = [int(r.ref_id) for r in rows if r.typ == "order" and r.ref_id]
     orders = {o.id: o for o in sess.query(Order).filter(Order.id.in_(order_ids)).all()} if order_ids else {}
-    return [_flow_item(r, orders) for r in rows]
+    return {"items": [_flow_item(r, orders) for r in rows], "hasMore": more, "cursor": cursor}
 
 
-def shard_records(sess: Session, uid: int, limit: int = 30) -> list[dict]:
-    """碎片记录：对局获得 / 对局作废扣回 / 店员调整 / 每周当周碎片清零，按时间倒序。"""
+def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80) -> list[dict]:
+    return customer_ledger_page(sess, uid, kind, "", limit)["items"]
+
+
+def shard_records_page(sess: Session, uid: int, before: str = "", limit: int = 30) -> dict:
+    """碎片记录：对局获得 / 对局作废扣回 / 店员调整 / 每周当周碎片清零，按时间倒序分页。"""
     _ensure_flow_history(sess, uid)
-    rows = (
-        sess.query(AssetFlow)
-        .filter(AssetFlow.uid == uid, AssetFlow.asset == "SHARD")
-        .order_by(AssetFlow.sort_at.desc(), AssetFlow.id.desc())
-        .limit(max(1, min(int(limit or 30), 200)))
-        .all()
-    )
-    return [
+    rows, more, cursor = _flow_page(sess, uid, ("SHARD",), before, max(1, min(int(limit or 30), 200)))
+    items = [
         {
             "id": r.ref, "key": r.ref, "pname": r.title or "", "table": "", "round": "",
             "time": r.at or "", "op": r.op or "", "my": {"sh": int(r.delta or 0)},
@@ -4562,6 +4571,11 @@ def shard_records(sess: Session, uid: int, limit: int = 30) -> list[dict]:
         }
         for r in rows
     ]
+    return {"items": items, "hasMore": more, "cursor": cursor}
+
+
+def shard_records(sess: Session, uid: int, limit: int = 30) -> list[dict]:
+    return shard_records_page(sess, uid, "", limit)["items"]
 
 
 def staff_member_adjust_detail(sess: Session, uid: int) -> dict:

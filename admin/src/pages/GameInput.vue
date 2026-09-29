@@ -82,6 +82,11 @@ const hits = computed(() => {
     (x) => x.role === "CUSTOMER" && (x.nick.includes(kw) || String(x.tail).includes(kw) || String(x.no).includes(kw)),
   );
 });
+const todayMembers = computed(() =>
+  members.value
+    .filter((m) => m.role === "CUSTOMER" && m.activeToday)
+    .sort((a, b) => (b.lastActiveAt || 0) - (a.lastActiveAt || 0)),
+);
 const projectOpts = computed(() =>
   meta.value.projects.map((p) => ({ value: p.id, label: p.name })),
 );
@@ -341,13 +346,14 @@ async function submit() {
         </div>
       </div>
       <div class="card">
-        <div class="st">今日到店会员 <em>点击快速添加</em></div>
-        <div v-if="!members.filter(m=>m.role==='CUSTOMER').length" class="list-empty">暂无到店会员</div>
+        <div class="st">今日到店会员 <em>{{ todayMembers.length }} 人 · 点击快速添加 · 其他会员请用上方搜索</em></div>
+        <div v-if="!todayMembers.length" class="list-empty">暂无到店会员</div>
         <div style="display:flex;flex-wrap:wrap;gap:6px">
           <div
-            v-for="x in members.filter(m=>m.role==='CUSTOMER').slice(0,15)"
+            v-for="x in todayMembers"
             :key="x.id"
             class="ph"
+            :title="`${x.nick} · ${x.no}`"
             :style="{ opacity: added(x.id) ? .4 : 1, cursor: added(x.id) ? 'default' : 'pointer' }"
             @click="add(x)"
           >{{ x.av }}</div>
