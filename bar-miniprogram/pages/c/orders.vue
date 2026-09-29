@@ -12,6 +12,7 @@ const TABS = [
 
 const tab = ref("coin");
 const items = ref([]);
+const cacheByTab = ref({});
 const loading = ref(false);
 const msg = ref("");
 const notice = ref("");
@@ -19,6 +20,7 @@ const codeOrder = ref(null);
 const cancelOrder = ref(null);
 const canceling = ref(false);
 let noticeTimer = null;
+let loadSeq = 0;
 
 const emptyHint = computed(() => {
   if (tab.value === "coin") return "暂无金币相关记录";
@@ -51,25 +53,37 @@ function qrCells(code) {
   });
 }
 function switchTab(next) {
+  if (tab.value === next) return;
   tab.value = next;
   msg.value = "";
-  load();
+  // 先展示该 Tab 缓存，避免整页清空造成闪烁
+  const cached = cacheByTab.value[next];
+  items.value = Array.isArray(cached) ? cached : [];
+  load({ soft: true });
 }
 
-async function load() {
-  loading.value = true;
+async function load({ soft = false } = {}) {
+  const kind = tab.value;
+  const seq = ++loadSeq;
+  const hasCache = Array.isArray(cacheByTab.value[kind]);
+  // 有缓存的软刷新不打断当前列表；仅首次无数据时显示「加载中」
+  if (!soft || !hasCache) loading.value = !hasCache;
   msg.value = "";
   try {
-    const res = await api(`/ledger?kind=${tab.value}`, { silent: true });
-    items.value = Array.isArray(res?.items) ? res.items : [];
+    const res = await api(`/ledger?kind=${kind}`, { silent: true, loading: false });
+    if (seq !== loadSeq || tab.value !== kind) return;
+    const list = Array.isArray(res?.items) ? res.items : [];
+    cacheByTab.value = { ...cacheByTab.value, [kind]: list };
+    items.value = list;
   } catch (error) {
+    if (seq !== loadSeq || tab.value !== kind) return;
     msg.value = error.message || "加载失败";
-    items.value = [];
+    if (!hasCache) items.value = [];
   } finally {
-    loading.value = false;
+    if (seq === loadSeq) loading.value = false;
   }
 }
-onShow(load);
+onShow(() => load({ soft: true }));
 onLoad((options) => {
   if (TABS.some((item) => item.key === options?.tab)) tab.value = options.tab;
   if (options?.notice) showNotice(decodeURIComponent(options.notice));
@@ -88,9 +102,11 @@ async function confirmCancel() {
   canceling.value = true;
   msg.value = "";
   try {
-    await api(`/orders/${cancelOrder.value.id}/cancel`, { method: "POST" });
+    await api(`/orders/${cancelOrder.value.id}/cancel`, { method: "POST", loading: false });
     cancelOrder.value = null;
     showNotice("订单已取消");
+    // 取消后清掉相关缓存，强制刷新
+    cacheByTab.value = {};
     await load();
   } catch (error) {
     msg.value = error.message || "取消失败";
@@ -127,13 +143,13 @@ function reorder(order) {
   <view class="pbody orders-page">
     <view v-if="notice" class="order-notice">{{ notice }}</view>
     <view class="order-tabs">
-      <button
+      <view
         v-for="item in TABS"
         :key="item.key"
         class="order-tab"
         :class="{ on: tab === item.key }"
         @tap="switchTab(item.key)"
-      >{{ item.label }}</button>
+      >{{ item.label }}</view>
     </view>
 
     <view class="order-hint">{{ tab === 'point' ? '积分变更明细：备注、数量、时间、余额变化与操作员' : '以下为资产变更明细，含下单、充值、提分、兑换、签到、对局与店员调整' }}</view>
@@ -145,7 +161,7 @@ function reorder(order) {
     </view>
     <view v-else-if="!items.length" class="empty">{{ emptyHint }}</view>
 
-    <view v-for="row in items" :key="row.id" class="card order-card">
+    <view v-for="row in items" :key="tab + '-' + row.id" class="card order-card">
       <view class="between">
         <text class="order-name">{{ row.title }}</text>
         <text class="order-status" :class="'status-' + (row.statusTone || 'grey')">{{ row.status }}</text>
