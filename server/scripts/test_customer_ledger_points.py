@@ -40,7 +40,10 @@ class CustomerLedgerPointSourcesTests(unittest.TestCase):
             q = MagicMock()
             name = getattr(model, "__name__", "")
             if model is L.Withdrawal or name == "Withdrawal":
-                q.filter_by.return_value.order_by.return_value.limit.return_value = []
+                q.filter_by.return_value.order_by.return_value.limit.return_value = [SimpleNamespace(
+                    id=4, no="TF1", uid=9, pts=10000, status="GRANTED", created="", at="2026-09-29 16:08",
+                    grant_at="2026-09-29 16:10", closed_at=None, grant_by=7, reject_by=None, reject_remark=None,
+                )]
             elif model is L.OpLog or name == "OpLog":
                 q.filter.return_value.order_by.return_value.limit.return_value = [adjust]
             elif model is L.Card or name == "Card":
@@ -67,9 +70,13 @@ class CustomerLedgerPointSourcesTests(unittest.TestCase):
 
         sess = MagicMock()
         sess.query.side_effect = query_side
+        sess.get.side_effect = lambda model, pk: SimpleNamespace(nick="店员小李") if model is L.User and pk == 7 else None
 
         with patch.object(L, "setting", return_value={"signPoints": 100}):
             items = L.customer_ledger(sess, uid=9, kind="POINT", limit=80)
+
+        wdr = next(x for x in items if x["title"] == "积分提取")
+        self.assertEqual(wdr["operator"], "店员小李")
 
         titles = [x["title"] for x in items]
         self.assertIn("签到积分", titles)
@@ -148,30 +155,39 @@ class CustomerLedgerPointSourcesTests(unittest.TestCase):
             items = L.customer_ledger(sess, uid=9, kind="CARD", limit=80)
         by_id = {x["id"]: x for x in items}
 
-        c = by_id["card-24"]
-        self.assertEqual(c["form"], "套餐自动发放")
-        self.assertEqual(c["content"], "订单 DD260928158026")
+        self.assertNotIn("card-out-24", by_id)
+        c = by_id["card-in-24"]
+        self.assertEqual(c["title"], "卡券新增 · 游戏卡")
+        self.assertEqual(c["content"], "套餐自动发放 · 订单 DD260928158026")
+        self.assertEqual(c["amount"], "+1 张")
         self.assertEqual(c["at"], "2026-09-28 18:02")
         self.assertEqual(c["cardNo"], "KQ614")
-        self.assertEqual(c["doneAt"], "")
+        self.assertEqual(c["operator"], "系统")
 
-        g = by_id["card-23"]
-        self.assertEqual(g["form"], "店员补发")
-        self.assertEqual(g["content"], "")
+        g = by_id["card-in-23"]
+        self.assertEqual(g["content"], "店员补发")
         self.assertTrue(g["at"].endswith("09-28 23:10"))
+        self.assertEqual(g["operator"], "老板")
 
-        u = by_id["card-22"]
-        self.assertEqual(u["doneLabel"], "核销")
-        self.assertEqual(u["doneAt"], "2026-09-29 16:05")
+        u = by_id["card-out-22"]
+        self.assertEqual(u["title"], "卡券核销 · 游戏卡")
+        self.assertEqual(u["amount"], "−1 张")
+        self.assertEqual(u["at"], "2026-09-29 16:05")
         self.assertEqual(u["operator"], "店员小李")
+        self.assertEqual(by_id["card-in-22"]["operator"], "本人")
 
-        v = by_id["card-20"]
-        self.assertEqual(v["form"], "对局赠送")
-        self.assertEqual(v["content"], "德州扑克 #124；对局作废 · 测试")
-        self.assertEqual(v["at"], "2026-09-28 21:00")
-        self.assertEqual(v["doneLabel"], "作废")
-        self.assertEqual(v["doneAt"], "2026-09-29 15:00")
+        v_in = by_id["card-in-20"]
+        self.assertEqual(v_in["content"], "对局赠送 · 德州扑克 #124")
+        self.assertEqual(v_in["at"], "2026-09-28 21:00")
+        self.assertEqual(v_in["operator"], "店员小王")
+        v = by_id["card-out-20"]
+        self.assertEqual(v["title"], "卡券作废 · 酒水小食卡")
+        self.assertEqual(v["content"], "对局作废 · 测试")
+        self.assertEqual(v["at"], "2026-09-29 15:00")
         self.assertEqual(v["operator"], "老板")
+
+        ids = [x["id"] for x in items]
+        self.assertLess(ids.index("card-out-22"), ids.index("card-in-22"))
 
     def test_coin_ledger_fields(self):
         order = SimpleNamespace(
@@ -187,9 +203,14 @@ class CustomerLedgerPointSourcesTests(unittest.TestCase):
             id=8, t="09-29 13:00", op="张老板", action="COIN_ADJUST",
             detail="调整 天才儿童 金币 +1000 · 余额 120→1120 · 原因：活动",
         )
+        refund_log = SimpleNamespace(
+            id=9, t="09-29 14:00", op="张老板", action="ORDER_REFUND",
+            detail="DD1 · 退回金币 30（本金 30 / 赠送 0） · 原因：做错了",
+        )
         logs = [
             SimpleNamespace(ref="rc-6", before=0, after=120, at=""),
             SimpleNamespace(ref="ord-5", before=1120, after=1090, at=""),
+            SimpleNamespace(ref="refund-DD1", before=1090, after=1120, at=""),
         ]
 
         def query_side(model):
@@ -201,7 +222,7 @@ class CustomerLedgerPointSourcesTests(unittest.TestCase):
             elif model is L.CoinAdjust:
                 q.filter_by.return_value.order_by.return_value.limit.return_value = []
             elif model is L.OpLog:
-                q.filter.return_value.order_by.return_value.limit.return_value = [boss_adj]
+                q.filter.return_value.order_by.return_value.limit.return_value = [boss_adj, refund_log]
             elif model is L.PointLog:
                 q.filter.return_value.order_by.return_value.limit.return_value = logs
             return q
@@ -210,6 +231,13 @@ class CustomerLedgerPointSourcesTests(unittest.TestCase):
         sess.query.side_effect = query_side
         sess.get.side_effect = lambda model, pk: SimpleNamespace(nick="店员小李") if model is L.User and pk == 7 else None
         items = {x["id"]: x for x in L.customer_ledger(sess, uid=9, kind="COIN", limit=80)}
+
+        rf = items["refund-9"]
+        self.assertEqual(rf["title"], "订单退款")
+        self.assertEqual(rf["amount"], "+30")
+        self.assertEqual(rf["process"], "1,090→1,120")
+        self.assertEqual(rf["operator"], "张老板")
+        self.assertIn("做错了", rf["content"])
 
         o = items["ord-5"]
         self.assertEqual(o["amount"], "−30")

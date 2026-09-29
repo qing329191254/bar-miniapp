@@ -1278,8 +1278,10 @@ def refund_order(sess: Session, oid: int, reason: str, admin: dict) -> dict:
         wallet = sess.query(Wallet).filter_by(user_id=o.uid).with_for_update().first()
         if not wallet:
             wallet = wallet_of(sess, o.uid)
+        coin_before = wallet.coin_p + wallet.coin_b
         wallet.coin_p += principal
         wallet.coin_b += bonus
+        point_log(sess, o.uid, f"refund-{o.no}", coin_before, wallet.coin_p + wallet.coin_b)
         refund_type = "COIN"
     else:
         if o.status not in ("PENDING_ACCEPT", "MAKING", "FINISHED"):
@@ -3679,6 +3681,26 @@ def _card_issue_at(c: Card, tpl_name: str, ctx: _CardLedgerCtx) -> str:
     return ""
 
 
+def _card_issue_op(c: Card, tpl_name: str, ctx: _CardLedgerCtx) -> str:
+    op = str(getattr(c, "op", "") or "").strip()
+    if op:
+        return op
+    desc = str(c.src_desc or "")
+    if c.src in ("GAME", "GAME_GIFT"):
+        m = re.search(r"#(\d+)", desc)
+        g = ctx.game(int(m.group(1))) if m else None
+        return str(g.op or "").strip() if g else ""
+    if c.src == "MANUAL_GRANT":
+        m = re.search(r"(\d{2}-\d{2})\s*$", desc)
+        log_row = ctx.grant_log(m.group(1), tpl_name) if m else None
+        return str(log_row.op or "").strip() if log_row else ""
+    if c.src == "EXCHANGE":
+        return "本人"
+    if c.src in ("SIGN", "SIGN_IN_REWARD", "SETTLE_REWARD", "ORDER_COMBO"):
+        return "系统"
+    return ""
+
+
 def _card_done_meta(c: Card, ctx: _CardLedgerCtx) -> tuple[str, str]:
     """(核销/作废时间, 操作员) for USED/VOID cards; legacy USED cards fall back to verify_logs."""
     if c.status not in ("USED", "VOID"):
@@ -3700,6 +3722,14 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
         kind = "ALL"
     limit = max(1, min(int(limit or 80), 200))
     rows: list[dict] = []
+    nicks: dict[int, str] = {}
+
+    def nick_of(staff_uid) -> str:
+        sid = int(staff_uid or 0)
+        if sid not in nicks:
+            usr = sess.get(User, sid) if sid else None
+            nicks[sid] = (usr.nick if usr else "") or ""
+        return nicks[sid]
 
     if kind in ("ALL", "POINT"):
         plogs = {
@@ -3715,12 +3745,22 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
             st, tone = _WDR_STATUS.get(w.status, (w.status or "—", "grey"))
             when = w.grant_at or w.closed_at or w.at or w.created or ""
             remark = w.reject_remark or (f"提分单 {w.no}" if w.no else "积分提取")
+            if w.status == "GRANTED":
+                wdr_op = nick_of(w.grant_by)
+            elif w.status == "REJECTED":
+                wdr_op = nick_of(w.reject_by)
+            elif w.status == "CLOSED_TIMEOUT":
+                wdr_op = "系统"
+            elif w.status == "CANCELLED":
+                wdr_op = "本人"
+            else:
+                wdr_op = ""
             rows.append(_ledger_item(
                 key=f"wdr-{w.id}", kind="point", typ="withdraw",
                 title="积分提取", amount=f"−{int(w.pts or 0):,}",
                 status=st, tone=tone, meta="",
                 at=when or w.created or "", sort_id=w.id,
-                content=remark, process=balance(f"wdr-{w.id}"), operator="",
+                content=remark, process=balance(f"wdr-{w.id}"), operator=wdr_op,
             ))
         for log_row in (
             sess.query(OpLog)
@@ -3821,18 +3861,10 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
             str(x.ref): x
             for x in sess.query(PointLog).filter(PointLog.uid == uid).order_by(PointLog.id.desc()).limit(500)
         }
-        nicks: dict[int, str] = {}
 
         def coin_balance(ref: str) -> str:
             x = clogs.get(ref)
             return f"{int(x.before):,}→{int(x.after):,}" if x else ""
-
-        def nick_of(staff_uid) -> str:
-            sid = int(staff_uid or 0)
-            if sid not in nicks:
-                usr = sess.get(User, sid) if sid else None
-                nicks[sid] = (usr.nick if usr else "") or ""
-            return nicks[sid]
 
         for o in sess.query(Order).filter_by(uid=uid).order_by(Order.id.desc()).limit(60):
             st, tone = _ORDER_STATUS.get(o.status, (o.status or "—", "grey"))
@@ -3887,6 +3919,27 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
                 process=coin_balance(f"cadj-{adj.id}"),
                 operator=nick_of(adj.adjust_by),
             ))
+        for log_row in (
+            sess.query(OpLog)
+            .filter(OpLog.uid == uid, OpLog.action == "ORDER_REFUND")
+            .order_by(OpLog.id.desc())
+            .limit(40)
+        ):
+            detail = str(log_row.detail or "")
+            m = re.search(r"退回金币\s*(\d+)", detail)
+            if not m:
+                continue  # 到吧台付款为线下退款，不涉及金币
+            order_no = detail.split(" · ", 1)[0].strip()
+            reason = detail.split("原因：", 1)[-1].strip() if "原因：" in detail else ""
+            rows.append(_ledger_item(
+                key=f"refund-{log_row.id}", kind="coin", typ="refund",
+                title="订单退款", amount=f"+{int(m.group(1)):,}",
+                status="已退回", tone="green", meta="",
+                at=log_row.t or "", sort_id=log_row.id,
+                content=" · ".join(p for p in (order_no, reason) if p),
+                process=coin_balance(f"refund-{order_no}"),
+                operator=str(log_row.op or "").strip(),
+            ))
         # 老板直接调整不生成 CoinAdjust，只有操作日志（审批通过的已由 CoinAdjust 覆盖）
         for log_row in (
             sess.query(OpLog)
@@ -3910,29 +3963,51 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
             ))
 
     if kind in ("ALL", "CARD"):
+        # 每张卡拆成「新增」与「核销/作废/过期」两类变更事件，与金币/积分一样按时间倒序
         ctx = _CardLedgerCtx(sess, uid)
+        out_meta = {
+            "USED": ("卡券核销", "已核销", "green"),
+            "VOID": ("卡券作废", "已作废", "red"),
+            "EXPIRED": ("卡券过期", "已过期", "grey"),
+        }
         for c in sess.query(Card).filter_by(uid=uid).order_by(Card.id.desc()).limit(80):
             tm = tpl(sess, c.tpl)
             name = tm.name if tm else "卡券"
-            st, tone = _CARD_STATUS.get(c.status, (c.status or "—", "grey"))
             form, remark = _card_form_and_remark(c)
-            if c.status == "VOID" and c.void_reason:
-                remark = "；".join(p for p in (remark, c.void_reason) if p)
-            done_at, done_op = _card_done_meta(c, ctx)
+            issue_at = _card_issue_at(c, name, ctx)
             item = _ledger_item(
-                key=f"card-{c.id}", kind="card", typ="card",
-                title=name, amount="",
-                status=st, tone=tone, meta="",
-                at=_card_issue_at(c, name, ctx), sort_id=c.id,
-                content=remark, operator=done_op,
+                key=f"card-in-{c.id}", kind="card", typ="card_in",
+                title=f"卡券新增 · {name}", amount="+1 张",
+                status="已发放", tone="blue", meta="",
+                at=issue_at, sort_id=c.id,
+                content=" · ".join(p for p in (form, remark) if p),
+                operator=_card_issue_op(c, name, ctx),
             )
-            item["content"] = remark
-            item["form"] = form
             item["cardNo"] = c.no or ""
-            item["doneAt"] = _ledger_display_time(done_at)
-            item["doneLabel"] = {"USED": "核销", "VOID": "作废"}.get(c.status, "核销/作废")
-            item["meta"] = " · ".join(p for p in (form, item["at"], c.no, remark) if p)
             rows.append(item)
+
+            if c.status not in out_meta:
+                continue
+            title, st, tone = out_meta[c.status]
+            done_at, done_op = _card_done_meta(c, ctx)
+            if c.status == "VOID":
+                out_remark = c.void_reason or "卡券作废"
+            elif c.status == "USED":
+                out_remark = "到店核销使用"
+            else:
+                out_remark = "超过有效期"
+            out = _ledger_item(
+                key=f"card-out-{c.id}", kind="card", typ="card_out",
+                title=f"{title} · {name}", amount="−1 张",
+                status=st, tone=tone, meta="",
+                at=done_at, sort_id=c.id,
+                content=out_remark, operator=done_op,
+            )
+            out["cardNo"] = c.no or ""
+            if not done_at:
+                # 历史卡券未记录核销/作废时间：紧挨对应的新增记录排序
+                out["_sort"] = item["_sort"]
+            rows.append(out)
 
     rows.sort(key=lambda x: (x.get("_sort") or "", x.get("id") or ""), reverse=True)
     for r in rows:
