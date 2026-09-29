@@ -5141,17 +5141,51 @@ def _purge_non_boss_users(sess: Session, boss_ids: list[int]) -> dict[str, int]:
     }
 
 
-def purge_test_data_keep_bosses(sess: Session, admin: dict, confirm: str) -> dict:
-    """One-shot launch cleanup: keep boss accounts + shop config, wipe test business data."""
+# Voids that already put the card back into template stock.
+_STOCK_RESTORED_VOID = {"EXCHANGE": "手动扣减", "GAME_GIFT": "对局作废"}
+
+
+def _purge_stock_back(sess: Session) -> dict[int, int]:
+    limited = {t.id for t in sess.query(CardTpl).filter(CardTpl.stock >= 0)}
+    back: dict[int, int] = {}
+    if not limited:
+        return back
+    for c in sess.query(Card).filter(Card.src.in_(tuple(_STOCK_RESTORED_VOID)), Card.tpl.in_(limited)):
+        if c.status == "VOID" and (c.void_reason or "").startswith(_STOCK_RESTORED_VOID[c.src]):
+            continue
+        back[c.tpl] = back.get(c.tpl, 0) + 1
+    return back
+
+
+def purge_test_data_keep_bosses(sess: Session, admin: dict, confirm: str, dry_run: bool = False) -> dict:
+    """Keep boss accounts + shop config, wipe test business data."""
     if admin.get("role") != "BOSS":
         raise ValueError("仅老板可执行清库")
-    if (confirm or "").strip() != PURGE_KEEP_BOSSES_CONFIRM:
+    if not dry_run and (confirm or "").strip() != PURGE_KEEP_BOSSES_CONFIRM:
         raise ValueError(f"确认口令不正确，请传入 {PURGE_KEEP_BOSSES_CONFIRM}")
 
     bosses = sess.query(User).filter(User.role == "BOSS").order_by(User.id).all()
     if not bosses:
         raise ValueError("未找到老板账号，已中止")
     boss_ids = [b.id for b in bosses]
+    stock_back = _purge_stock_back(sess)
+    tpl_names = {t.id: t.name for t in sess.query(CardTpl).filter(CardTpl.id.in_(list(stock_back) or [0]))}
+    stock_report = {f"{tpl_names.get(k, k)}#{k}": n for k, n in stock_back.items()}
+
+    if dry_run:
+        others = sess.query(User).filter(~User.id.in_(boss_ids)).order_by(User.id).all()
+        return {
+            "dryRun": True,
+            "keptBosses": [{"id": b.id, "nick": b.nick, "phone": b.phone} for b in bosses],
+            "willDeleteUsers": [{"id": u.id, "no": u.no, "nick": u.nick, "phone": u.phone, "role": u.role} for u in others],
+            "willDelete": {m.__tablename__: int(sess.query(m).count()) for m in _PURGE_FULL_CLEAR_MODELS},
+            "stockBack": stock_report,
+            "ledger": setting(sess, "ledger") or {},
+        }
+
+    for tid, n in stock_back.items():
+        t = sess.get(CardTpl, tid)
+        t.stock = int(t.stock or 0) + n
     kept = _purge_reset_bosses(sess, bosses)
 
     deleted: dict[str, int] = {}
@@ -5159,6 +5193,10 @@ def purge_test_data_keep_bosses(sess: Session, admin: dict, confirm: str) -> dic
         n = sess.query(model).delete(synchronize_session=False)
         deleted[model.__tablename__] = int(n or 0)
     deleted.update(_purge_non_boss_users(sess, boss_ids))
+    ledger = dict(setting(sess, "ledger") or {})
+    ledger["ptCleared"] = 0
+    ledger["ptOpening"] = 0
+    save_setting(sess, "ledger", ledger)
 
     log(
         sess,
@@ -5172,6 +5210,7 @@ def purge_test_data_keep_bosses(sess: Session, admin: dict, confirm: str) -> dic
         "ok": True,
         "keptBosses": kept,
         "deleted": deleted,
+        "stockBack": stock_report,
         "kept": [
             "settings(agreements/content/config/…)",
             "products", "cats", "projects", "card_tpls", "tiers", "shop_tables", "sign_rules",
