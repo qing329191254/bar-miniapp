@@ -169,6 +169,23 @@ export function isLoggedIn() {
 
 const CART_KEY = "wanka_cart";
 let redirectingOnAuthLoss = false;
+let reconsentPending = false;
+
+/** True once after a 401 that requires re-agreeing to terms (login page must stay). */
+export function takeReconsentPending() {
+  const v = reconsentPending;
+  reconsentPending = false;
+  return v;
+}
+
+let launchLoginChecked = false;
+/** Login page is the cold-launch entry (e.g. a QR code path), checked only once per session. */
+export function isLaunchedIntoLogin() {
+  if (launchLoginChecked) return false;
+  launchLoginChecked = true;
+  const launch = typeof uni.getLaunchOptionsSync === "function" ? uni.getLaunchOptionsSync() : null;
+  return String(launch?.path || "").replace(/^\//, "") === "pages/login/login";
+}
 const pendingRequests = new Map();
 let loadingCount = 0;
 let loadingTimer = null;
@@ -257,6 +274,7 @@ function parseResponse(res, path, method, opts, finish, resolve, reject) {
     clearSession();
     // 协议更新必须回登录重签；注销/停用/过期则回首页游客态，避免强制登录页影响逛店体验
     const needReconsent = /协议/.test(msg);
+    if (needReconsent) reconsentPending = true;
     const target = needReconsent ? "/pages/login/login" : "/pages/c/home";
     const tip = needReconsent
       ? msg

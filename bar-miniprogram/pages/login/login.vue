@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from "vue";
-import { api, hideWxHomeButton, resolveHomeUrl, savedUser, setSession, token, relaunch, toastText } from "@/utils/api";
+import { api, hideWxHomeButton, isLaunchedIntoLogin, resolveHomeUrl, savedUser, setSession, takeReconsentPending, token, relaunch, toastText } from "@/utils/api";
 import { LOGO_URL } from "@/utils/assets";
 
 const err = ref("");
@@ -27,6 +27,11 @@ onMounted(async () => {
   const u = savedUser();
   if (u?.role && token()) {
     relaunch(resolveHomeUrl());
+    return;
+  }
+  // 登录页不作为启动入口：游客直接进首页，只有协议更新需重签时停留
+  if (!takeReconsentPending() && getCurrentPages().length <= 1 && isLaunchedIntoLogin()) {
+    relaunch("/pages/c/home");
     return;
   }
   showLogin.value = true;
