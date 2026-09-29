@@ -1,8 +1,8 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { onShow } from "@dcloudio/uni-app";
 import { api, go, hideWxHomeButton, media, requireLogin, toastText } from "@/utils/api";
-import { getMemberHomeCache, setMemberHomeCache } from "@/utils/staff-page-cache";
+import { getImageRatioCache, getMemberHomeCache, setImageRatioCache, setMemberHomeCache } from "@/utils/staff-page-cache";
 import { iconSrc } from "@/utils/icons";
 
 const chevSrc = iconSrc("chevron");
@@ -136,6 +136,26 @@ const howToPlay = computed(() => {
     picUrl: isPicUrl(picRaw) ? media(picRaw) : "",
   };
 });
+
+const playPicRatio = ref(0.75);
+const playPicLoaded = ref(false);
+watch(
+  () => howToPlay.value.picUrl,
+  (url) => {
+    playPicLoaded.value = false;
+    const r = getImageRatioCache(url);
+    if (r) playPicRatio.value = r;
+  },
+  { immediate: true },
+);
+function onPlayPicLoad(e) {
+  const { width, height } = e?.detail || {};
+  if (width > 0 && height > 0) {
+    playPicRatio.value = height / width;
+    setImageRatioCache(howToPlay.value.picUrl, playPicRatio.value);
+  }
+  playPicLoaded.value = true;
+}
 
 function openPlaySheet() {
   showPlay.value = true;
@@ -282,6 +302,12 @@ async function doSign() {
       <image class="chev" :src="chevSrc" mode="aspectFit" />
     </view>
     <tab-bar current="home" />
+    <image
+      v-if="howToPlay.picUrl && !playPicLoaded"
+      class="pic-preload"
+      :src="howToPlay.picUrl"
+      @load="onPlayPicLoad"
+    />
 
     <view v-if="showGallery" class="gal-mask" @tap="closeGallery" @touchmove.stop.prevent></view>
     <view v-if="showGallery" class="gal-sheet" @touchmove.stop>
@@ -377,13 +403,20 @@ async function doSign() {
           </view>
           <view v-else class="tiny" style="padding:8px 0">商家尚未配置玩法说明</view>
         </view>
-        <image
+        <view
           v-if="howToPlay.picUrl"
-          class="play-pic"
-          :src="howToPlay.picUrl"
-          mode="widthFix"
+          class="play-pic-box"
+          :style="{ paddingTop: playPicRatio * 100 + '%' }"
           @tap="previewPlayPic"
-        />
+        >
+          <image
+            class="play-pic"
+            :class="{ on: playPicLoaded }"
+            :src="howToPlay.picUrl"
+            mode="aspectFill"
+            @load="onPlayPicLoad"
+          />
+        </view>
         <view v-else-if="howToPlay.pic" class="play-ph">{{ howToPlay.pic }}</view>
       </scroll-view>
     </view>
@@ -547,10 +580,29 @@ async function doSign() {
   font-size: 12px;
   color: #9C9A93;
 }
-.play-pic {
+.play-pic-box {
+  position: relative;
   width: 100%;
-  height: auto;
+  height: 0;
   border-radius: 10px;
+  overflow: hidden;
+  background: linear-gradient(135deg, #EEECE5, #E2DFD6);
+}
+.play-pic {
+  position: absolute;
+  left: 0; top: 0;
+  width: 100%;
+  height: 100%;
   display: block;
+  opacity: 0;
+  transition: opacity .25s ease;
+}
+.play-pic.on { opacity: 1; }
+.pic-preload {
+  position: fixed;
+  left: -10px; top: -10px;
+  width: 2px; height: 2px;
+  opacity: 0;
+  pointer-events: none;
 }
 </style>

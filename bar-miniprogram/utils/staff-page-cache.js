@@ -60,6 +60,17 @@ export function setMemberMineCache({ me, champs, team } = {}) {
   };
 }
 
+// height / width by image url, so a re-created page can reserve the right box before load
+const imageRatio = new Map();
+
+export function getImageRatioCache(url) {
+  return url ? imageRatio.get(url) || 0 : 0;
+}
+
+export function setImageRatioCache(url, ratio) {
+  if (url && ratio > 0) imageRatio.set(url, ratio);
+}
+
 export function clearMemberPageCache() {
   memberHome = null;
   memberRank = null;
