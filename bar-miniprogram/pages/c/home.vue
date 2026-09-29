@@ -213,7 +213,6 @@ function ruleReward(r) {
 }
 
 function openSignSheet() {
-  if (!requireLogin()) return;
   showSign.value = true;
   msg.value = "";
 }
@@ -223,6 +222,7 @@ function closeSignSheet() {
 
 async function doSign() {
   if (signedToday.value || signing.value) return;
+  if (!requireLogin("签到需要登录会员后使用，是否现在登录？")) return;
   signing.value = true;
   msg.value = "";
   try {
@@ -266,7 +266,7 @@ async function doSign() {
     </view>
 
     <view class="home-kg">
-      <view class="kg-i" @tap="needLoginThen(() => go('/pages/c/order'))">
+      <view class="kg-i" @tap="go('/pages/c/order')">
         <app-icon name="order" tone="teal" size="lg" shape="round" />
         <text>点单</text>
       </view>
@@ -293,7 +293,7 @@ async function doSign() {
       </view>
       <image class="chev" :src="chevSrc" mode="aspectFit" />
     </view>
-    <view class="home-op" @tap="needLoginThen(() => go('/pages/c/recharge'))">
+    <view class="home-op" @tap="go('/pages/c/recharge')">
       <app-icon name="recharge" tone="gold" size="md" shape="sq" />
       <view class="home-txt">
         <view class="ht">充值有奖</view>
@@ -381,7 +381,7 @@ async function doSign() {
           :class="{ off: signedToday }"
           :disabled="signedToday || signing"
           @tap="doSign"
-        >{{ signedToday ? "今日已签到" : "签到" }}</button>
+        >{{ signedToday ? "今日已签到" : data.user ? "签到" : "登录后签到" }}</button>
         <view class="note sign-note">
           签到积分立即到账，同样受<text style="font-weight:600">每月 1 日 13:00 清零</text>约束。漏签不可补签，<text style="font-weight:600">断签后连续天数从 1 重新累计</text>。
         </view>

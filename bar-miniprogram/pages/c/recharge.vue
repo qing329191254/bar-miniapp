@@ -1,9 +1,10 @@
 <script setup>
 import { computed, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
-import { api, requireLogin } from "@/utils/api";
+import { api, isLoggedIn, requireLogin } from "@/utils/api";
 
 const data = ref(null);
+const loggedIn = ref(isLoggedIn());
 const selId = ref(null);
 const msg = ref("");
 const creating = ref(false);
@@ -22,16 +23,16 @@ const singleLimit = computed(() => Number(data.value?.singleLimit || 0));
 const selected = computed(() => tiers.value.find((t) => t.id === selId.value) || null);
 
 async function load() {
-  data.value = await api("/recharges");
+  loggedIn.value = isLoggedIn();
+  data.value = loggedIn.value
+    ? await api("/recharges")
+    : { ...(await api("/recharge-tiers")), coin: { p: 0, b: 0 }, pending: null };
   if (!selId.value && data.value?.tiers?.length) {
     const rec = data.value.tiers.find((t) => t.rec);
     selId.value = rec ? rec.id : data.value.tiers[0].id;
   }
 }
-onShow(() => {
-  if (!requireLogin()) return;
-  load();
-});
+onShow(load);
 
 function pick(id) {
   selId.value = id;
@@ -39,6 +40,7 @@ function pick(id) {
 }
 
 function openTierDialog() {
+  if (!requireLogin("充值需要登录会员后使用，是否现在登录？")) return;
   if (pending.value) {
     goRechargeDetail();
     return;
@@ -78,7 +80,11 @@ async function create() {
 <template>
   <page-meta :page-style="`overflow:${showTierDialog ? 'hidden' : 'visible'}`" />
   <view class="rc-page" v-if="data">
-    <view class="card coin-card">
+    <view v-if="!loggedIn" class="card coin-card" @tap="requireLogin('登录后可查看金币余额并生成充值单，是否现在登录？')">
+      <view class="tiny gold-t">当前金币</view>
+      <view class="guest-t">登录后查看金币余额</view>
+    </view>
+    <view v-else class="card coin-card">
       <view class="tiny gold-t">当前金币</view>
       <view class="coin-num number-display">{{ fmt(coinTotal) }}</view>
       <view class="coin-row">
@@ -178,6 +184,7 @@ async function create() {
 }
 .gold-t { color: #ba7517; }
 .coin-num { font-size: 32px; color: #633806; margin-top: 2px; }
+.guest-t { font-size: 15px; font-weight: 600; color: #633806; margin-top: 4px; }
 .coin-row { display: flex; align-items: center; gap: 10px; margin-top: 5px; flex-wrap: wrap; }
 .warn-pill { background: #fff; color: #e24b4a; margin-left: auto; }
 .st-row { display: flex; align-items: baseline; gap: 8px; margin: 4px 0 8px; }

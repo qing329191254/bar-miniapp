@@ -501,6 +501,15 @@ def cancel_order(oid: int, user: dict = Depends(current_user), db: Session = Dep
         fail(e)
 
 
+@app.get("/api/recharge-tiers")
+def public_recharge_tiers(db: Session = Depends(get_db)):
+    cfg = L.setting(db, "config") or {}
+    return {
+        "tiers": [t.to_dict() for t in db.query(Tier).all()],
+        "singleLimit": int(cfg.get("singleLimit") or 0),
+    }
+
+
 @app.get("/api/recharges")
 def list_recharges(user: dict = Depends(current_user), db: Session = Depends(get_db)):
     L.expire_timeouts(db)

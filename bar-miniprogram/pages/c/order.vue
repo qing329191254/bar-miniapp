@@ -104,7 +104,7 @@ function addSpec() {
 }
 function checkout() {
   if (total.value <= 0) return;
-  if (!requireLogin()) return;
+  if (!requireLogin("下单需要登录会员后使用，已选商品会保留，是否现在登录？")) return;
   persist();
   go("/pages/c/checkout");
 }
@@ -113,7 +113,7 @@ function checkout() {
 <template>
   <page-meta :page-style="`overflow:${specPid ? 'hidden' : 'visible'}`" />
   <view class="ord-page">
-    <view class="ord-sub">{{ user.nick }} {{ user.tail }} · 桌台选填</view>
+    <view class="ord-sub">{{ user.nick ? user.nick + " " + (user.tail || "") + " · " : "" }}桌台选填</view>
     <view class="ord-main">
       <scroll-view scroll-y class="ord-side">
         <view
