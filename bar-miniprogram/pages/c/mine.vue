@@ -27,9 +27,9 @@ const deactMsg = ref("");
 
 onShow(async () => {
   hideWxHomeButton();
-  // redirectTo：避免未登录栈底留空白「我的」，暂不登录可回到上一页
+  // 未登录落到「我的」时回首页游客态（点 Tab「我的」仍会走 requireLogin→登录页）
   if (!isLoggedIn()) {
-    uni.redirectTo({ url: "/pages/login/login" });
+    uni.reLaunch({ url: "/pages/c/home" });
     return;
   }
   const hasCache = !!me.value;

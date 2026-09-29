@@ -168,7 +168,7 @@ export function isLoggedIn() {
 }
 
 const CART_KEY = "wanka_cart";
-let redirectingToLogin = false;
+let redirectingOnAuthLoss = false;
 const pendingRequests = new Map();
 let loadingCount = 0;
 let loadingTimer = null;
@@ -255,15 +255,26 @@ function parseResponse(res, path, method, opts, finish, resolve, reject) {
   if (statusCode === 401 && token()) {
     const msg = detailMsg(data);
     clearSession();
-    if (!redirectingToLogin) {
-      redirectingToLogin = true;
+    // 协议更新必须回登录重签；注销/停用/过期则回首页游客态，避免强制登录页影响逛店体验
+    const needReconsent = /协议/.test(msg);
+    const target = needReconsent ? "/pages/login/login" : "/pages/c/home";
+    const tip = needReconsent
+      ? msg
+      : (/不可用|停用|注销/.test(msg)
+        ? "账号已注销或不可用，可重新注册"
+        : (msg && msg !== "请求失败" ? msg : "登录已过期"));
+    if (!redirectingOnAuthLoss) {
+      redirectingOnAuthLoss = true;
       uni.reLaunch({
-        url: "/pages/login/login",
-        complete: () => { redirectingToLogin = false; },
+        url: target,
+        complete: () => {
+          redirectingOnAuthLoss = false;
+          if (!needReconsent && tip) toastText(tip);
+        },
       });
     }
     finish();
-    reject(new Error(msg.includes("协议") ? msg : (msg && msg !== "请求失败" ? msg : "登录已过期，请重新登录")));
+    reject(new Error(tip));
     return;
   }
   // Staff APIs return 403 after revoke (role demoted to CUSTOMER); keep member session.
