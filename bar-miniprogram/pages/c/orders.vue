@@ -136,7 +136,7 @@ function reorder(order) {
       >{{ item.label }}</button>
     </view>
 
-    <view class="order-hint">{{ tab === 'point' ? '积分变更明细：备注、数量、时间、余额变化与操作店员' : '以下为资产变更明细，含下单、充值、提分、兑换、签到、对局与店员调整' }}</view>
+    <view class="order-hint">{{ tab === 'point' ? '积分变更明细：备注、数量、时间、余额变化与操作员' : '以下为资产变更明细，含下单、充值、提分、兑换、签到、对局与店员调整' }}</view>
 
     <view v-if="loading && !items.length" class="empty">加载中…</view>
     <view v-else-if="msg && !items.length" class="card empty-box">
@@ -151,7 +151,7 @@ function reorder(order) {
         <text class="order-status" :class="'status-' + (row.statusTone || 'grey')">{{ row.status }}</text>
       </view>
 
-      <!-- 4.3 积分订单统一：显示内容 / 加减数量 / 时间 / 变更过程 / 店员 -->
+      <!-- 4.3 积分订单统一：显示内容 / 加减数量 / 时间 / 变更过程 / 操作员 -->
       <view v-if="row.kind === 'point'" class="point-grid">
         <view class="point-row">
           <text class="point-k">备注</text>
@@ -173,7 +173,7 @@ function reorder(order) {
           <text class="point-v">{{ row.process || '—' }}</text>
         </view>
         <view class="point-row">
-          <text class="point-k">店员</text>
+          <text class="point-k">操作员</text>
           <text class="point-v">{{ row.operator || '—' }}</text>
         </view>
       </view>
@@ -278,7 +278,7 @@ function reorder(order) {
 .order-amt.minus { color: #a32d2d; }
 .point-grid { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
 .point-row { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; line-height: 1.45; }
-.point-k { flex: none; width: 36px; color: #9c9a93; }
+.point-k { flex: none; width: 48px; color: #9c9a93; }
 .point-v { flex: 1; min-width: 0; color: #6b6a65; word-break: break-all; }
 .point-v.order-amt { margin-right: 0; font-size: 15px; }
 .order-actions { display: flex; gap: 8px; margin-top: 12px; }

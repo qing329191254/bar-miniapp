@@ -3490,7 +3490,7 @@ def _ledger_item(
             item["at"],
             item.get("content") or "",
             f"余额 {item['process']}" if item.get("process") else "",
-            f"店员 {item['operator']}" if item.get("operator") else "",
+            f"操作员 {item['operator']}" if item.get("operator") else "",
         ]
         item["meta"] = " · ".join(p for p in meta_parts if p) or meta
     return item
