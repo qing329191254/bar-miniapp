@@ -1797,34 +1797,38 @@ def _reg_keys(sess: Session, uids: list[int]) -> dict[int, int]:
 
 
 def rank_rows(sess: Session, kind: str, dim: str, subject: str):
-    """All boards: unique ranks (no ties). Primary metric per kind, then shared breakers."""
+    """All boards: unique ranks (no ties). Primary metric per kind, then shared breakers.
+
+    POINT board always uses live available inventory (point_av), ignoring week/month dim.
+    SHARD / CHAMPION still honor WEEK vs ALL/MONTH.
+    """
     people = custs(sess)
     teams = [t for t in sess.query(Team).all() if (t.status or "ACTIVE") != "DISABLED"]
     reg = _reg_keys(sess, [x.id for x in people])
     cdim = "WEEK" if dim == "WEEK" else "ALL"
-    point_attr = "point_wg" if dim == "WEEK" else "point_mg"
 
     def metrics(x: User) -> tuple[int, int, int, int, int]:
         w = wallet_of(sess, x.id)
         sw, st = int(w.shard_w or 0), int(w.shard_t or 0)
-        pw = int(getattr(w, point_attr) or 0)
+        # 积分榜：实时可用库存（含对局/签到/店员调整等全部渠道净结果）
+        pav = int(w.point_av or 0)
         pm = int(w.point_mg or 0)
         cc = champ_count(sess, x.id, cdim) if kind == "CHAMPION" else 0
-        return sw, st, pw, pm, cc
+        return sw, st, pav, pm, cc
 
     rows: list[dict] = []
     if subject == "USER":
         for x in people:
-            sw, st, pw, pm, cc = metrics(x)
+            sw, st, pav, pm, cc = metrics(x)
             rk = reg.get(x.id, 10**9 + x.id)
             if kind == "SHARD":
                 # 当周碎片 → 历史碎片 → 当月积分 → 注册时间
                 v = sw if dim == "WEEK" else st
                 sort = (-sw, -st, -pm, rk)
             elif kind == "POINT":
-                # 当周/当月积分 → 当周碎片 → 历史碎片 → 注册时间
-                v = pw
-                sort = (-pw, -sw, -st, rk)
+                # 实时库存 → 当周碎片 → 历史碎片 → 注册时间
+                v = pav
+                sort = (-pav, -sw, -st, rk)
             else:
                 # 冠军次数 → 当周碎片 → 历史碎片 → 当月积分 → 注册时间
                 v = cc
@@ -1833,12 +1837,12 @@ def rank_rows(sess: Session, kind: str, dim: str, subject: str):
     else:
         for t in teams:
             ms = [x for x in people if x.team_id == t.id]
-            sw = st = pw = pm = cc = 0
+            sw = st = pav = pm = cc = 0
             for x in ms:
                 a, b, c, d, e = metrics(x)
                 sw += a
                 st += b
-                pw += c
+                pav += c
                 pm += d
                 cc += e
             tid = int(t.id)
@@ -1846,8 +1850,9 @@ def rank_rows(sess: Session, kind: str, dim: str, subject: str):
                 v = sw if dim == "WEEK" else st
                 sort = (-sw, -st, -pm, tid)
             elif kind == "POINT":
-                v = pw
-                sort = (-pw, -sw, -st, tid)
+                # 战队积分 = 成员实时库存之和
+                v = pav
+                sort = (-pav, -sw, -st, tid)
             else:
                 v = cc
                 sort = (-cc, -sw, -st, -pm, tid)

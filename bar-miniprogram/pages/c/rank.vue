@@ -53,17 +53,26 @@ function valOf(r) {
 }
 function chooseKind(value) {
   kind.value = value;
-  dim.value = "WEEK";
+  // 积分榜固定实时库存，不再跟周/月切换
+  if (value !== "POINT") dim.value = "WEEK";
 }
 function metricHint(value) {
   if (value === "WEEK") return "每周一 12:00 结算重置";
-  if (kind.value === "POINT") return "随每月 1 日 13:00 清零归零";
   if (kind.value === "SHARD") return "碎片永久累计";
   return "历次冠军累计";
 }
-function chooseMetric(value) { dim.value = value; showMetric.value = false; }
+function chooseMetric(value) {
+  if (kind.value === "POINT") return;
+  dim.value = value;
+  showMetric.value = false;
+}
+function openMetric() {
+  if (kind.value === "POINT") return;
+  showMetric.value = true;
+}
 function md(d) { return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
 const periodText = computed(() => {
+  if (kind.value === "POINT") return "实时库存";
   if (dim.value !== "WEEK") {
     if (kind.value === "SHARD") return "历史累计";
     if (kind.value === "CHAMPION") return "累计冠军";
@@ -84,10 +93,10 @@ const color = computed(() =>
   kind.value === "SHARD" ? "#534AB7" : kind.value === "POINT" ? "#185FA5" : "#3B6D11",
 );
 const emptyText = computed(() => {
+  if (kind.value === "POINT") return "暂无可用积分";
   if (kind.value === "CHAMPION") {
     return dim.value === "WEEK" ? "本周还没有冠军记录" : "暂无累计冠军数据";
   }
-  if (kind.value === "POINT" && dim.value !== "WEEK") return "本月还没有积分数据";
   if (kind.value === "SHARD" && dim.value !== "WEEK") return "暂无历史碎片数据";
   return "本周还没有数据，快来玩一局";
 });
@@ -111,11 +120,19 @@ const displayRows = computed(() => {
     <view class="row" style="margin-bottom:12px">
       <text class="chip" :class="{ on: subject === 'TEAM' }" @tap="subject = 'TEAM'">战队榜</text>
       <text class="chip" :class="{ on: subject === 'USER' }" @tap="subject = 'USER'">个人榜</text>
-      <view class="rank-period" @tap="showMetric = true">{{ periodText }} <text>▾</text></view>
+      <view
+        class="rank-period"
+        :class="{ static: kind === 'POINT' }"
+        @tap="openMetric"
+      >{{ periodText }} <text v-if="kind !== 'POINT'">▾</text></view>
     </view>
     <view class="rk-reward" v-if="kind === 'SHARD'">
       <view style="font-size:12.5px;color:#633806;font-weight:600">{{ dim === "WEEK" ? "本周奖励 · 每周一 12:00 自动发放" : "本月奖励 · 次月 1 日 12:00 自动发放" }}</view>
       <view class="tiny gold" style="margin-top:3px;line-height:1.65">夺冠战队全员得战队宝箱卡 · 个人榜前三得钻石 / 黄金 / 白银宝箱卡</view>
+    </view>
+    <view class="rk-reward point-hint" v-else-if="kind === 'POINT'">
+      <view style="font-size:12.5px;color:#0C447C;font-weight:600">实时可用积分</view>
+      <view class="tiny" style="margin-top:3px;line-height:1.65;color:#185FA5">个人榜按当前库存排序；战队榜为成员库存之和（含对局、签到、店员调整等）</view>
     </view>
     <view class="rk-box">
       <view v-if="!displayRows.length" class="empty">{{ emptyText }}</view>
@@ -142,12 +159,12 @@ const displayRows = computed(() => {
       <text style="font-weight:600">暂未上榜</text>
     </view>
     <tab-bar current="rank" />
-    <view v-if="showMetric" class="metric-mask" @tap.self="showMetric = false">
+    <view v-if="showMetric && kind !== 'POINT'" class="metric-mask" @tap.self="showMetric = false">
       <view class="metric-sheet">
         <view class="metric-title">统计方式 <text @tap="showMetric = false">关闭</text></view>
         <view class="metric-option" :class="{ selected: dim === 'WEEK' }" @tap="chooseMetric('WEEK')"><view class="metric-name">当周新增 <text v-if="dim === 'WEEK'">✓</text></view><text>每周一 12:00 结算重置</text></view>
-        <view class="metric-option" :class="{ selected: dim !== 'WEEK' }" @tap="chooseMetric('MONTH')"><view class="metric-name">{{ kind === 'SHARD' ? '历史累计' : kind === 'CHAMPION' ? '累计冠军' : '当月累计' }} <text v-if="dim !== 'WEEK'">✓</text></view><text>{{ metricHint('MONTH') }}</text></view>
-        <view class="metric-tip">不同榜单可按当周或累计查看。碎片榜可看历史累计，积分榜与冠军榜规则以门店设置为准。</view>
+        <view class="metric-option" :class="{ selected: dim !== 'WEEK' }" @tap="chooseMetric('MONTH')"><view class="metric-name">{{ kind === 'SHARD' ? '历史累计' : '累计冠军' }} <text v-if="dim !== 'WEEK'">✓</text></view><text>{{ metricHint('MONTH') }}</text></view>
+        <view class="metric-tip">碎片榜与冠军榜可按当周或累计查看。积分榜固定为实时可用库存，不支持周/月切换。</view>
       </view>
     </view>
   </view>
@@ -157,5 +174,5 @@ const displayRows = computed(() => {
 .rk-name-line{display:flex;align-items:center;flex-wrap:wrap;gap:6px;min-width:0}
 .rk-nick{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
 .rk-team-tag{flex:none;max-width:9em;padding:1px 7px;border:1px solid #E2E0DA;border-radius:99px;color:#6B6A65;font-size:10px;line-height:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rank-period{margin-left:auto;color:#9C9A93;font-size:12px;padding:5px 0}.rank-period text{font-size:12px;font-weight:400;color:#6B6A65;margin-left:4px}.metric-mask{position:fixed;z-index:30;inset:0;background:rgba(0,0,0,.38);display:flex;align-items:flex-end}.metric-sheet{width:100%;background:#fff;border-radius:22px 22px 0 0;padding:20px 16px 28px;box-sizing:border-box}.metric-title{display:flex;justify-content:space-between;align-items:center;font-weight:600;font-size:18px;margin-bottom:14px}.metric-title text{font-size:13px;font-weight:400;color:#9C9A93}.metric-option{display:flex;justify-content:space-between;align-items:center;padding:17px 14px;border:1px solid #E2E0DA;border-bottom:0;color:#9C9A93}.metric-option:first-of-type{border-radius:14px 14px 0 0}.metric-option:nth-of-type(3){border-bottom:1px solid #E2E0DA;border-radius:0 0 14px 14px}.metric-name{color:#6B6A65;font-size:15px;font-weight:400}.metric-option.selected .metric-name{color:#1C1B19;font-weight:600}.metric-name text{margin-left:4px}.metric-option>text{font-size:12px}.metric-tip{margin-top:14px;padding:11px 12px;border-radius:10px;background:#E6F1FB;color:#185FA5;font-size:12px;line-height:1.65}
+.rank-period{margin-left:auto;color:#9C9A93;font-size:12px;padding:5px 0}.rank-period text{font-size:12px;font-weight:400;color:#6B6A65;margin-left:4px}.rank-period.static{color:#185FA5}.point-hint{background:linear-gradient(135deg,#E6F1FB,#F0F7FD);border-color:rgba(24,95,165,.28)}.metric-mask{position:fixed;z-index:30;inset:0;background:rgba(0,0,0,.38);display:flex;align-items:flex-end}.metric-sheet{width:100%;background:#fff;border-radius:22px 22px 0 0;padding:20px 16px 28px;box-sizing:border-box}.metric-title{display:flex;justify-content:space-between;align-items:center;font-weight:600;font-size:18px;margin-bottom:14px}.metric-title text{font-size:13px;font-weight:400;color:#9C9A93}.metric-option{display:flex;justify-content:space-between;align-items:center;padding:17px 14px;border:1px solid #E2E0DA;border-bottom:0;color:#9C9A93}.metric-option:first-of-type{border-radius:14px 14px 0 0}.metric-option:nth-of-type(3){border-bottom:1px solid #E2E0DA;border-radius:0 0 14px 14px}.metric-name{color:#6B6A65;font-size:15px;font-weight:400}.metric-option.selected .metric-name{color:#1C1B19;font-weight:600}.metric-name text{margin-left:4px}.metric-option>text{font-size:12px}.metric-tip{margin-top:14px;padding:11px 12px;border-radius:10px;background:#E6F1FB;color:#185FA5;font-size:12px;line-height:1.65}
 </style>
