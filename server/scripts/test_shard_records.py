@@ -56,5 +56,33 @@ class ShardRecordsTests(unittest.TestCase):
         self.assertEqual(sum(r["delta"] for r in rows if not r["void"]), 110)
 
 
+    def test_void_deduction_and_weekly_reset_rows(self):
+        games = [_game(5, "2026-09-29 11:00", [{"uid": 9, "pts": 0, "sh": 8}], status="VOID")]
+        logs = [
+            SimpleNamespace(id=1, ref="game-void-sh-5", before=20, after=12, at="2026-09-29 12:00", op="张老板"),
+            SimpleNamespace(id=2, ref="shardw-2026-09-28", before=30, after=0, at="2026-09-28 12:00", op="系统"),
+        ]
+
+        def query_side(model):
+            q = MagicMock()
+            if model is L.GameRecord:
+                q.order_by.return_value.limit.return_value = games
+            elif model is L.PointLog:
+                q.filter.return_value.order_by.return_value.limit.return_value = logs
+            else:
+                q.filter.return_value.order_by.return_value.limit.return_value = []
+            return q
+
+        sess = MagicMock()
+        sess.query.side_effect = query_side
+        rows = {r["key"]: r for r in L.shard_records(sess, 9)}
+
+        self.assertFalse(rows["game-5"]["void"])
+        self.assertEqual(rows["void-5"]["delta"], -8)
+        self.assertIn("张老板", rows["void-5"]["meta"])
+        self.assertEqual(rows["shardw-2026-09-28"]["delta"], -30)
+        self.assertIn("历史累计不变", rows["shardw-2026-09-28"]["meta"])
+
+
 if __name__ == "__main__":
     unittest.main()

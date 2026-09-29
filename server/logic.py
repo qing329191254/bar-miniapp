@@ -344,10 +344,11 @@ def public_user(sess: Session, user: User | dict | None) -> dict | None:
     return user.to_public(user.wallet, tm.name if tm else None)
 
 
-def point_log(sess: Session, uid: int, ref: str, before: int, after: int) -> None:
+def point_log(sess: Session, uid: int, ref: str, before: int, after: int, op="") -> None:
+    nick = op.get("nick") if isinstance(op, dict) else op
     sess.add(PointLog(
         uid=int(uid), ref=ref, before=int(before or 0), after=int(after or 0),
-        at=business_now().strftime("%Y-%m-%d %H:%M"),
+        at=business_now().strftime("%Y-%m-%d %H:%M"), op=str(nick or "")[:64],
     ))
 
 
@@ -393,6 +394,7 @@ def restore_withdraw_frozen(sess: Session, w: Withdrawal) -> None:
         # Cleared month's frozen points expire with the clear; absorb without restoring.
         pt.point_pd = 0 if pt.point_av >= 0 else -pt.point_av
         return
+    point_log(sess, w.uid, f"wdr-back-{w.id}", int(pt.point_av or 0), int(pt.point_av or 0) + pts)
     pt.point_av += pts
     pt.point_pd = 0 if pt.point_av >= 0 else -pt.point_av
 
@@ -2159,6 +2161,10 @@ def void_game(sess: Session, gid: int, reason: str, void_cards: bool, admin: dic
         w = sess.query(Wallet).filter_by(user_id=uid).with_for_update().first()
         if not w:
             w = wallet_of(sess, uid)
+        if pts > 0:
+            # 跨月作废不扣积分：记一条前后相同的日志，用于说明
+            av_now = int(w.point_av or 0)
+            point_log(sess, uid, f"game-void-{g.id}", av_now, av_now if skip_pts else av_now - pts, admin)
         if not skip_pts and pts > 0:
             w.point_av -= pts
             w.point_wg = max(0, int(w.point_wg or 0) - pts)
@@ -2168,8 +2174,10 @@ def void_game(sess: Session, gid: int, reason: str, void_cards: bool, admin: dic
                 for c in sess.query(Card).filter_by(uid=uid, status="UNUSED", src="EXCHANGE"):
                     close_card(c, "VOID", admin, f"对局作废 · {reason}")
         if sh > 0:
+            sh_before = int(w.shard_t or 0)
             w.shard_w = max(0, int(w.shard_w or 0) - sh)
             w.shard_t = max(0, int(w.shard_t or 0) - sh)
+            point_log(sess, uid, f"game-void-sh-{g.id}", sh_before, int(w.shard_t or 0), admin)
         # Rollback unused cards gifted in this game; already used/locked ones stay.
         for cid in p.get("cardIds") or []:
             c = sess.get(Card, int(cid))
@@ -3480,8 +3488,12 @@ def _parse_point_adjust_detail(detail: str) -> tuple[str, str, str]:
 
 
 def shard_records(sess: Session, uid: int, limit: int = 30) -> list[dict]:
-    """碎片记录：对局获得 + 店员调整，按时间倒序。"""
+    """碎片记录：对局获得 / 对局作废扣回 / 店员调整 / 每周当周碎片清零，按时间倒序。"""
     rows: list[dict] = []
+    logs = {
+        str(x.ref): x
+        for x in sess.query(PointLog).filter(PointLog.uid == uid).order_by(PointLog.id.desc()).limit(500)
+    }
     hits = 0
     for g in sess.query(GameRecord).order_by(GameRecord.id.desc()).limit(400):
         if hits >= limit:
@@ -3492,12 +3504,36 @@ def shard_records(sess: Session, uid: int, limit: int = 30) -> list[dict]:
             continue
         hits += 1
         voided = (g.status or "") == "VOID"
+        vlog = logs.get(f"game-void-sh-{g.id}") if voided else None
         at = _ledger_display_time(g.time or "")
+        title = " · ".join(x for x in (g.pname, g.table or "未指定桌台", g.round) if x)
         meta = f"{at} · 店员 {g.op or '—'} 录入" + (" · 已作废" if voided else "")
         rows.append({
             **g.to_dict(), "my": p,
-            "key": f"game-{g.id}", "title": " · ".join(x for x in (g.pname, g.table or "未指定桌台", g.round) if x),
-            "meta": meta, "delta": sh, "void": voided, "_sort": _ledger_sort_at(at, g.id),
+            "key": f"game-{g.id}", "title": title,
+            "meta": meta, "delta": sh, "void": voided and not vlog, "_sort": _ledger_sort_at(at, g.id),
+        })
+        if vlog:
+            vat = _ledger_display_time(vlog.at or "")
+            back = int(vlog.after) - int(vlog.before)
+            rows.append({
+                "id": f"void-{g.id}", "pname": "对局作废扣回", "table": "", "round": "",
+                "time": vat, "op": vlog.op or "", "my": {"sh": back},
+                "key": f"void-{g.id}", "title": f"对局作废扣回 · {g.pname or '对局'}",
+                "meta": f"{vat} · 操作员 {vlog.op or '—'}", "delta": back, "void": False,
+                "_sort": _ledger_sort_at(vat, g.id),
+            })
+    for x in logs.values():
+        if not str(x.ref).startswith("shardw-"):
+            continue
+        at = _ledger_display_time(x.at or "")
+        cleared = int(x.before or 0) - int(x.after or 0)
+        rows.append({
+            "id": str(x.ref), "pname": "周榜结算", "table": "", "round": "",
+            "time": at, "op": "系统", "my": {"sh": -cleared},
+            "key": str(x.ref), "title": "周榜结算 · 当周碎片清零",
+            "meta": f"{at} · 历史累计不变", "delta": -cleared, "void": False,
+            "_sort": _ledger_sort_at(at, int(x.id or 0)),
         })
     for log_row in (
         sess.query(OpLog)
@@ -3755,13 +3791,28 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
                 wdr_op = "本人"
             else:
                 wdr_op = ""
-            rows.append(_ledger_item(
+            wdr_item = _ledger_item(
                 key=f"wdr-{w.id}", kind="point", typ="withdraw",
                 title="积分提取", amount=f"−{int(w.pts or 0):,}",
                 status=st, tone=tone, meta="",
-                at=when or w.created or "", sort_id=w.id,
+                at=w.at or w.created or when, sort_id=w.id,
                 content=remark, process=balance(f"wdr-{w.id}"), operator=wdr_op,
-            ))
+            )
+            rows.append(wdr_item)
+            back = plogs.get(f"wdr-back-{w.id}")
+            if back:
+                wdr_item["struck"] = False
+                back_note = {"REJECTED": "提分驳回", "CLOSED_TIMEOUT": "提分超时未确认", "CANCELLED": "提分已取消"}
+                rows.append(_ledger_item(
+                    key=f"wdr-back-{w.id}", kind="point", typ="withdraw_back",
+                    title="积分退回", amount=f"+{int(w.pts or 0):,}",
+                    status="已退回", tone="green", meta="",
+                    at=back.at or w.closed_at or "", sort_id=w.id,
+                    content=" · ".join(p for p in (
+                        back_note.get(w.status, "提分未完成"), w.no, w.reject_remark,
+                    ) if p),
+                    process=balance(f"wdr-back-{w.id}"), operator=wdr_op,
+                ))
         for log_row in (
             sess.query(OpLog)
             .filter(OpLog.uid == uid, OpLog.action == "POINT_ADJUST")
@@ -3847,14 +3898,29 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
                 remark += f" · {g.table}"
             if g.round:
                 remark += f" · {g.round}"
-            rows.append(_ledger_item(
+            vlog = plogs.get(f"game-void-{g.id}") if voided else None
+            skipped = bool(vlog and int(vlog.before) == int(vlog.after))
+            game_item = _ledger_item(
                 key=f"game-pts-{g.id}", kind="point", typ="game",
                 title="对局积分", amount=f"+{pts:,}",
                 status="已作废" if voided else "已到账",
                 tone="red" if voided else "green", meta="",
                 at=g.time or "", sort_id=int(g.id),
-                content=remark, process=balance(f"game-pts-{g.id}"), operator=str(g.op or "").strip(),
-            ))
+                content=remark + (" · 跨月作废，积分不扣回" if skipped else ""),
+                process=balance(f"game-pts-{g.id}"), operator=str(g.op or "").strip(),
+            )
+            rows.append(game_item)
+            if vlog:
+                game_item["struck"] = False
+                if not skipped:
+                    rows.append(_ledger_item(
+                        key=f"game-void-{g.id}", kind="point", typ="game_void",
+                        title="对局作废扣回", amount=f"−{pts:,}",
+                        status="已扣回", tone="red", meta="",
+                        at=vlog.at or "", sort_id=int(g.id),
+                        content=remark, process=balance(f"game-void-{g.id}"),
+                        operator=str(vlog.op or "").strip(),
+                    ))
 
     if kind in ("ALL", "COIN"):
         clogs = {

@@ -253,6 +253,56 @@ class CustomerLedgerPointSourcesTests(unittest.TestCase):
         self.assertEqual(a["content"], "活动")
         self.assertEqual(a["operator"], "张老板")
 
+    def test_withdraw_back_and_game_void_rows(self):
+        wdr = SimpleNamespace(
+            id=3, no="TF3", uid=9, pts=500, status="REJECTED", created="", at="2026-09-29 10:00",
+            grant_at=None, closed_at="2026-09-29 10:05", grant_by=None, reject_by=7, reject_remark="信息不符",
+        )
+        game = SimpleNamespace(
+            id=88, pname="德扑", table="", round="", time="2026-09-29 11:00", op="店员小王",
+            status="VOID", players=[{"uid": 9, "pts": 200, "sh": 0}],
+        )
+        logs = [
+            SimpleNamespace(id=1, ref="wdr-3", before=1000, after=500, at="2026-09-29 10:00", op=""),
+            SimpleNamespace(id=2, ref="wdr-back-3", before=500, after=1000, at="2026-09-29 10:05", op=""),
+            SimpleNamespace(id=3, ref="game-void-88", before=1200, after=1000, at="2026-09-29 12:00", op="张老板"),
+        ]
+
+        def query_side(model):
+            q = MagicMock()
+            if model is L.Withdrawal:
+                q.filter_by.return_value.order_by.return_value.limit.return_value = [wdr]
+            elif model is L.GameRecord:
+                q.order_by.return_value.limit.return_value = [game]
+            elif model is L.PointLog:
+                q.filter.return_value.order_by.return_value.limit.return_value = logs
+            elif model is L.SignRule:
+                q.all.return_value = []
+            else:
+                q.filter_by.return_value.order_by.return_value.limit.return_value = []
+                q.filter_by.return_value.all.return_value = []
+                q.filter.return_value.order_by.return_value.limit.return_value = []
+            return q
+
+        sess = MagicMock()
+        sess.query.side_effect = query_side
+        sess.get.side_effect = lambda model, pk: SimpleNamespace(nick="店员小李") if model is L.User and pk == 7 else None
+        with patch.object(L, "setting", return_value={}):
+            items = {x["id"]: x for x in L.customer_ledger(sess, uid=9, kind="POINT", limit=80)}
+
+        self.assertFalse(items["wdr-3"]["struck"])
+        back = items["wdr-back-3"]
+        self.assertEqual(back["amount"], "+500")
+        self.assertEqual(back["process"], "500→1,000")
+        self.assertEqual(back["operator"], "店员小李")
+        self.assertIn("信息不符", back["content"])
+
+        self.assertFalse(items["game-pts-88"]["struck"])
+        void = items["game-void-88"]
+        self.assertEqual(void["amount"], "−200")
+        self.assertEqual(void["process"], "1,200→1,000")
+        self.assertEqual(void["operator"], "张老板")
+
     def test_do_sign_writes_point_log(self):
         wallet = SimpleNamespace(point_av=0, point_wg=0, point_mg=0, point_pd=0, sign_streak=0)
         sess = MagicMock()

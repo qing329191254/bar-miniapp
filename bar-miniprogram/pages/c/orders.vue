@@ -204,7 +204,7 @@ function reorder(order) {
           <text class="point-k">数量</text>
           <text
             class="point-v order-amt"
-            :class="{ plus: String(row.amount).startsWith('+'), minus: String(row.amount).startsWith('−') || String(row.amount).startsWith('-'), void: ['已作废', '已驳回', '已取消', '已关闭', '超时关闭', '已拒绝'].includes(row.status) }"
+            :class="{ plus: String(row.amount).startsWith('+'), minus: String(row.amount).startsWith('−') || String(row.amount).startsWith('-'), void: row.struck !== undefined ? row.struck : ['已作废', '已驳回', '已取消', '已关闭', '超时关闭', '已拒绝'].includes(row.status) }"
           >{{ row.amount || '—' }}</text>
         </view>
         <view class="point-row">

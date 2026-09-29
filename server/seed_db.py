@@ -129,6 +129,10 @@ def seed_all(reset: bool = False):
             for name, size in card_new_cols.items():
                 if name not in card_cols:
                     conn.execute(text(f"ALTER TABLE cards ADD COLUMN {name} VARCHAR({size}) NOT NULL DEFAULT ''"))
+    plog_cols = {c["name"] for c in insp.get_columns("point_logs")} if insp.has_table("point_logs") else set()
+    if plog_cols and "op" not in plog_cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE point_logs ADD COLUMN op VARCHAR(64) NOT NULL DEFAULT ''"))
     db = SessionLocal()
     try:
         if reset:

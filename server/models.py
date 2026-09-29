@@ -435,6 +435,7 @@ class PointLog(Base):
     before: Mapped[int] = mapped_column(Integer, default=0)
     after: Mapped[int] = mapped_column(Integer, default=0)
     at: Mapped[str] = mapped_column(String(16), default="")
+    op: Mapped[str] = mapped_column(String(64), default="")
 
 
 class GameRecord(Base):

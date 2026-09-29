@@ -85,7 +85,10 @@ def advance_settle_week_after_run(db: Session):
 
 def reset_weekly_rank_counters(db: Session) -> None:
     """Zero week shard/point counters after settlement so 本周榜 starts fresh."""
+    day = L.business_today().isoformat()
     for w in db.query(Wallet).all():
+        if int(w.shard_w or 0) > 0:
+            L.point_log(db, w.user_id, f"shardw-{day}", int(w.shard_w), 0, "系统")
         w.shard_w = 0
         w.point_wg = 0
 
