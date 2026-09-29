@@ -1,7 +1,9 @@
 <script setup>
 import { computed, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
-import { api, go, requireLogin } from "@/utils/api";
+import { api, go, isLoggedIn } from "@/utils/api";
+
+const guest = !isLoggedIn();
 
 const data = ref(null);
 
@@ -17,12 +19,13 @@ async function load() {
   data.value = await api("/points");
 }
 onShow(() => {
-  if (!requireLogin()) return;
+  if (guest) return;
   load();
 });
 </script>
 
 <template>
+  <guest-gate v-if="guest" text="登录后查看我的积分" />
   <view class="pbody" v-if="data">
     <view class="pt-card">
       <view class="tiny pt-label">可用积分</view>
@@ -31,7 +34,7 @@ onShow(() => {
         <text class="pill pt-pill-warn">余额为负 · 待抵扣 {{ fmt(data.point.pd || -av) }} 分，后续获得将优先冲抵</text>
       </view>
       <view v-if="data.point.fz > 0" class="row" style="margin-top:5px">
-        <text class="pill pt-pill-gold">冻结中 {{ fmt(data.point.fz) }} 分 · 提分单待店员确认</text>
+        <text class="pill pt-pill-gold">冻结中 {{ fmt(data.point.fz) }} 分 · 使用单待店员确认</text>
       </view>
       <view class="row pt-foot">
         <text class="pill pt-pill-warn">{{ clearLabel }}</text>
@@ -49,10 +52,10 @@ onShow(() => {
         <text class="mut">›</text>
       </view>
       <view class="li menu-li" style="border-bottom:none" @tap="go('/pages/c/withdraw')">
-        <view class="ph">提</view>
+        <view class="ph">店</view>
         <view class="gr">
-          <view style="font-weight:600">积分提取</view>
-          <view class="tiny">生成提分单，到吧台由店员确认后发放</view>
+          <view style="font-weight:600">积分到店使用</view>
+          <view class="tiny">生成使用单，到吧台由店员当面确认</view>
         </view>
         <text v-if="data.pending" class="pill pill-gold">待确认</text>
         <text v-else class="mut">›</text>
@@ -61,12 +64,12 @@ onShow(() => {
 
     <view v-if="data.point.wd > 0" class="card wd-total">
       <view class="between">
-        <text class="tiny">累计已提出</text>
+        <text class="tiny">累计到店使用</text>
         <text style="font-weight:600;color:#185FA5">{{ fmt(data.point.wd) }} 分</text>
       </view>
     </view>
 
-    <view class="note">兑换即时生效；提取需店员当面确认后才发放，确认前积分处于冻结状态，不可再用于兑换。</view>
+    <view class="note">兑换即时生效；到店使用需店员当面确认，确认前积分处于冻结状态，不可再用于兑换。积分仅限本店会员权益使用，不可兑换现金、不可转让。</view>
   </view>
 </template>
 

@@ -1,18 +1,22 @@
 <script setup>
 import { ref } from "vue";
 import { onLoad } from "@dcloudio/uni-app";
-import { api, savedUser } from "@/utils/api";
+import { api, isLoggedIn, savedUser } from "@/utils/api";
+
+const guest = !isLoggedIn();
 
 const data = ref(null);
 const me = savedUser();
 function fmt(n) { return Number(n || 0).toLocaleString("en-US"); }
 onLoad(async (options) => {
+  if (guest) return;
   const id = Number(options?.id || me?.teamId || 0);
   if (id) data.value = await api(`/teams/${id}`);
 });
 </script>
 
 <template>
+  <guest-gate v-if="guest" text="登录后查看战队详情" />
   <view v-if="data" class="team-page">
     <view class="team-hero">
       <view class="team-head"><view class="team-avatar">{{ data.team.name.slice(0, 1) }}</view><view><view class="team-name">{{ data.team.name }}</view><view class="team-meta">{{ data.members.length }} 名成员 · 本周战队榜第 {{ data.rank || "—" }} 名</view></view></view>

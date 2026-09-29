@@ -128,11 +128,11 @@ const displayRows = computed(() => {
     </view>
     <view class="rk-reward" v-if="kind === 'SHARD'">
       <view style="font-size:12.5px;color:#633806;font-weight:600">{{ dim === "WEEK" ? "本周奖励 · 每周一 12:00 自动发放" : "本月奖励 · 次月 1 日 12:00 自动发放" }}</view>
-      <view class="tiny gold" style="margin-top:3px;line-height:1.65">夺冠战队全员得战队宝箱卡 · 个人榜前三得钻石 / 黄金 / 白银宝箱卡</view>
+      <view class="tiny gold" style="margin-top:3px;line-height:1.65">第一名战队全员得战队奖励卡 · 个人榜前三名得店内奖励卡（碎片为荣誉值，不可兑换）</view>
     </view>
     <view class="rk-reward point-hint" v-else-if="kind === 'POINT'">
-      <view style="font-size:12.5px;color:#0C447C;font-weight:600">实时可用积分</view>
-      <view class="tiny" style="margin-top:3px;line-height:1.65;color:#185FA5">个人榜按当前库存排序；战队榜为成员库存之和（含对局、签到、店员调整等）</view>
+      <view style="font-size:12.5px;color:#0C447C;font-weight:600">会员积分排行</view>
+      <view class="tiny" style="margin-top:3px;line-height:1.65;color:#185FA5">按当前可用积分排序，战队榜为成员积分之和。积分仅限本店会员权益使用，不可兑换现金、不可转让。</view>
     </view>
     <view class="rk-box">
       <view v-if="!displayRows.length" class="empty">{{ emptyText }}</view>

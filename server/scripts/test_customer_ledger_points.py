@@ -75,7 +75,7 @@ class CustomerLedgerPointSourcesTests(unittest.TestCase):
         with patch.object(L, "setting", return_value={"signPoints": 100}):
             items = L._legacy_customer_ledger(sess, uid=9, kind="POINT", limit=80)
 
-        wdr = next(x for x in items if x["title"] == "积分提取")
+        wdr = next(x for x in items if x["title"] == "积分到店使用")
         self.assertEqual(wdr["operator"], "店员小李")
 
         titles = [x["title"] for x in items]

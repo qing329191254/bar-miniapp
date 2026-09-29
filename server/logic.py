@@ -523,9 +523,9 @@ def flow_recharge(sess: Session, r: Recharge, op=None, bal: tuple[int, int] | No
 def flow_withdraw(sess: Session, w: Withdrawal, op=None, bal: tuple[int, int] | None = None,
                   extra: str = "") -> None:
     st, tone = _WDR_STATUS.get(w.status, (w.status or "—", "grey"))
-    remark = w.reject_remark or (f"提分单 {w.no}" if w.no else "积分提取")
+    remark = w.reject_remark or (f"使用单 {w.no}" if w.no else "积分到店使用")
     fields = dict(
-        typ="withdraw", title="积分提取", amount=f"−{int(w.pts or 0):,}", delta=-int(w.pts or 0),
+        typ="withdraw", title="积分到店使用", amount=f"−{int(w.pts or 0):,}", delta=-int(w.pts or 0),
         status=st, tone=tone, content=" · ".join(p for p in (remark, extra) if p), struck=False,
     )
     if op is not None:
@@ -620,7 +620,7 @@ def _withdraw_created_day(w: Withdrawal) -> str:
     return ""
 
 
-_WDR_BACK_NOTE = {"REJECTED": "提分驳回", "CLOSED_TIMEOUT": "提分超时未确认", "CANCELLED": "提分已取消"}
+_WDR_BACK_NOTE = {"REJECTED": "使用单驳回", "CLOSED_TIMEOUT": "使用单超时未确认", "CANCELLED": "使用单已取消"}
 
 
 def restore_withdraw_frozen(sess: Session, w: Withdrawal, op="") -> None:
@@ -645,7 +645,7 @@ def restore_withdraw_frozen(sess: Session, w: Withdrawal, op="") -> None:
         sess, w.uid, "POINT", f"wdr-back-{w.id}", stamp=True,
         typ="withdraw_back", title="积分退回", amount=f"+{pts:,}", delta=pts,
         status="已退回", tone="green",
-        content=" · ".join(p for p in (_WDR_BACK_NOTE.get(w.status, "提分未完成"), w.no, w.reject_remark) if p),
+        content=" · ".join(p for p in (_WDR_BACK_NOTE.get(w.status, "使用单未完成"), w.no, w.reject_remark) if p),
         bal_before=before, bal_after=int(pt.point_av), op=_op_name(op),
     )
 
@@ -1320,11 +1320,11 @@ def create_withdraw(sess: Session, uid: int, pts: int) -> dict:
     if pts <= 0:
         err("请输入有效数量")
     if wlt.point_av < 0:
-        err("当前积分为负，暂不可提分")
+        err("当前积分为负，暂不可使用")
     if pts > wlt.point_av:
-        err("提分失败，可用积分不足")
+        err("可用积分不足")
     if sess.query(Withdrawal).filter_by(uid=uid, status="PENDING_CONFIRM").first():
-        err("你有一张待确认提分单")
+        err("你有一张待确认的到店使用单")
     since = now_ms() - 24 * 60 * MIN_MS
     toc = sess.query(Withdrawal).filter(
         Withdrawal.uid == uid,
@@ -1332,9 +1332,9 @@ def create_withdraw(sess: Session, uid: int, pts: int) -> dict:
         Withdrawal.expire_at >= since,
     ).count()
     if toc >= WDR_BAN:
-        err(f"近 24 小时内已有 {toc} 张提分单超时未确认，暂停提交")
+        err(f"近 24 小时内已有 {toc} 张使用单超时未确认，暂停提交")
     if not cache.lock_pending(sess, "withdraw", uid, 30 * 60):
-        err("你有一张待确认提分单")
+        err("你有一张待确认的到店使用单")
     av_before = int(wlt.point_av or 0)
     wlt.point_av -= pts
     wlt.point_fz += pts
@@ -1360,7 +1360,7 @@ def cancel_withdraw(sess: Session, uid: int) -> dict:
         .first()
     )
     if not w:
-        err("无待确认提分单")
+        err("无待确认的到店使用单")
     w.status = "CANCELLED"
     w.closed_at = f"{today_str()} {clock()}"
     w.pending_uid = None
@@ -4147,7 +4147,7 @@ def _legacy_customer_ledger(sess: Session, uid: int, kind: str = "all", limit: i
         for w in sess.query(Withdrawal).filter_by(uid=uid).order_by(Withdrawal.id.desc()).limit(cap(60)):
             st, tone = _WDR_STATUS.get(w.status, (w.status or "—", "grey"))
             when = w.grant_at or w.closed_at or w.at or w.created or ""
-            remark = w.reject_remark or (f"提分单 {w.no}" if w.no else "积分提取")
+            remark = w.reject_remark or (f"使用单 {w.no}" if w.no else "积分到店使用")
             if w.status == "GRANTED":
                 wdr_op = nick_of(w.grant_by)
             elif w.status == "REJECTED":
@@ -4160,7 +4160,7 @@ def _legacy_customer_ledger(sess: Session, uid: int, kind: str = "all", limit: i
                 wdr_op = "本人"
             wdr_item = _ledger_item(
                 key=f"wdr-{w.id}", kind="point", typ="withdraw",
-                title="积分提取", amount=f"−{int(w.pts or 0):,}",
+                title="积分到店使用", amount=f"−{int(w.pts or 0):,}",
                 status=st, tone=tone, meta="",
                 at=w.at or w.created or when, sort_id=w.id,
                 content=remark, process=balance(f"wdr-{w.id}"), operator=wdr_op,
@@ -4169,14 +4169,13 @@ def _legacy_customer_ledger(sess: Session, uid: int, kind: str = "all", limit: i
             back = plogs.get(f"wdr-back-{w.id}")
             if back:
                 wdr_item["struck"] = False
-                back_note = {"REJECTED": "提分驳回", "CLOSED_TIMEOUT": "提分超时未确认", "CANCELLED": "提分已取消"}
                 rows.append(_ledger_item(
                     key=f"wdr-back-{w.id}", kind="point", typ="withdraw_back",
                     title="积分退回", amount=f"+{int(w.pts or 0):,}",
                     status="已退回", tone="green", meta="",
                     at=back.at or w.closed_at or "", sort_id=w.id,
                     content=" · ".join(p for p in (
-                        back_note.get(w.status, "提分未完成"), w.no, w.reject_remark,
+                        _WDR_BACK_NOTE.get(w.status, "使用单未完成"), w.no, w.reject_remark,
                     ) if p),
                     process=balance(f"wdr-back-{w.id}"), operator=wdr_op,
                 ))

@@ -1,7 +1,9 @@
 <script setup>
 import { computed, ref, watch } from "vue";
 import { onShow } from "@dcloudio/uni-app";
-import { api, go, hideWxHomeButton, toastText } from "@/utils/api";
+import { api, go, hideWxHomeButton, isLoggedIn, toastText } from "@/utils/api";
+
+const guest = !isLoggedIn();
 
 const search = ref("");
 const rows = ref([]);
@@ -76,6 +78,7 @@ function fmt(n) {
 }
 
 onShow(() => {
+  if (guest) return;
   hideWxHomeButton();
   load(true);
 });
@@ -84,6 +87,7 @@ watch(search, () => {});
 </script>
 
 <template>
+  <guest-gate v-if="guest" text="该页面仅限门店员工登录后使用" />
   <view class="page">
     <view class="sticky">
       <view class="search-wrap">

@@ -1,7 +1,9 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { onBackPress } from "@dcloudio/uni-app";
-import { api, clearGameDraft, go, hideWxHomeButton, loadGameDraft, saveGameDraft, toastText } from "@/utils/api";
+import { api, clearGameDraft, go, hideWxHomeButton, isLoggedIn, loadGameDraft, saveGameDraft, toastText } from "@/utils/api";
+
+const guest = !isLoggedIn();
 
 const meta = ref({ projects: [], tables: [], busy: [], cardTpls: [] });
 const members = ref([]);
@@ -37,6 +39,7 @@ const wiz = reactive({
 });
 
 onMounted(async () => {
+  if (guest) return;
   hideWxHomeButton();
   meta.value = await api("/staff/projects");
   members.value = await api("/staff/members");
@@ -449,6 +452,7 @@ function hasDraft() {
 
 <template>
   <page-meta :page-style="`overflow:${dlgOpen ? 'hidden' : 'visible'}`" />
+  <guest-gate v-if="guest" text="该页面仅限门店员工登录后使用" />
   <app-toast />
   <view class="pbody">
     <!-- 开始 -->

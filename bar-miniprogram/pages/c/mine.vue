@@ -431,7 +431,7 @@ async function submitDeact() {
           {{ shop.tel ? "拨打电话" : "暂无联系电话" }}
         </button>
         <view class="note shop-tip">
-          资产、订单与卡券的问题请到吧台当面处理——积分提取、卡券核销与本金退还都需要当面核对，电话无法完成。
+          资产、订单与卡券的问题请到吧台当面处理——积分到店使用、卡券核销与本金退还都需要当面核对，电话无法完成。
         </view>
       </scroll-view>
     </view>

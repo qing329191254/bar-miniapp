@@ -1,7 +1,9 @@
 <script setup>
 import { computed, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
-import { api, go } from "@/utils/api";
+import { api, go, isLoggedIn } from "@/utils/api";
+
+const guest = !isLoggedIn();
 
 const GROUPS = [
   { cat: "GAME", title: "游戏卡" },
@@ -111,11 +113,14 @@ async function confirm() {
   }
 }
 
-onShow(load);
+onShow(() => {
+  if (!guest) load();
+});
 </script>
 
 <template>
   <page-meta :page-style="`overflow:${dlg ? 'hidden' : 'visible'}`" />
+  <guest-gate v-if="guest" text="登录后使用积分兑换" />
   <view class="pbody" v-if="data">
     <view v-if="notice" class="exchange-notice">{{ notice }}</view>
     <view v-for="g in visibleGroups" :key="g.cat">
@@ -136,7 +141,7 @@ onShow(load);
       </view>
     </view>
     <view v-if="!(data.tpls || []).length" class="card tiny" style="text-align:center;padding:24px">暂无可兑换卡券</view>
-    <view class="note">仅展示已开启「积分兑换」且积分价大于 0 的卡券。周榜宝箱一般由结算发放，不在此兑换。一次兑换多张时，积分需足够支付全部数量。</view>
+    <view class="note">仅展示已开启「积分兑换」且积分价大于 0 的卡券。周榜奖励卡由每周结算自动发放，不在此兑换。一次兑换多张时，积分需足够支付全部数量。</view>
     <view class="err" v-if="msg">{{ msg }}</view>
 
     <view v-if="dlg" class="mask" @tap="closeDlg">

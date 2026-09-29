@@ -1,7 +1,9 @@
 <script setup>
 import { computed, ref } from "vue";
 import { onReachBottom, onShow } from "@dcloudio/uni-app";
-import { api, toastText } from "@/utils/api";
+import { api, isLoggedIn, toastText } from "@/utils/api";
+
+const guest = !isLoggedIn();
 
 const data = ref(null);
 const loadingMore = ref(false);
@@ -39,10 +41,11 @@ const personalHint = computed(() => {
 
 const teamHint = computed(() => {
   const mine = teamRank.value.mine;
-  return mine ? `战队榜第 ${mine.rank} 名 · 夺冠可得战队宝箱卡` : "暂无战队";
+  return mine ? `战队榜第 ${mine.rank} 名 · 第一名可得战队奖励卡` : "暂无战队";
 });
 
 onShow(async () => {
+  if (guest) return;
   const [shards, personal, team] = await Promise.all([
     api("/shards"),
     api("/rank?kind=SHARD&dim=WEEK&subject=USER"),
@@ -73,6 +76,7 @@ onReachBottom(() => loadMore());
 </script>
 
 <template>
+  <guest-gate v-if="guest" text="登录后查看我的碎片" />
   <view class="shard-page" v-if="data">
     <view class="summary-card purple-card">
       <view class="summary-grid">
@@ -85,7 +89,7 @@ onReachBottom(() => loadMore());
           <view class="summary-value number-display">{{ fmt(data.shard.t) }}</view>
         </view>
       </view>
-      <view class="summary-tip">碎片不可直接兑换，用于周榜排名争夺宝箱卡</view>
+      <view class="summary-tip">碎片为荣誉值，不可兑换，仅用于周榜排名</view>
     </view>
 
     <view class="rank-card purple-card">

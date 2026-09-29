@@ -1,7 +1,9 @@
 <script setup>
 import { computed, reactive, ref } from "vue";
 import { onLoad, onShow } from "@dcloudio/uni-app";
-import { api, go, hideWxHomeButton, toastText } from "@/utils/api";
+import { api, go, hideWxHomeButton, isLoggedIn, toastText } from "@/utils/api";
+
+const guest = !isLoggedIn();
 
 const uid = ref(0);
 const detail = ref(null);
@@ -226,9 +228,11 @@ async function submitDlg() {
 }
 
 onLoad((q) => {
+  if (guest) return;
   uid.value = Number(q?.uid || 0);
 });
 onShow(() => {
+  if (guest) return;
   hideWxHomeButton();
   load();
 });
@@ -236,6 +240,7 @@ onShow(() => {
 
 <template>
   <page-meta :page-style="`overflow:${dlgOpen ? 'hidden' : 'visible'}`" />
+  <guest-gate v-if="guest" text="该页面仅限门店员工登录后使用" />
   <view class="pbody">
     <view v-if="!loading && !member" class="empty">会员不存在或已失效</view>
     <template v-else-if="member">

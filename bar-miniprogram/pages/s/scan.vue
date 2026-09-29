@@ -1,7 +1,9 @@
 <script setup>
 import { computed, ref } from "vue";
 import { onBackPress, onLoad } from "@dcloudio/uni-app";
-import { api, toastText } from "@/utils/api";
+import { api, isLoggedIn, toastText } from "@/utils/api";
+
+const guest = !isLoggedIn();
 
 const step = ref("scan");
 const code = ref("");
@@ -40,6 +42,7 @@ const navRowStyle = computed(() => ({
 }));
 
 onLoad(() => {
+  if (guest) return;
   initNav();
   setTimeout(scan, 350);
 });
@@ -123,6 +126,7 @@ function isTreasure(tpl) {
 </script>
 
 <template>
+  <guest-gate v-if="guest" text="该页面仅限门店员工登录后使用" />
   <view v-if="step === 'scan'" class="scan-page">
     <view class="scan-hd" :style="navStyle">
       <view class="scan-hd-row" :style="navRowStyle">

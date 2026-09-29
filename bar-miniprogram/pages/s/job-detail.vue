@@ -1,7 +1,9 @@
 <script setup>
 import { computed, ref, watch } from "vue";
 import { onLoad } from "@dcloudio/uni-app";
-import { api } from "@/utils/api";
+import { api, isLoggedIn } from "@/utils/api";
+
+const guest = !isLoggedIn();
 
 const KIND_TITLE = {
   accept: "接单明细",
@@ -118,6 +120,7 @@ const payByDay = computed(() => {
 });
 
 onLoad((opts) => {
+  if (guest) return;
   kind.value = opts?.kind || "accept";
   uni.setNavigationBarTitle({ title: KIND_TITLE[kind.value] || "作业明细" });
   load();
@@ -254,6 +257,7 @@ async function load() {
 </script>
 
 <template>
+  <guest-gate v-if="guest" text="该页面仅限门店员工登录后使用" />
   <app-toast />
   <view class="pbody" v-if="stat">
     <view class="card flt-card">

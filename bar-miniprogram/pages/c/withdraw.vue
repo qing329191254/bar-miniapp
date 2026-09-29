@@ -1,11 +1,13 @@
 <script setup>
 import { computed, onUnmounted, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
-import { api, savedUser } from "@/utils/api";
+import { api, isLoggedIn, savedUser } from "@/utils/api";
+
+const guest = !isLoggedIn();
 
 const WDST = {
   PENDING_CONFIRM: ["待确认", "gold"],
-  GRANTED: ["已发放", "green"],
+  GRANTED: ["已完成", "green"],
   REJECTED: ["已驳回", "red"],
   CANCELLED: ["已取消", "grey"],
   CLOSED_TIMEOUT: ["超时关闭", "red"],
@@ -42,7 +44,9 @@ function stLabel(s) {
 async function load() {
   data.value = await api("/points");
 }
-onShow(load);
+onShow(() => {
+  if (!guest) load();
+});
 
 function setAmt(v) {
   pts.value = String(v);
@@ -62,7 +66,7 @@ function openConfirm() {
     return;
   }
   if (v > av.value) {
-    msg.value = "提分失败，可用积分不足";
+    msg.value = "可用积分不足";
     return;
   }
   showConfirm.value = true;
@@ -104,7 +108,7 @@ async function cancel() {
     await api("/withdrawals/cancel", { method: "POST" });
     showCancelConfirm.value = false;
     await load();
-    showNotice("提分单已取消，积分已退回");
+    showNotice("使用单已取消，积分已退回");
   } catch (e) {
     msg.value = e.message;
   } finally {
@@ -117,6 +121,7 @@ onUnmounted(() => clearTimeout(noticeTimer));
 
 <template>
   <page-meta :page-style="`overflow:${showConfirm || showCancelConfirm ? 'hidden' : 'visible'}`" />
+  <guest-gate v-if="guest" text="登录后使用积分" />
   <view class="pbody" v-if="data">
     <template v-if="pw">
       <view class="card pend">
@@ -125,9 +130,9 @@ onUnmounted(() => clearTimeout(noticeTimer));
           <text class="tiny">{{ data.remain ? "剩 " + data.remain + " 自动关闭" : "可随时取消" }}</text>
         </view>
         <view class="pend-center">
-          <view class="tiny gold-t">提取积分</view>
+          <view class="tiny gold-t">使用积分</view>
           <view class="pend-num">{{ fmt(pw.pts) }}</view>
-          <view class="tiny" style="color:#e24b4a;margin-top:2px">该额度已从可用积分冻结，确认后正式发放</view>
+          <view class="tiny" style="color:#e24b4a;margin-top:2px">该额度已从可用积分冻结，店员确认后完成使用</view>
         </view>
         <view class="pend-box">
           <view class="between row-line">
@@ -157,7 +162,7 @@ onUnmounted(() => clearTimeout(noticeTimer));
         <view class="tiny guide-t">
           1. 向店员报单号后四位 <text style="font-weight:600">{{ pw.no.slice(-4) }}</text>
           <br />2. 店员在待办中核对数量
-          <br />3. <text style="font-weight:600">店员确认后当面发放，冻结额度结清</text>
+          <br />3. <text style="font-weight:600">店员确认后当面核销，冻结额度结清</text>
           <br />4. 若店员驳回，冻结积分原额退回可用
           <br />5. <text style="font-weight:600">超过 30 分钟未确认自动关闭</text>，冻结积分全额退回可用，不会没收
         </view>
@@ -170,17 +175,17 @@ onUnmounted(() => clearTimeout(noticeTimer));
 
     <template v-else>
       <view class="pt-card">
-        <view class="tiny pt-label">可提取积分</view>
+        <view class="tiny pt-label">可用积分</view>
         <view class="pt-num number-display" :class="{ neg: negative }">{{ negative ? "−" + fmt(-av) : fmt(av) }}</view>
         <view v-if="data.point.fz > 0" class="tiny" style="color:#ffe9b8;margin-top:4px">
           另有 {{ fmt(data.point.fz) }} 分冻结中
         </view>
       </view>
 
-      <view class="st">提取数量</view>
+      <view class="st">使用数量</view>
       <view class="card">
         <view class="inp-box">
-          <view class="tiny">提取数量</view>
+          <view class="tiny">使用数量</view>
           <view class="row" style="margin-top:3px">
             <input class="inp" type="number" v-model="pts" placeholder="0" />
             <text class="mut">分</text>
@@ -192,13 +197,13 @@ onUnmounted(() => clearTimeout(noticeTimer));
           <button class="btn ghost q" @tap="setAmt(10000)">{{ fmt(10000) }}</button>
           <button class="btn ghost q" @tap="setAmt(Math.max(0, av))">全部</button>
         </view>
-        <button class="btn block gold" :disabled="negative || av <= 0" @tap="openConfirm">生成提分单</button>
-        <view v-if="negative" class="tiny err-t">当前积分为负（待抵扣 {{ fmt(data.point.pd || -av) }} 分），暂不可提分</view>
-        <view v-else-if="av <= 0" class="tiny err-t">可用积分为 0，暂不可提分</view>
+        <button class="btn block gold" :disabled="negative || av <= 0" @tap="openConfirm">生成到店使用单</button>
+        <view v-if="negative" class="tiny err-t">当前积分为负（待抵扣 {{ fmt(data.point.pd || -av) }} 分），暂不可使用</view>
+        <view v-else-if="av <= 0" class="tiny err-t">可用积分为 0，暂不可使用</view>
       </view>
 
       <view v-if="history.length">
-        <view class="st">近期提分记录</view>
+        <view class="st">近期使用记录</view>
         <view class="card">
           <view class="li" v-for="w in history" :key="w.id">
             <view class="gr">
@@ -211,7 +216,7 @@ onUnmounted(() => clearTimeout(noticeTimer));
       </view>
 
       <view class="note">
-        提交即冻结：生成提分单时积分立即从可用扣除转入冻结，店员确认后正式发放。同时只能有 1 张待确认单。
+        提交即冻结：生成使用单时积分立即从可用扣除转入冻结，店员确认后完成使用。积分仅限本店会员权益使用，不可兑换现金、不可转让。同时只能有 1 张待确认单。
         <text style="font-weight:600">超过 30 分钟未确认自动关闭</text>；取消、驳回与超时关闭三种情形
         <text style="font-weight:600">一律把冻结积分全额退回可用，不会没收</text>。
       </view>
@@ -222,21 +227,21 @@ onUnmounted(() => clearTimeout(noticeTimer));
 
     <view v-if="showConfirm" class="confirm-mask" @tap="closeConfirm" @touchmove.stop.prevent></view>
     <view v-if="showConfirm" class="confirm-dialog" @touchmove.stop>
-      <view class="confirm-title">确认生成提分单</view>
+      <view class="confirm-title">确认生成到店使用单</view>
       <view class="confirm-copy">
-        将提取 <text class="confirm-pts">{{ fmt(withdrawPts) }}</text> 积分。<br />
-        提交后该额度立即冻结，需店员当面确认才发放。<br />
+        将使用 <text class="confirm-pts">{{ fmt(withdrawPts) }}</text> 积分。<br />
+        提交后该额度立即冻结，需店员当面确认。<br />
         可用积分 <text class="confirm-pts">{{ fmt(av) }}</text> → <text class="confirm-pts">{{ fmt(afterFreeze) }}</text>
       </view>
       <view class="confirm-actions">
         <button class="btn ghost confirm-btn" @tap="closeConfirm">取消</button>
-        <button class="btn confirm-btn" :disabled="creating" @tap="submit">{{ creating ? "生成中…" : "生成提分单" }}</button>
+        <button class="btn confirm-btn" :disabled="creating" @tap="submit">{{ creating ? "生成中…" : "生成使用单" }}</button>
       </view>
     </view>
 
     <view v-if="showCancelConfirm" class="confirm-mask" @tap="closeCancelConfirm" @touchmove.stop.prevent></view>
     <view v-if="showCancelConfirm" class="confirm-dialog" @touchmove.stop>
-      <view class="confirm-title">取消提分单</view>
+      <view class="confirm-title">取消使用单</view>
       <view class="confirm-copy">取消后 <text class="confirm-pts">{{ fmt(pw?.pts) }}</text> 分将原额度退回可用积分。</view>
       <view class="confirm-actions">
         <button class="btn ghost confirm-btn" @tap="closeCancelConfirm">取消</button>

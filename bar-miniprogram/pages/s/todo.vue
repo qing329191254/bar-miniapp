@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref } from "vue";
 import { onShow, onUnload } from "@dcloudio/uni-app";
-import { api, go, hideWxHomeButton, loadGameDraft, toastText } from "@/utils/api";
+import { api, go, hideWxHomeButton, isLoggedIn, loadGameDraft, toastText } from "@/utils/api";
 import { getStaffTodoListCache, setStaffTodoListCache } from "@/utils/staff-page-cache";
 import {
   reminderState,
@@ -9,6 +9,8 @@ import {
   unregisterTodoRefresh,
   syncReminderSummary,
 } from "@/utils/staff-reminder";
+
+const guest = !isLoggedIn();
 
 const data = ref(getStaffTodoListCache());
 const msg = ref("");
@@ -67,6 +69,7 @@ function scheduleReload() {
 }
 
 onShow(() => {
+  if (guest) return;
   hideWxHomeButton();
   if (data.value) applyTabFromCounts(data.value);
   load();
@@ -151,6 +154,7 @@ async function confirmReject() {
 
 <template>
   <page-meta :page-style="`overflow:${rejectOrder ? 'hidden' : 'visible'}`" />
+  <guest-gate v-if="guest" text="该页面仅限门店员工登录后使用" />
   <app-toast />
   <view class="pbody empty" v-if="!data && msg">
     <view class="reminder-link" :class="{ ok: reminderState.connected, warn: reminderState.fallback }">

@@ -1,14 +1,20 @@
 <script setup>
 import { computed, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
-import { api } from "@/utils/api";
+import { api, isLoggedIn } from "@/utils/api";
+
+const guest = !isLoggedIn();
 
 const data = ref({ list: [], total: 0, month: 0 });
 const records = computed(() => [...(data.value.list || [])].sort((a, b) => String(b.date).localeCompare(String(a.date))));
-onShow(async () => { data.value = await api("/champions"); });
+onShow(async () => {
+  if (guest) return;
+  data.value = await api("/champions");
+});
 </script>
 
 <template>
+  <guest-gate v-if="guest" text="登录后查看我的冠军记录" />
   <view class="champ-page">
     <view class="champ-summary">
       <view class="summary-cell"><text class="summary-num number-display">{{ data.total }}</text><text>累计夺冠</text></view>

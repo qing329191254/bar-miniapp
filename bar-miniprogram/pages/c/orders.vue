@@ -1,7 +1,9 @@
 <script setup>
 import { computed, ref } from "vue";
 import { onLoad, onReachBottom, onShow } from "@dcloudio/uni-app";
-import { api, go, saveCart, toastText } from "@/utils/api";
+import { api, go, isLoggedIn, saveCart, toastText } from "@/utils/api";
+
+const guest = !isLoggedIn();
 
 const TABS = [
   { key: "coin", label: "金币订单" },
@@ -115,8 +117,12 @@ async function loadMore() {
     loadingMore.value = false;
   }
 }
-onShow(() => load({ soft: true }));
-onReachBottom(() => loadMore());
+onShow(() => {
+  if (!guest) load({ soft: true });
+});
+onReachBottom(() => {
+  if (!guest) loadMore();
+});
 onLoad((options) => {
   if (TABS.some((item) => item.key === options?.tab)) tab.value = options.tab;
   if (options?.notice) showNotice(decodeURIComponent(options.notice));
@@ -173,6 +179,7 @@ function reorder(order) {
 
 <template>
   <page-meta :page-style="`overflow:${codeOrder || cancelOrder ? 'hidden' : 'visible'}`" />
+  <guest-gate v-if="guest" text="登录后查看我的订单与记录" />
   <view class="pbody orders-page">
     <view v-if="notice" class="order-notice">{{ notice }}</view>
     <view class="order-tabs">
@@ -185,7 +192,7 @@ function reorder(order) {
       >{{ item.label }}</view>
     </view>
 
-    <view class="order-hint">{{ tab === 'point' ? '积分变更明细：备注、数量、时间、余额变化与操作员' : tab === 'coin' ? '金币变更明细：备注、数量、时间、余额变化与操作员' : tab === 'card' ? '卡券变更明细：新增、核销与作废，含卡券号与操作员' : '以下为资产变更明细，含下单、充值、提分、兑换、签到、对局与店员调整' }}</view>
+    <view class="order-hint">{{ tab === 'point' ? '积分变更明细：备注、数量、时间、余额变化与操作员' : tab === 'coin' ? '金币变更明细：备注、数量、时间、余额变化与操作员' : tab === 'card' ? '卡券变更明细：新增、核销与作废，含卡券号与操作员' : '以下为资产变更明细，含下单、充值、到店使用、兑换、签到、活动与店员调整' }}</view>
 
     <view v-if="loading && !items.length" class="empty">加载中…</view>
     <view v-else-if="msg && !items.length" class="card empty-box">

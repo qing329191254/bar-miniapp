@@ -1,9 +1,11 @@
 <script setup>
 import { computed, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
-import { api, clearSession, go, hideWxHomeButton, relaunch, setPortal } from "@/utils/api";
+import { api, clearSession, go, hideWxHomeButton, isLoggedIn, relaunch, setPortal } from "@/utils/api";
 import { getStaffMineCache, setStaffMineCache } from "@/utils/staff-page-cache";
 import { reminderState, saveReminderPrefs, stopStaffReminder, testStaffReminder } from "@/utils/staff-reminder";
+
+const guest = !isLoggedIn();
 
 const cache = getStaffMineCache();
 const me = ref(cache.me);
@@ -51,6 +53,7 @@ async function load() {
 }
 
 onShow(() => {
+  if (guest) return;
   hideWxHomeButton();
   load();
 });
@@ -73,6 +76,7 @@ function toggleReminder(item) {
 </script>
 
 <template>
+  <guest-gate v-if="guest" text="该页面仅限门店员工登录后使用" />
   <app-toast />
   <view class="pbody" v-if="me">
     <view class="staff-hd">

@@ -1,8 +1,10 @@
 <script setup>
 import { computed, nextTick, onUnmounted, ref, watch } from "vue";
 import { onLoad, onHide, onShow } from "@dcloudio/uni-app";
-import { api, toastText } from "@/utils/api";
+import { api, isLoggedIn, toastText } from "@/utils/api";
 import UQRCode from "@/utils/uqrcode-es.js";
+
+const guest = !isLoggedIn();
 
 const data = ref(null);
 const loading = ref(true);
@@ -154,6 +156,7 @@ function backToCards() {
 }
 
 onLoad((options) => {
+  if (guest) return;
   const code = options?.code;
   if (!code) {
     error.value = "核销码不存在";
@@ -179,6 +182,7 @@ onUnmounted(() => {
 </script>
 
 <template>
+  <guest-gate v-if="guest" text="登录后查看核销码" />
   <view class="verify-page">
     <app-toast />
     <view v-if="loading" class="tiny loading-text">正在加载核销码</view>

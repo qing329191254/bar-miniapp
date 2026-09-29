@@ -1,7 +1,9 @@
 <script setup>
 import { computed, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
-import { api, loadCart, requireLogin, saveCart, savedUser, toastText } from "@/utils/api";
+import { api, isLoggedIn, loadCart, saveCart, savedUser, toastText } from "@/utils/api";
+
+const guest = !isLoggedIn();
 
 const products = ref([]);
 const tables = ref([]);
@@ -16,7 +18,7 @@ const timeout = ref(30);
 const meUser = ref(savedUser() || {});
 
 onShow(async () => {
-  if (!requireLogin()) return;
+  if (guest) return;
   const r = await api("/products");
   products.value = r.products || [];
   tables.value = r.tables || [];
@@ -109,6 +111,7 @@ async function submit() {
 
 <template>
   <page-meta :page-style="`overflow:${showTable ? 'hidden' : 'visible'}`" />
+  <guest-gate v-if="guest" text="登录后提交订单" />
   <view class="pbody">
     <view class="card">
       <view class="h2">商品明细</view>

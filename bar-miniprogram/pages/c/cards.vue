@@ -1,7 +1,9 @@
 <script setup>
 import { computed, ref } from "vue";
 import { onShow } from "@dcloudio/uni-app";
-import { api, go, requireLogin } from "@/utils/api";
+import { api, go, isLoggedIn } from "@/utils/api";
+
+const guest = !isLoggedIn();
 
 const TABS = [
   { k: "GAME", n: "游戏卡", color: "#534AB7" },
@@ -17,7 +19,7 @@ const sel = ref([]);
 const msg = ref("");
 
 onShow(async () => {
-  if (!requireLogin()) return;
+  if (guest) return;
   list.value = await api("/cards");
 });
 
@@ -62,6 +64,7 @@ async function gen() {
 </script>
 
 <template>
+  <guest-gate v-if="guest" text="登录后查看我的卡包" />
   <view class="pack">
     <view class="tabs">
       <view

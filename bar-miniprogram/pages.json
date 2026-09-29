@@ -79,7 +79,7 @@
 		},
 		{
 			"path": "pages/c/withdraw",
-			"style": { "navigationBarTitleText": "积分提取" }
+			"style": { "navigationBarTitleText": "积分到店使用" }
 		},
 		{
 			"path": "pages/c/orders",

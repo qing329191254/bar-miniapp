@@ -1,7 +1,9 @@
 <script setup>
 import { computed, onUnmounted, ref } from "vue";
 import { onLoad, onShow } from "@dcloudio/uni-app";
-import { api, toastText } from "@/utils/api";
+import { api, isLoggedIn, toastText } from "@/utils/api";
+
+const guest = !isLoggedIn();
 
 const data = ref(null);
 const me = ref(null);
@@ -57,6 +59,7 @@ onLoad((options) => {
   createdNo.value = decodeURIComponent(options?.created || "");
 });
 onShow(() => {
+  if (guest) return;
   load();
   clearInterval(timer);
   let ticks = 0;
@@ -74,6 +77,7 @@ function viewMyCoins() {
 </script>
 
 <template>
+  <guest-gate v-if="guest" text="登录后查看充值单" />
   <view class="detail-page" v-if="order && paid">
     <view class="pay-success">
       <view class="success-ring">✓</view>
