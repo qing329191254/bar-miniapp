@@ -3767,7 +3767,7 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
         sid = int(staff_uid or 0)
         if sid not in nicks:
             usr = sess.get(User, sid) if sid else None
-            nicks[sid] = ((usr.nick if usr else "") or "已删除账号") if sid else ""
+            nicks[sid] = (usr.nick if usr else "") or ""
         return nicks[sid]
 
     if kind in ("ALL", "POINT"):
