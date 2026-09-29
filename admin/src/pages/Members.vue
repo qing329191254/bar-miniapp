@@ -65,14 +65,77 @@ function pointSub(p: { av?: number; fz?: number; wg?: number; mg?: number; pd?: 
 
 function cardStatusText(status: string) {
   if (status === "UNUSED") return "未使用";
+  if (status === "LOCKED") return "核销中";
   if (status === "USED") return "已核销";
   return "已失效";
 }
 
 function cardStatusClass(status: string) {
   if (status === "UNUSED") return "pill green";
+  if (status === "LOCKED") return "pill gold";
   if (status === "USED") return "pill blue";
   return "pill red";
+}
+
+type CardFilter = "UNUSED" | "LOCKED" | "USED" | "VOID" | "ALL";
+const CARD_FILTER_STATUS: Record<CardFilter, string[] | null> = {
+  UNUSED: ["UNUSED"],
+  LOCKED: ["LOCKED"],
+  USED: ["USED"],
+  VOID: ["VOID", "EXPIRED"],
+  ALL: null,
+};
+const cardFilter = ref<CardFilter>("UNUSED");
+const cardPage = ref(1);
+const cardPageSize = ref(10);
+const wdrPage = ref(1);
+const wdrPageSize = ref(10);
+const champPage = ref(1);
+const champPageSize = ref(5);
+
+const cardFilters = computed(() => {
+  const s = detail.value?.cardStats || {};
+  const all = (detail.value?.cards || []).length;
+  return ([
+    ["UNUSED", "未使用", s.unused || 0],
+    ["LOCKED", "核销中", s.locked || 0],
+    ["USED", "已核销", s.used || 0],
+    ["VOID", "已失效", s.void || 0],
+    ["ALL", "全部", all],
+  ] as [CardFilter, string, number][]).filter(([k, , n]) => k !== "LOCKED" || n > 0);
+});
+const filteredCards = computed(() => {
+  const want = CARD_FILTER_STATUS[cardFilter.value];
+  const list = detail.value?.cards || [];
+  return want ? list.filter((c: any) => want.includes(c.status)) : list;
+});
+
+function pageSlice<T>(list: T[], page: number, size: number): T[] {
+  return list.slice((page - 1) * size, page * size);
+}
+function clampPage(page: typeof cardPage, total: number, size: number) {
+  const max = Math.max(1, Math.ceil(total / size));
+  if (page.value > max) page.value = max;
+}
+
+const pagedCards = computed(() => pageSlice(filteredCards.value, cardPage.value, cardPageSize.value));
+const pagedWdrs = computed(() => pageSlice(detail.value?.withdrawals || [], wdrPage.value, wdrPageSize.value));
+const pagedChamps = computed(() => pageSlice(detail.value?.champs || [], champPage.value, champPageSize.value));
+
+function setCardFilter(f: CardFilter) {
+  cardFilter.value = f;
+  cardPage.value = 1;
+}
+
+watch([filteredCards, cardPageSize], () => clampPage(cardPage, filteredCards.value.length, cardPageSize.value));
+watch([() => detail.value?.withdrawals, wdrPageSize], () =>
+  clampPage(wdrPage, (detail.value?.withdrawals || []).length, wdrPageSize.value));
+watch([() => detail.value?.champs, champPageSize], () =>
+  clampPage(champPage, (detail.value?.champs || []).length, champPageSize.value));
+
+function cardDoneText(cd: any) {
+  if (!cd.doneAt || cd.status === "UNUSED") return "";
+  return [cd.doneAt, cd.doneOp].filter(Boolean).join(" · ");
 }
 
 function wdrOp(w: any) {
@@ -230,9 +293,7 @@ async function submitAdj() {
   }
 }
 
-const rejectRemarks = computed(() =>
-  (detail.value?.withdrawals || []).filter((w: any) => w.rejectRemark).slice(0, 3),
-);
+const rejectRemarks = computed(() => pagedWdrs.value.filter((w: any) => w.rejectRemark));
 
 onMounted(async () => {
   if (uid.value) await loadDetail();
@@ -240,6 +301,8 @@ onMounted(async () => {
 });
 
 watch(uid, async (id) => {
+  cardFilter.value = "UNUSED";
+  cardPage.value = wdrPage.value = champPage.value = 1;
   if (id) await loadDetail(id);
   else {
     detail.value = null;
@@ -299,7 +362,9 @@ watch(kw, () => {
           <div class="mtr">
             <div class="k">卡包</div>
             <div class="v">{{ detail.cardStats?.unused || 0 }} 张</div>
-            <div class="tiny">已用 {{ detail.cardStats?.used || 0 }} · 失效 {{ detail.cardStats?.void || 0 }}</div>
+            <div class="tiny">
+              <span v-if="detail.cardStats?.locked">核销中 {{ detail.cardStats.locked }} · </span>已用 {{ detail.cardStats?.used || 0 }} · 失效 {{ detail.cardStats?.void || 0 }}
+            </div>
           </div>
         </div>
       </div>
@@ -316,29 +381,55 @@ watch(kw, () => {
 
       <div class="card">
         <div class="st">个人冠军 <em>{{ detail.champTotal || 0 }} 次</em></div>
-        <div v-for="(ch, i) in detail.champs || []" :key="i" class="li">
+        <div v-for="(ch, i) in pagedChamps" :key="i" class="li">
           <div class="gr">
             <b>{{ ch.event }}</b>
             <span class="mut">{{ ch.date }} · 参赛 {{ ch.n }} 人 · 获奖时 {{ ch.teamName }}</span>
           </div>
         </div>
         <div v-if="!(detail.champs || []).length" class="tiny empty">暂无夺冠记录</div>
+        <AppPagination
+          v-model:page="champPage"
+          v-model:page-size="champPageSize"
+          :total="(detail.champs || []).length"
+          :sizes="[5, 10, 20]"
+        />
       </div>
 
       <div class="card table-card">
         <div class="st">卡包明细</div>
+        <div class="flt-chips card-flt">
+          <span
+            v-for="[k, label, n] in cardFilters"
+            :key="k"
+            class="chip"
+            :class="{ on: cardFilter === k }"
+            @click="setCardFilter(k)"
+          >{{ label }} {{ n }}</span>
+        </div>
         <table class="tb2 member-detail-table">
-          <thead><tr><th>卡券</th><th>来源</th><th>有效期</th><th>状态</th></tr></thead>
+          <thead><tr><th>卡券</th><th>来源</th><th>获得时间</th><th>有效期</th><th>状态</th></tr></thead>
           <tbody>
-            <tr v-for="cd in detail.cards || []" :key="cd.id">
-              <td><b>{{ cd.tplName }}</b></td>
+            <tr v-for="cd in pagedCards" :key="cd.id">
+              <td><b>{{ cd.tplName }}</b><div class="tiny mut">{{ cd.no }}</div></td>
               <td class="tiny">{{ cd.srcDesc }}</td>
+              <td class="tiny">{{ cd.at || "—" }}</td>
               <td class="tiny">{{ cd.expire || `${cd.daysLeft || 30} 天` }}</td>
-              <td><span :class="cardStatusClass(cd.status)">{{ cardStatusText(cd.status) }}</span></td>
+              <td>
+                <span :class="cardStatusClass(cd.status)">{{ cardStatusText(cd.status) }}</span>
+                <div v-if="cardDoneText(cd)" class="tiny mut">{{ cardDoneText(cd) }}</div>
+                <div v-if="cd.voidReason" class="tiny mut">{{ cd.voidReason }}</div>
+              </td>
             </tr>
-            <tr v-if="!(detail.cards || []).length"><td colspan="4" class="table-empty">暂无卡券</td></tr>
+            <tr v-if="!filteredCards.length"><td colspan="5" class="table-empty">暂无卡券</td></tr>
           </tbody>
         </table>
+        <AppPagination
+          v-model:page="cardPage"
+          v-model:page-size="cardPageSize"
+          :total="filteredCards.length"
+          :sizes="[10, 20, 50]"
+        />
       </div>
 
       <div class="card table-card">
@@ -349,7 +440,7 @@ watch(kw, () => {
         <table class="tb2 member-detail-table">
           <thead><tr><th>单号</th><th>数量</th><th>提交时间</th><th>操作人</th><th>状态</th></tr></thead>
           <tbody>
-            <tr v-for="w in detail.withdrawals || []" :key="w.id">
+            <tr v-for="w in pagedWdrs" :key="w.id">
               <td><b>{{ w.no }}</b></td>
               <td>{{ fmt(w.pts) }}</td>
               <td class="tiny">{{ w.created }}</td>
@@ -359,6 +450,12 @@ watch(kw, () => {
             <tr v-if="!(detail.withdrawals || []).length"><td colspan="5" class="table-empty">暂无提分记录</td></tr>
           </tbody>
         </table>
+        <AppPagination
+          v-model:page="wdrPage"
+          v-model:page-size="wdrPageSize"
+          :total="(detail.withdrawals || []).length"
+          :sizes="[10, 20, 50]"
+        />
         <div v-if="rejectRemarks.length" class="tiny reject-note">
           驳回原因：{{ rejectRemarks.map((w: any) => `${w.no} — ${w.rejectRemark}`).join("；") }}
         </div>
@@ -518,6 +615,8 @@ watch(kw, () => {
 .search { max-width: 260px; }
 .table-card { padding: 0; overflow: auto; }
 .table-card .st { padding: 14px 14px 0; }
+.flt-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.card-flt { padding: 10px 14px 4px; }
 .member-detail-table :is(th, td):last-child { text-align: center; }
 .click-row { cursor: pointer; }
 .gold { color: var(--gold); }

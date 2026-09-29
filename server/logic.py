@@ -3428,6 +3428,9 @@ def member_detail(sess: Session, uid: int) -> dict:
         row = card.to_dict()
         tpl_obj = tpl_map.get(card.tpl)
         row["tplName"] = tpl_obj.name if tpl_obj else "（卡券已删）"
+        row["at"] = card.at or ""
+        row["doneAt"] = card.done_at or ""
+        row["doneOp"] = card.done_op or ""
         cards.append(row)
     champs = [
         c.to_dict()
@@ -3448,20 +3451,21 @@ def member_detail(sess: Session, uid: int) -> dict:
         if row.get("rejectBy"):
             row["rejectOpName"] = staff_map.get(row["rejectBy"], "—")
     first_agree = sess.query(AgreeLog).filter(AgreeLog.uid == uid).order_by(AgreeLog.id).first()
-    registered = (first_agree.at or "")[:10] if first_agree and first_agree.at else "—"
+    registered = first_agree.at if first_agree and first_agree.at else "—"
     return {
         "member": member,
         "registered": registered,
         "teamChampions": team_champions,
-        "cards": cards[:8],
+        "cards": cards,
         "cardStats": {
             "unused": sum(1 for c in cards if c["status"] == "UNUSED"),
+            "locked": sum(1 for c in cards if c["status"] == "LOCKED"),
             "used": sum(1 for c in cards if c["status"] == "USED"),
             "void": sum(1 for c in cards if c["status"] in ("VOID", "EXPIRED")),
         },
-        "champs": champs[:5],
+        "champs": champs,
         "champTotal": champ_total,
-        "withdrawals": wdrs[:8],
+        "withdrawals": wdrs,
         "cardTpls": [t.to_dict() for t in sess.query(CardTpl).order_by(CardTpl.id).all()],
     }
 
