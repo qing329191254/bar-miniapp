@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import BigInteger, Boolean, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Double, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -26,7 +26,7 @@ class User(Base):
     agreed_version: Mapped[int] = mapped_column(Integer, default=0)
     pwd: Mapped[str] = mapped_column(String(128), default="")
     wx_openid: Mapped[str] = mapped_column(String(64), default="", index=True)
-    last_active_at: Mapped[float] = mapped_column(Float, default=0, index=True)
+    last_active_at: Mapped[float] = mapped_column(Double, default=0, index=True)
 
     wallet: Mapped["Wallet"] = relationship(back_populates="user", uselist=False, cascade="all, delete-orphan")
 
@@ -581,9 +581,9 @@ class SmsCode(Base):
     __tablename__ = "sms_codes"
     phone: Mapped[str] = mapped_column(String(16), primary_key=True)
     code: Mapped[str] = mapped_column(String(16), default="")
-    expire_at: Mapped[float] = mapped_column(Float, default=0)
+    expire_at: Mapped[float] = mapped_column(Double, default=0)
     tries: Mapped[int] = mapped_column(Integer, default=0)
-    sent_at: Mapped[float] = mapped_column(Float, default=0)
+    sent_at: Mapped[float] = mapped_column(Double, default=0)
     day: Mapped[str] = mapped_column(String(10), default="")
     day_count: Mapped[int] = mapped_column(Integer, default=0)
 
@@ -592,7 +592,7 @@ class AppLock(Base):
     """Cross-instance locks / idempotency keys with TTL."""
     __tablename__ = "app_locks"
     lock_key: Mapped[str] = mapped_column(String(128), primary_key=True)
-    expire_at: Mapped[float] = mapped_column(Float, default=0, index=True)
+    expire_at: Mapped[float] = mapped_column(Double, default=0, index=True)
 
 
 class StaffEvent(Base):
@@ -601,4 +601,4 @@ class StaffEvent(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     event: Mapped[str] = mapped_column(String(64), default="")
     item_id: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[float] = mapped_column(Float, default=0, index=True)
+    created_at: Mapped[float] = mapped_column(Double, default=0, index=True)

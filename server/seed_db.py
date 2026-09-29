@@ -137,6 +137,26 @@ def seed_all(reset: bool = False):
     if "flow_ready" not in wallet_cols:
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE wallets ADD COLUMN flow_ready BOOLEAN NOT NULL DEFAULT 0"))
+    if engine.dialect.name == "mysql":
+        # Epoch seconds need DOUBLE: MySQL FLOAT keeps ~6 significant digits.
+        epoch_cols = {
+            "users": ["last_active_at"],
+            "sms_codes": ["expire_at", "sent_at"],
+            "app_locks": ["expire_at"],
+            "staff_events": ["created_at"],
+        }
+        for table, names in epoch_cols.items():
+            if not insp.has_table(table):
+                continue
+            types = {c["name"]: str(c["type"]).upper() for c in insp.get_columns(table)}
+            stale = [n for n in names if types.get(n, "").startswith("FLOAT")]
+            if not stale:
+                continue
+            with engine.begin() as conn:
+                for name in stale:
+                    conn.execute(text(f"ALTER TABLE {table} MODIFY COLUMN {name} DOUBLE NOT NULL DEFAULT 0"))
+                if table == "sms_codes":
+                    conn.execute(text("UPDATE sms_codes SET code = '', expire_at = 0, sent_at = 0, tries = 0"))
     db = SessionLocal()
     try:
         if reset:
