@@ -197,8 +197,28 @@ class CustomerLedgerPointSourcesTests(unittest.TestCase):
         order.to_dict = lambda: {"id": 5, "status": "FINISHED"}
         recharge = SimpleNamespace(
             id=6, no="CZ1", uid=9, amount=100, bonus=20, status="PAID", at="2026-09-29 10:00",
-            created="", reject_remark=None, op_uid=7,
+            created="", reject_remark=None, op_uid=7, close_reason=None,
         )
+        rc_rejected = SimpleNamespace(
+            id=16, no="CZ2", uid=9, amount=50, bonus=0, status="CLOSED", at="2026-09-29 09:00",
+            created="", reject_remark="未收到款", op_uid=7, close_reason="STAFF_REJECT",
+        )
+        rc_timeout = SimpleNamespace(
+            id=17, no="CZ3", uid=9, amount=50, bonus=0, status="CLOSED", at="2026-09-29 08:00",
+            created="", reject_remark=None, op_uid=None, close_reason="TIMEOUT",
+        )
+        ord_cancel = SimpleNamespace(
+            id=15, no="DD2", uid=9, items=[{"name": "雪碧", "qty": 1}], pay_type="OFFLINE", status="CLOSED",
+            table_name="A1", total=10, at="2026-09-29 11:00", ago="", accepted_by=None, op_uid=None,
+            cancel_reason="USER_CANCEL", paid_principal=0, paid_bonus=0,
+        )
+        ord_cancel.to_dict = lambda: {"id": 15, "status": "CLOSED"}
+        ord_pending = SimpleNamespace(
+            id=14, no="DD3", uid=9, items=[{"name": "橙汁", "qty": 1}], pay_type="COIN", status="PENDING_ACCEPT",
+            table_name="A1", total=10, at="2026-09-29 11:30", ago="", accepted_by=None, op_uid=None,
+            cancel_reason=None, paid_principal=0, paid_bonus=0,
+        )
+        ord_pending.to_dict = lambda: {"id": 14, "status": "PENDING_ACCEPT"}
         boss_adj = SimpleNamespace(
             id=8, t="09-29 13:00", op="张老板", action="COIN_ADJUST",
             detail="调整 天才儿童 金币 +1000 · 余额 120→1120 · 原因：活动",
@@ -216,9 +236,9 @@ class CustomerLedgerPointSourcesTests(unittest.TestCase):
         def query_side(model):
             q = MagicMock()
             if model is L.Order:
-                q.filter_by.return_value.order_by.return_value.limit.return_value = [order]
+                q.filter_by.return_value.order_by.return_value.limit.return_value = [order, ord_cancel, ord_pending]
             elif model is L.Recharge:
-                q.filter_by.return_value.order_by.return_value.limit.return_value = [recharge]
+                q.filter_by.return_value.order_by.return_value.limit.return_value = [recharge, rc_rejected, rc_timeout]
             elif model is L.CoinAdjust:
                 q.filter_by.return_value.order_by.return_value.limit.return_value = []
             elif model is L.OpLog:
@@ -252,6 +272,19 @@ class CustomerLedgerPointSourcesTests(unittest.TestCase):
         self.assertEqual(a["process"], "120→1,120")
         self.assertEqual(a["content"], "活动")
         self.assertEqual(a["operator"], "张老板")
+
+        oc = items["ord-15"]
+        self.assertEqual(oc["operator"], "本人")
+        self.assertEqual(oc["process"], "余额未变动")
+        self.assertIn("顾客取消", oc["content"])
+        self.assertNotIn("USER_CANCEL", oc["content"])
+        op = items["ord-14"]
+        self.assertEqual(op["operator"], "本人")
+        self.assertEqual(op["process"], "余额未变动")
+        rr = items["rc-16"]
+        self.assertEqual(rr["operator"], "店员小李")
+        self.assertEqual(rr["process"], "余额未变动")
+        self.assertEqual(items["rc-17"]["operator"], "系统")
 
     def test_withdraw_back_and_game_void_rows(self):
         wdr = SimpleNamespace(

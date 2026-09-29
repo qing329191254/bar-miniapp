@@ -1255,6 +1255,7 @@ def reject_order(sess: Session, oid: int, reason: str, staff: dict) -> dict:
         c.coin_b += o.paid_bonus or 0
     o.status = "CANCELLED"
     o.cancel_reason = reason
+    o.op_uid = staff["id"]
     log(sess, "ORDER_REJECT", f"{o.no} · {reason}", o.uid, staff)
     return o.to_dict()
 
@@ -1363,6 +1364,7 @@ def reject_recharge(sess: Session, rid: int, reason: str, staff: dict) -> dict:
     r.status = "CLOSED"
     r.close_reason = "STAFF_REJECT"
     r.reject_remark = reason
+    r.op_uid = staff["id"]
     r.pending_uid = None
     try:
         cache.unlock_pending(sess, "recharge", r.uid)
@@ -3386,6 +3388,7 @@ _ORDER_STATUS = {
     "CLOSED": ("已关闭", "grey"),
     "REFUNDED": ("已退款", "red"),
 }
+_ORDER_CLOSE_REASON = {"TIMEOUT": "超时未付款，自动关闭", "USER_CANCEL": "顾客取消"}
 _CARD_STATUS = {
     "UNUSED": ("未使用", "blue"),
     "USED": ("已核销", "green"),
@@ -3790,7 +3793,7 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
             elif w.status == "CANCELLED":
                 wdr_op = "本人"
             else:
-                wdr_op = ""
+                wdr_op = "本人"
             wdr_item = _ledger_item(
                 key=f"wdr-{w.id}", kind="point", typ="withdraw",
                 title="积分提取", amount=f"−{int(w.pts or 0):,}",
@@ -3941,7 +3944,18 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
             is_coin = o.pay_type == "COIN"
             remark_bits = ["金币支付" if is_coin else "到吧台付款", o.table_name or "未指定桌台", o.no]
             if o.status in ("CANCELLED", "REFUNDED", "CLOSED") and o.cancel_reason:
-                remark_bits.append(o.cancel_reason)
+                remark_bits.append(_ORDER_CLOSE_REASON.get(o.cancel_reason, o.cancel_reason))
+            if o.cancel_reason == "TIMEOUT":
+                o_op = "系统"
+            elif o.cancel_reason == "USER_CANCEL":
+                o_op = "本人"
+            else:
+                o_op = nick_of(o.accepted_by or o.op_uid)
+                if not o_op and o.status in ("PENDING_ACCEPT", "PENDING_PAY"):
+                    o_op = "本人"
+            o_bal = coin_balance(f"ord-{o.id}")
+            if not o_bal and (not is_coin or not (o.paid_principal or o.paid_bonus)):
+                o_bal = "余额未变动"
             rows.append(_ledger_item(
                 key=f"ord-{o.id}", kind="coin", typ="order",
                 title=title,
@@ -3950,8 +3964,8 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
                 at=o.at or o.ago or "", sort_id=int(o.id),
                 order=o.to_dict(),
                 content=" · ".join(p for p in remark_bits if p),
-                process=coin_balance(f"ord-{o.id}"),
-                operator=nick_of(o.accepted_by or o.op_uid),
+                process=o_bal,
+                operator=o_op,
             ))
         for r in sess.query(Recharge).filter_by(uid=uid).order_by(Recharge.id.desc()).limit(60):
             st, tone = _RC_STATUS.get(r.status, (r.status or "—", "grey"))
@@ -3965,8 +3979,12 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
                 status=st, tone=tone, meta="",
                 at=r.at or r.created or "", sort_id=int(r.id),
                 content=" · ".join(p for p in remark_bits if p),
-                process=coin_balance(f"rc-{r.id}"),
-                operator=nick_of(r.op_uid),
+                process=coin_balance(f"rc-{r.id}") or ("" if r.status in ("PAID", "DONE") else "余额未变动"),
+                operator=(
+                    "系统" if r.close_reason == "TIMEOUT"
+                    else "本人" if r.close_reason == "USER_CANCEL" or r.status == "PENDING_PAY"
+                    else nick_of(r.op_uid)
+                ),
             ))
         for adj in (
             sess.query(CoinAdjust).filter_by(uid=uid).order_by(CoinAdjust.id.desc()).limit(40)
@@ -3982,7 +4000,7 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
                 status=st, tone=tone, meta="",
                 at=when, sort_id=adj.id,
                 content="；".join(p for p in (adj.reason, adj.audit_remark) if p) or "店员手动调整",
-                process=coin_balance(f"cadj-{adj.id}"),
+                process=coin_balance(f"cadj-{adj.id}") or ("" if adj.status == "APPROVED" else "余额未变动"),
                 operator=nick_of(adj.adjust_by),
             ))
         for log_row in (
