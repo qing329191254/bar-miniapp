@@ -2177,17 +2177,6 @@ def admin_refund_order(oid: int, body: ReasonIn, admin: dict = Depends(admin_use
         fail(e)
 
 
-@app.post("/api/admin/ops/purge-test-data")
-def admin_purge_test_data(body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
-    if admin.get("role") != "BOSS":
-        raise HTTPException(403, "仅老板可执行")
-    data = body.data or {}
-    try:
-        return L.purge_test_data_keep_bosses(db, admin, str(data.get("confirm") or ""), bool(data.get("dryRun")))
-    except ValueError as e:
-        fail(e)
-
-
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 
