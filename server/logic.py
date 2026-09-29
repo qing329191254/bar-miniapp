@@ -17,7 +17,7 @@ import cache
 from settings import demo_starter_enabled, in_cloud
 from models import (
     AgreeLog, AppLock, Card, CardTpl, Category, Champ, CoinAdjust, DailyBiz, Deactivation,
-    GameRecord, OpLog, Order, Product, Project, Recharge, Setting, SettleLog,
+    GameRecord, OpLog, Order, PointLog, Product, Project, Recharge, Setting, SettleLog,
     SignRecord, SignRule, SmsCode, StaffEvent, TableSeat, Team, Tier, User, VerifyCode,
     VerifyLog, Wallet, Withdrawal,
 )
@@ -342,6 +342,13 @@ def public_user(sess: Session, user: User | dict | None) -> dict | None:
             return None
     tm = team(sess, user.team_id)
     return user.to_public(user.wallet, tm.name if tm else None)
+
+
+def point_log(sess: Session, uid: int, ref: str, before: int, after: int) -> None:
+    sess.add(PointLog(
+        uid=int(uid), ref=ref, before=int(before or 0), after=int(after or 0),
+        at=business_now().strftime("%Y-%m-%d %H:%M"),
+    ))
 
 
 def log(sess: Session, action: str, detail: str, uid=None, op=None):
@@ -840,6 +847,7 @@ def do_sign(sess: Session, uid: int) -> dict:
     cfg = setting(sess, "config")
     sp = int(cfg.get("signPoints") or 0)
     w = wallet_of(sess, uid)
+    av_before = int(w.point_av or 0)
     w.point_av += sp
     w.point_wg += sp
     w.point_mg += sp
@@ -866,7 +874,11 @@ def do_sign(sess: Session, uid: int) -> dict:
             for _ in range(c["qty"]):
                 issue_card(sess, uid, tm, "SIGN_IN_REWARD", f"连续签到 {r.days} 天奖励", op="系统")
             names.append(f"{tm.name}×{c['qty']}")
-    sess.add(SignRecord(uid=uid, day=today, month=month, pts=sp, extra_pts=extra_pts))
+    sr = SignRecord(uid=uid, day=today, month=month, pts=sp, extra_pts=extra_pts)
+    sess.add(sr)
+    sess.flush()
+    if sp + extra_pts:
+        point_log(sess, uid, f"sign-{sr.id}", av_before, int(w.point_av or 0))
     return {"points": sp, "extraPts": extra_pts, "cards": names, "streak": w.sign_streak}
 
 
@@ -1057,6 +1069,7 @@ def create_withdraw(sess: Session, uid: int, pts: int) -> dict:
         err(f"近 24 小时内已有 {toc} 张提分单超时未确认，暂停提交")
     if not cache.lock_pending(sess, "withdraw", uid, 30 * 60):
         err("你有一张待确认提分单")
+    av_before = int(wlt.point_av or 0)
     wlt.point_av -= pts
     wlt.point_fz += pts
     wo = Withdrawal(
@@ -1068,6 +1081,7 @@ def create_withdraw(sess: Session, uid: int, pts: int) -> dict:
         pending_uid=uid,
     )
     sess.add(wo)
+    point_log(sess, uid, f"wdr-{wo.id}", av_before, int(wlt.point_av or 0))
     sess.flush()
     return wo.to_dict()
 
@@ -1124,11 +1138,14 @@ def do_exchange(sess: Session, uid: int, tid: int, qty: int) -> bool:
     stk = t.stock
     if stk >= 0 and stk < qty:
         err("兑换失败，库存不足")
+    av = int(w.point_av or 0)
     w.point_av -= t.cost * qty
     if stk >= 0:
         t.stock = stk - qty
     for _ in range(qty):
-        issue_card(sess, uid, t, "EXCHANGE", "积分兑换", op="本人")
+        card = issue_card(sess, uid, t, "EXCHANGE", "积分兑换", op="本人")
+        point_log(sess, uid, f"ex-{card.id}", av, av - int(t.cost or 0))
+        av -= int(t.cost or 0)
     return True
 
 
@@ -1523,6 +1540,7 @@ def submit_game(sess: Session, staff: dict, pid: int, table_id, players: list, w
     for row in prepared:
         wlt = wallet_of(sess, row["uid"])
         if row["pts"]:
+            point_log(sess, row["uid"], f"game-pts-{rec.id}", int(wlt.point_av or 0), int(wlt.point_av or 0) + row["pts"])
             wlt.point_av += row["pts"]
             wlt.point_wg += row["pts"]
             wlt.point_mg += row["pts"]
@@ -3633,6 +3651,15 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
     rows: list[dict] = []
 
     if kind in ("ALL", "POINT"):
+        plogs = {
+            str(x.ref): x
+            for x in sess.query(PointLog).filter(PointLog.uid == uid).order_by(PointLog.id.desc()).limit(500)
+        }
+
+        def balance(ref: str) -> str:
+            x = plogs.get(ref)
+            return f"{int(x.before):,}→{int(x.after):,}" if x else ""
+
         for w in sess.query(Withdrawal).filter_by(uid=uid).order_by(Withdrawal.id.desc()).limit(60):
             st, tone = _WDR_STATUS.get(w.status, (w.status or "—", "grey"))
             when = w.grant_at or w.closed_at or w.at or w.created or ""
@@ -3642,7 +3669,7 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
                 title="积分提取", amount=f"−{int(w.pts or 0):,}",
                 status=st, tone=tone, meta="",
                 at=when or w.created or "", sort_id=w.id,
-                content=remark, process="", operator="",
+                content=remark, process=balance(f"wdr-{w.id}"), operator="",
             ))
         for log_row in (
             sess.query(OpLog)
@@ -3668,7 +3695,7 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
                 status="兑换成功", tone="blue", meta="",
                 at=str(getattr(c, "at", "") or ""), sort_id=c.id,
                 content=f"兑换 {name}",
-                process="", operator=str(getattr(c, "op", "") or "") or "本人",
+                process=balance(f"ex-{c.id}"), operator=str(getattr(c, "op", "") or "") or "本人",
             ))
         # 签到积分（含连续签到额外积分）
         signed_dates = _signed_date_set(sess, uid)
@@ -3689,12 +3716,13 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
                 remark_bits.append(f"连续 {streak} 天")
             if extra:
                 remark_bits.append(f"含连续奖励 +{extra:,}")
+            sign_log = plogs.get(f"sign-{sr.id}")
             rows.append(_ledger_item(
                 key=f"sign-{sr.id}", kind="point", typ="sign",
                 title="签到积分", amount=f"+{total:,}",
                 status="已到账", tone="green", meta="",
-                at=when, sort_id=int(sr.id or 0),
-                content=" · ".join(remark_bits), process="", operator="系统",
+                at=(sign_log.at if sign_log and sign_log.at else when), sort_id=int(sr.id or 0),
+                content=" · ".join(remark_bits), process=balance(f"sign-{sr.id}"), operator="系统",
             ))
         # 对局录入积分
         game_hits = 0
@@ -3723,7 +3751,7 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
                 status="已作废" if voided else "已到账",
                 tone="red" if voided else "green", meta="",
                 at=g.time or "", sort_id=int(g.id),
-                content=remark, process="", operator=str(g.op or "").strip(),
+                content=remark, process=balance(f"game-pts-{g.id}"), operator=str(g.op or "").strip(),
             ))
 
     if kind in ("ALL", "COIN"):
@@ -4410,6 +4438,7 @@ _PURGE_FULL_CLEAR_MODELS = (
     DailyBiz,
     GameRecord,
     SignRecord,
+    PointLog,
     CoinAdjust,
     Deactivation,
     Withdrawal,

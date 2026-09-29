@@ -52,6 +52,11 @@ class CustomerLedgerPointSourcesTests(unittest.TestCase):
                 q.order_by.return_value.limit.return_value = [game]
             elif model is L.SignRule or name == "SignRule":
                 q.all.return_value = []
+            elif model is L.PointLog:
+                q.filter.return_value.order_by.return_value.limit.return_value = [
+                    SimpleNamespace(ref="sign-11", before=0, after=150, at="2026-09-28 09:15"),
+                    SimpleNamespace(ref="game-pts-77", before=150, after=450, at="2026-09-28 21:00"),
+                ]
             else:
                 q.filter_by.return_value.order_by.return_value.limit.return_value = []
                 q.filter.return_value.order_by.return_value.limit.return_value = []
@@ -73,10 +78,12 @@ class CustomerLedgerPointSourcesTests(unittest.TestCase):
         sign_row = next(x for x in items if x["title"] == "签到积分")
         self.assertEqual(sign_row["amount"], "+150")
         self.assertEqual(sign_row["operator"], "系统")
-        self.assertIn("content", sign_row)
+        self.assertEqual(sign_row["process"], "0→150")
+        self.assertEqual(sign_row["at"], "2026-09-28 09:15")
 
         game_row = next(x for x in items if x["title"] == "对局积分")
         self.assertEqual(game_row["amount"], "+300")
+        self.assertEqual(game_row["process"], "150→450")
         self.assertEqual(game_row["operator"], "店员小王")
         self.assertIn("德扑", game_row["content"])
 
@@ -159,6 +166,28 @@ class CustomerLedgerPointSourcesTests(unittest.TestCase):
         self.assertEqual(v["doneLabel"], "作废")
         self.assertEqual(v["doneAt"], "2026-09-29 15:00")
         self.assertEqual(v["operator"], "老板")
+
+    def test_do_sign_writes_point_log(self):
+        wallet = SimpleNamespace(point_av=0, point_wg=0, point_mg=0, point_pd=0, sign_streak=0)
+        sess = MagicMock()
+        sess.query.return_value.filter_by.return_value.first.return_value = None
+        sess.query.return_value.all.return_value = []
+        added = []
+        sess.add.side_effect = added.append
+
+        def flush():
+            for obj in added:
+                if isinstance(obj, L.SignRecord) and not obj.id:
+                    obj.id = 31
+
+        sess.flush.side_effect = flush
+        with patch.object(L, "setting", return_value={"signPoints": 1000}), \
+                patch.object(L, "wallet_of", return_value=wallet):
+            L.do_sign(sess, 9)
+
+        logs = [x for x in added if isinstance(x, L.PointLog)]
+        self.assertEqual(len(logs), 1)
+        self.assertEqual((logs[0].ref, logs[0].before, logs[0].after), ("sign-31", 0, 1000))
 
     def test_close_card_records_time_and_operator(self):
         c = SimpleNamespace(status="UNUSED", void_reason=None, done_at="", done_op="")

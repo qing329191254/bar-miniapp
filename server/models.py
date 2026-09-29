@@ -426,6 +426,17 @@ class SignRecord(Base):
     extra_pts: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class PointLog(Base):
+    """Available-points balance before/after each change; ref matches the customer ledger row id."""
+    __tablename__ = "point_logs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    uid: Mapped[int] = mapped_column(Integer, index=True)
+    ref: Mapped[str] = mapped_column(String(48), index=True)
+    before: Mapped[int] = mapped_column(Integer, default=0)
+    after: Mapped[int] = mapped_column(Integer, default=0)
+    at: Mapped[str] = mapped_column(String(16), default="")
+
+
 class GameRecord(Base):
     __tablename__ = "game_records"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
