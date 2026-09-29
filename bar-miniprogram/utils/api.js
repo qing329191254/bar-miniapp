@@ -156,27 +156,10 @@ export function resolveHomeUrl({ forceChoose = false } = {}) {
   return "/pages/c/home";
 }
 
-let loginPromptOpen = false;
-/**
- * Returns true when already logged in. Otherwise asks first and only opens the
- * login page if the user confirms (WeChat review: login must be user-initiated).
- */
-export function requireLogin(content = "该功能需要登录会员后使用，是否现在登录？") {
+/** Navigate to login if needed. Returns true when already logged in. */
+export function requireLogin() {
   if (token() && savedUser()?.role) return true;
-  if (loginPromptOpen) return false;
-  loginPromptOpen = true;
-  uni.showModal({
-    title: "登录提示",
-    content,
-    confirmText: "去登录",
-    cancelText: "再逛逛",
-    success: (r) => {
-      if (r.confirm) go("/pages/login/login");
-    },
-    complete: () => {
-      loginPromptOpen = false;
-    },
-  });
+  go("/pages/login/login");
   return false;
 }
 

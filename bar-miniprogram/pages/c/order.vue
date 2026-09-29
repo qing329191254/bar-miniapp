@@ -104,7 +104,7 @@ function addSpec() {
 }
 function checkout() {
   if (total.value <= 0) return;
-  if (!requireLogin("下单需要登录会员后使用，已选商品会保留，是否现在登录？")) return;
+  if (!requireLogin()) return;
   persist();
   go("/pages/c/checkout");
 }

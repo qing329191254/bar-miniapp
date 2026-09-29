@@ -222,7 +222,7 @@ function closeSignSheet() {
 
 async function doSign() {
   if (signedToday.value || signing.value) return;
-  if (!requireLogin("签到需要登录会员后使用，是否现在登录？")) return;
+  if (!requireLogin()) return;
   signing.value = true;
   msg.value = "";
   try {

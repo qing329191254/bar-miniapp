@@ -40,7 +40,7 @@ function pick(id) {
 }
 
 function openTierDialog() {
-  if (!requireLogin("充值需要登录会员后使用，是否现在登录？")) return;
+  if (!requireLogin()) return;
   if (pending.value) {
     goRechargeDetail();
     return;
@@ -80,7 +80,7 @@ async function create() {
 <template>
   <page-meta :page-style="`overflow:${showTierDialog ? 'hidden' : 'visible'}`" />
   <view class="rc-page" v-if="data">
-    <view v-if="!loggedIn" class="card coin-card" @tap="requireLogin('登录后可查看金币余额并生成充值单，是否现在登录？')">
+    <view v-if="!loggedIn" class="card coin-card" @tap="requireLogin()">
       <view class="tiny gold-t">当前金币</view>
       <view class="guest-t">登录后查看金币余额</view>
     </view>
