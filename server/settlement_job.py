@@ -148,11 +148,10 @@ def pending_auto_month(now: datetime | None = None) -> dict | None:
 
 
 def settlement_plan(db: Session) -> list[dict]:
-    cfg = L.setting(db, "cfg") or {}
+    cfg = L.normalize_settlement_cfg_refs(db, L.setting(db, "cfg") or {})
     dim = "MONTH" if cfg.get("rankDim") == "MONTH" else "WEEK"
     rank_range = max(1, int(cfg.get("rankRange") or 3))
     prize_map = cfg.get("prizeMap") or {}
-    templates = {x.sub: x for x in db.query(CardTpl).filter(CardTpl.cat == "OTHER").all() if x.sub}
     rows: list[dict] = []
     seen: set[int] = set()
 
@@ -161,7 +160,7 @@ def settlement_plan(db: Session) -> list[dict]:
         if teams:
             winner = teams[0]
             team = db.get(Team, int(winner["team"]["id"]))
-            tm = templates.get(str(cfg.get("teamCard") or ""))
+            tm = L.resolve_reward_card_tpl(db, cfg.get("teamCard"))
             if team and tm:
                 members = db.query(User).filter(User.role == "CUSTOMER", User.status == "ACTIVE", User.team_id == team.id).all()
                 for user in members:
@@ -169,8 +168,8 @@ def settlement_plan(db: Session) -> list[dict]:
                     allowed = not cfg.get("reqShard") or shard > 0
                     rows.append({
                         "uid": user.id, "target": team.name, "nick": user.nick, "type": "TEAM_CHAMPION",
-                        "sub": tm.sub, "desc": tm.name, "sh": shard, "eligible": allowed,
-                        "reason": "" if allowed else "本周期无碎片",
+                        "tplId": tm.id, "sub": L.reward_tpl_ref(tm), "desc": tm.name, "sh": shard,
+                        "eligible": allowed, "reason": "" if allowed else "本周期无碎片",
                     })
                     if allowed:
                         seen.add(user.id)
@@ -181,13 +180,13 @@ def settlement_plan(db: Session) -> list[dict]:
             continue
         user_data = ranked.get("user") or {}
         uid = int(user_data.get("id") or 0)
-        tm = templates.get(str(prize_map.get(str(rank)) or ""))
+        tm = L.resolve_reward_card_tpl(db, prize_map.get(str(rank)))
         if not uid or not tm:
             continue
         allowed = bool(cfg.get("stack", True)) or uid not in seen
         rows.append({
             "uid": uid, "target": "个人榜", "nick": user_data.get("nick") or "",
-            "type": f"PERSONAL_RANK{rank}", "sub": tm.sub, "desc": tm.name,
+            "type": f"PERSONAL_RANK{rank}", "tplId": tm.id, "sub": L.reward_tpl_ref(tm), "desc": tm.name,
             "sh": int(ranked.get("v") or 0), "rank": rank, "eligible": allowed,
             "reason": "" if allowed else "规则不允许叠加",
         })
@@ -244,7 +243,7 @@ def run_settlement(db: Session, week: str | None = None, admin: dict | None = No
         status = "SKIPPED"
         desc = item["reason"] or item["desc"]
         if item["eligible"]:
-            tm = db.query(CardTpl).filter(CardTpl.sub == item["sub"]).first()
+            tm = db.get(CardTpl, int(item["tplId"])) if item.get("tplId") else L.resolve_reward_card_tpl(db, item.get("sub"))
             if tm:
                 card = L.issue_card(db, item["uid"], tm, "SETTLE_REWARD", f"{week} · {item['target']}")
                 card_id, status, desc = card.id, "GRANTED", tm.name

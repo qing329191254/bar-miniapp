@@ -886,6 +886,43 @@ def issue_card(sess: Session, uid: int, tm: CardTpl, src: str, src_desc: str) ->
     return card
 
 
+def resolve_reward_card_tpl(sess: Session, ref) -> CardTpl | None:
+    """Resolve settlement reward ref: prefer card template id, fall back to legacy sub code."""
+    if ref is None:
+        return None
+    raw = str(ref).strip()
+    if not raw:
+        return None
+    if raw.isdigit():
+        return sess.get(CardTpl, int(raw))
+    # Legacy prizeMap/teamCard stored TREASURE_* (or TPL_<id>) codes.
+    if raw.startswith("TPL_") and raw[4:].isdigit():
+        return sess.get(CardTpl, int(raw[4:]))
+    return sess.query(CardTpl).filter(CardTpl.sub == raw).first()
+
+
+def reward_tpl_ref(tm: CardTpl) -> str:
+    """Stable cfg / SettleLog key for a reward template (always template id)."""
+    return str(int(tm.id))
+
+
+def normalize_settlement_cfg_refs(sess: Session, cfg: dict) -> dict:
+    """Rewrite prizeMap/teamCard to live cardTpl ids; drop refs to deleted templates."""
+    out = dict(cfg or {})
+    prize_in = out.get("prizeMap") or {}
+    prize_out: dict[str, str] = {}
+    for k, v in prize_in.items():
+        if not str(k).isdigit():
+            continue
+        tm = resolve_reward_card_tpl(sess, v)
+        if tm:
+            prize_out[str(k)] = reward_tpl_ref(tm)
+    out["prizeMap"] = prize_out
+    team_tm = resolve_reward_card_tpl(sess, out.get("teamCard"))
+    out["teamCard"] = reward_tpl_ref(team_tm) if team_tm else ""
+    return out
+
+
 def create_order(sess: Session, uid: int, items: list, pay_type: str, table_id, remark: str) -> dict:
     user = u(sess, uid)
     # Staff/manager/boss share one account: member portal can place orders for themselves.

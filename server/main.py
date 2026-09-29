@@ -1506,15 +1506,15 @@ def settlement_force(body: PatchIn, admin: dict = Depends(admin_user), db: Sessi
     blocked = db.query(SettleLog).filter(SettleLog.week == week, SettleLog.status == "BLOCKED").order_by(SettleLog.id).all()
     if not blocked:
         raise HTTPException(400, "本周期没有待处理的被拦截奖励")
-    templates = {x.sub: x for x in db.query(CardTpl).filter(CardTpl.cat == "OTHER").all() if x.sub}
     granted = 0
     for row in blocked:
-        tm = templates.get(row.sub)
+        tm = L.resolve_reward_card_tpl(db, row.sub)
         user = db.get(User, row.uid) if row.uid else None
         if not tm or not user or user.role != "CUSTOMER" or user.status != "ACTIVE":
             continue
         card = L.issue_card(db, user.id, tm, "SETTLE_REWARD", f"{week} · 强制发放：{reason}")
         row.card_id, row.status, row.force_reason = card.id, "GRANTED", reason[:128]
+        row.sub = L.reward_tpl_ref(tm)
         granted += 1
     L.log(db, "SETTLE_FORCE", f"{week} · 强制发放 {granted} 张 · 原因：{reason}", None, admin)
     return {"ok": True, "message": f"已强制发放 {granted} 张奖励卡券"}
@@ -1534,11 +1534,11 @@ def settlement_manual(body: PatchIn, admin: dict = Depends(admin_user), db: Sess
     tm = db.get(CardTpl, tpl_id)
     if not user or user.role != "CUSTOMER" or user.status != "ACTIVE":
         raise HTTPException(400, "会员不存在或状态不可用")
-    if not tm or tm.cat != "OTHER":
+    if not tm:
         raise HTTPException(400, "补发奖励不可用")
     week = SJ.settlement_week(db)
     card = L.issue_card(db, uid, tm, "SETTLE_MANUAL", f"{week} · 手动补发：{reason}")
-    row = SettleLog(id=L.next_seq(db, "settle"), uid=uid, week=week, type="MANUAL", sub=tm.sub or "",
+    row = SettleLog(id=L.next_seq(db, "settle"), uid=uid, week=week, type="MANUAL", sub=L.reward_tpl_ref(tm),
                     target="手动补发", nick=user.nick, sh=L.shard_of(db, uid)["w"], status="GRANTED",
                     card_id=card.id, desc=f"{tm.name} · {reason}")
     db.add(row)
@@ -1584,7 +1584,10 @@ def revoke_settlement(sid: int, body: PatchIn, admin: dict = Depends(admin_user)
 
 @app.get("/api/admin/settlement-config")
 def settlement_config(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
-    return {"cfg": L.setting(db, "cfg") or {}, "templates": [x.to_dict() for x in db.query(CardTpl).filter(CardTpl.cat == "OTHER").all()]}
+    # All live card templates — reward picks must stay in sync with 卡券配置.
+    templates = [x.to_dict() for x in db.query(CardTpl).order_by(CardTpl.id).all()]
+    cfg = L.normalize_settlement_cfg_refs(db, L.setting(db, "cfg") or {})
+    return {"cfg": cfg, "templates": templates}
 
 
 @app.put("/api/admin/settlement-config")
@@ -1595,9 +1598,26 @@ def save_settlement_config(body: PatchIn, admin: dict = Depends(admin_user), db:
     cfg = dict(L.setting(db, "cfg") or {})
     cfg["rankDim"] = "MONTH" if data.get("rankDim") == "MONTH" else "WEEK"
     cfg["rankRange"] = max(1, min(20, int(data.get("rankRange") or 3)))
-    cfg["prizeMap"] = {str(k): str(v) for k, v in (data.get("prizeMap") or {}).items() if str(k).isdigit()}
+    prize_raw = {str(k): str(v) for k, v in (data.get("prizeMap") or {}).items() if str(k).isdigit()}
+    team_raw = str(data.get("teamCard") or "")
+    # Validate every selected reward against live 卡券配置 (id or legacy sub).
+    prize_map: dict[str, str] = {}
+    for k, v in prize_raw.items():
+        if not v:
+            continue
+        tm = L.resolve_reward_card_tpl(db, v)
+        if not tm:
+            raise HTTPException(400, f"第 {k} 名奖励卡型不存在或已删除，请重新选择")
+        prize_map[k] = L.reward_tpl_ref(tm)
+    team_card = ""
+    if data.get("teamReward") and team_raw:
+        team_tm = L.resolve_reward_card_tpl(db, team_raw)
+        if not team_tm:
+            raise HTTPException(400, "战队奖励卡型不存在或已删除，请重新选择")
+        team_card = L.reward_tpl_ref(team_tm)
+    cfg["prizeMap"] = prize_map
     cfg["teamReward"] = bool(data.get("teamReward"))
-    cfg["teamCard"] = str(data.get("teamCard") or "")
+    cfg["teamCard"] = team_card
     cfg["stack"] = bool(data.get("stack"))
     cfg["reqShard"] = bool(data.get("reqShard"))
     cfg["settleCap"] = max(1, min(999, int(data.get("settleCap") or 20)))
