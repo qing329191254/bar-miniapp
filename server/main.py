@@ -1575,8 +1575,7 @@ def revoke_settlement(sid: int, body: PatchIn, admin: dict = Depends(admin_user)
     if row.card_id:
         card = db.get(Card, row.card_id)
         if card and card.status == "UNUSED":
-            card.status = "VOID"
-            card.void_reason = f"结算奖励撤销：{reason}"[:64]
+            L.close_card(card, "VOID", admin, f"结算奖励撤销：{reason}")
     row.status = "REVOKED"
     L.log(db, "SETTLE_REVOKE", f"撤销 {row.week} · {row.nick} · {row.desc} · 原因：{reason}", None, admin)
     return _settle_dict(row)

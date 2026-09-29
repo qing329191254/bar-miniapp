@@ -888,6 +888,16 @@ def issue_card(sess: Session, uid: int, tm: CardTpl, src: str, src_desc: str, op
     return card
 
 
+def close_card(card: Card, status: str, op, void_reason: str | None = None) -> None:
+    """Mark a card USED/VOID and record when and by whom (shown in 卡包订单)."""
+    card.status = status
+    if void_reason is not None:
+        card.void_reason = void_reason[:64]
+    card.done_at = business_now().strftime("%Y-%m-%d %H:%M")
+    nick = op.get("nick") if isinstance(op, dict) else op
+    card.done_op = str(nick or "")[:64]
+
+
 def resolve_reward_card_tpl(sess: Session, ref) -> CardTpl | None:
     """Resolve settlement reward ref: prefer card template id, fall back to legacy sub code."""
     if ref is None:
@@ -1263,8 +1273,7 @@ def refund_order(sess: Session, oid: int, reason: str, admin: dict) -> dict:
     voided = 0
     for card in sess.query(Card).filter_by(uid=o.uid, src="ORDER_COMBO", status="UNUSED"):
         if o.no in (card.src_desc or ""):
-            card.status = "VOID"
-            card.void_reason = f"订单退款 · {o.no}"
+            close_card(card, "VOID", admin, f"订单退款 · {o.no}")
             voided += 1
 
     o.status = "REFUNDED"
@@ -1399,7 +1408,7 @@ def verify_confirm(sess: Session, code: str, staff: dict) -> dict:
     for cid in vc.card_ids or []:
         c = sess.get(Card, cid)
         if c and c.status == "LOCKED":
-            c.status = "USED"
+            close_card(c, "USED", staff)
             tm = tpl(sess, c.tpl)
             sess.add(VerifyLog(
                 card_no=c.no, tpl_name=tm.name if tm else "卡券",
@@ -2133,8 +2142,7 @@ def void_game(sess: Session, gid: int, reason: str, void_cards: bool, admin: dic
             w.point_pd = 0 if w.point_av >= 0 else -w.point_av
             if w.point_av < 0 and void_cards:
                 for c in sess.query(Card).filter_by(uid=uid, status="UNUSED", src="EXCHANGE"):
-                    c.status = "VOID"
-                    c.void_reason = f"对局作废 · {reason}"
+                    close_card(c, "VOID", admin, f"对局作废 · {reason}")
         if sh > 0:
             w.shard_w = max(0, int(w.shard_w or 0) - sh)
             w.shard_t = max(0, int(w.shard_t or 0) - sh)
@@ -2143,8 +2151,7 @@ def void_game(sess: Session, gid: int, reason: str, void_cards: bool, admin: dic
             c = sess.get(Card, int(cid))
             if not c or c.uid != uid or c.src != "GAME_GIFT" or c.status != "UNUSED":
                 continue
-            c.status = "VOID"
-            c.void_reason = f"对局作废 · {reason}"
+            close_card(c, "VOID", admin, f"对局作废 · {reason}")
             gift_voided += 1
             tm = tpl(sess, c.tpl)
             if tm and tm.stock >= 0:
@@ -2362,8 +2369,7 @@ def exec_deactivation(sess: Session, did: int, action: str, reason: str, admin: 
         w.shard_w = 0
         w.shard_t = 0
         for card in sess.query(Card).filter_by(uid=d.uid, status="UNUSED"):
-            card.status = "VOID"
-            card.void_reason = "账号注销作废"
+            close_card(card, "VOID", admin, "账号注销作废")
             void_n += 1
         d.refund_ok = True
         d.refunded = refunded
@@ -3241,8 +3247,7 @@ def member_revoke_cards(sess: Session, uid: int, tpl_id: int, qty: int, reason: 
     if len(cards) < qty:
         raise ValueError(f"未使用「{tm.name}」仅剩 {len(cards)} 张，无法扣减 {qty} 张")
     for c in cards:
-        c.status = "VOID"
-        c.void_reason = f"手动扣减 · {reason or '快速调整'}"[:64]
+        close_card(c, "VOID", admin, f"手动扣减 · {reason or '快速调整'}")
         # Exchange stock was decremented on redeem; restore when unused exch cards are voided.
         if c.src == "EXCHANGE" and tm.stock is not None and int(tm.stock) >= 0:
             tm.stock = int(tm.stock or 0) + 1
@@ -3509,30 +3514,113 @@ _CARD_SRC_LABEL = {
     "GRANT": "店员发放",
     "MANUAL": "店员发放",
     "MANUAL_GRANT": "店员补发",
-    "ORDER_COMBO": "套餐赠送",
+    "ORDER_COMBO": "套餐自动发放",
 }
 
 
-def _card_issue_meta(sess: Session, c: Card, game_cache: dict[int, GameRecord | None]) -> tuple[str, str]:
-    """Return (issued_at, operator); older cards without stored values fall back to the source game."""
+def _card_form_and_remark(c: Card) -> tuple[str, str]:
+    """Split src_desc into (下发形式, 备注), e.g. '套餐自动发放 · DD…' → ('套餐自动发放', '订单 DD…')."""
+    desc = str(c.src_desc or "").strip()
+    form = _CARD_SRC_LABEL.get(c.src or "")
+    if not form:
+        head, _, tail = desc.partition(" · ")
+        return (head or "获得卡券"), tail.strip()
+    remark = desc
+    for prefix in (form, "套餐自动发放", "店员补发", "对局赠送"):
+        if remark == prefix:
+            remark = ""
+            break
+        if remark.startswith(prefix + " · "):
+            remark = remark[len(prefix) + 3:].strip()
+            break
+    if c.src == "MANUAL_GRANT" and re.fullmatch(r"\d{2}-\d{2}", remark):
+        remark = ""  # legacy desc only carried the grant date
+    if c.src == "ORDER_COMBO" and remark.startswith("DD"):
+        remark = f"订单 {remark}"
+    return form, remark
+
+
+class _CardLedgerCtx:
+    """Per-request lookups used to backfill times/operators for cards issued before they were stored."""
+
+    def __init__(self, sess: Session, uid: int):
+        self.sess = sess
+        self.uid = uid
+        self._games: dict[int, GameRecord | None] = {}
+        self._orders: dict[str, Order | None] = {}
+        self._verify: dict[str, VerifyLog] | None = None
+        self._grants: list[OpLog] | None = None
+        self._nicks: dict[int, str] = {}
+
+    def game(self, gid: int) -> GameRecord | None:
+        if gid not in self._games:
+            self._games[gid] = self.sess.get(GameRecord, gid)
+        return self._games[gid]
+
+    def order(self, no: str) -> Order | None:
+        if no not in self._orders:
+            self._orders[no] = self.sess.query(Order).filter(Order.no == no).first()
+        return self._orders[no]
+
+    def verify(self, card_no: str) -> VerifyLog | None:
+        if self._verify is None:
+            self._verify = {
+                str(v.card_no): v
+                for v in self.sess.query(VerifyLog).filter(VerifyLog.uid == self.uid).all()
+                if v.card_no
+            }
+        return self._verify.get(str(card_no or ""))
+
+    def grant_log(self, day: str, tpl_name: str) -> OpLog | None:
+        if self._grants is None:
+            self._grants = (
+                self.sess.query(OpLog)
+                .filter(OpLog.uid == self.uid, OpLog.action == "CARD_GRANT")
+                .all()
+            )
+        return next(
+            (x for x in self._grants if str(x.t or "").startswith(day) and tpl_name in str(x.detail or "")),
+            None,
+        )
+
+    def nick(self, uid: int) -> str:
+        if uid not in self._nicks:
+            usr = self.sess.get(User, uid) if uid else None
+            self._nicks[uid] = (usr.nick if usr else "") or ""
+        return self._nicks[uid]
+
+
+def _card_issue_at(c: Card, tpl_name: str, ctx: _CardLedgerCtx) -> str:
     at = str(getattr(c, "at", "") or "").strip()
-    op = str(getattr(c, "op", "") or "").strip()
-    if at and op:
-        return at, op
+    if at:
+        return at
+    desc = str(c.src_desc or "")
     if c.src in ("GAME", "GAME_GIFT"):
-        m = re.search(r"#(\d+)", str(c.src_desc or ""))
-        if m:
-            gid = int(m.group(1))
-            if gid not in game_cache:
-                game_cache[gid] = sess.get(GameRecord, gid)
-            g = game_cache[gid]
-            if g:
-                at = at or str(g.time or "")
-                op = op or str(g.op or "").strip()
-    elif c.src in ("SIGN", "SIGN_IN_REWARD", "SETTLE_REWARD", "ORDER_COMBO"):
-        op = op or "系统"
-    elif c.src == "EXCHANGE":
-        op = op or "本人"
+        m = re.search(r"#(\d+)", desc)
+        g = ctx.game(int(m.group(1))) if m else None
+        return str(g.time or "") if g else ""
+    if c.src == "ORDER_COMBO":
+        m = re.search(r"(DD\d+)", desc)
+        o = ctx.order(m.group(1)) if m else None
+        return str(o.at or "") if o else ""
+    if c.src == "MANUAL_GRANT":
+        m = re.search(r"(\d{2}-\d{2})\s*$", desc)
+        log_row = ctx.grant_log(m.group(1), tpl_name) if m else None
+        return str(log_row.t or "") if log_row else ""
+    return ""
+
+
+def _card_done_meta(c: Card, ctx: _CardLedgerCtx) -> tuple[str, str]:
+    """(核销/作废时间, 操作员) for USED/VOID cards; legacy USED cards fall back to verify_logs."""
+    if c.status not in ("USED", "VOID"):
+        return "", ""
+    at = str(getattr(c, "done_at", "") or "").strip()
+    op = str(getattr(c, "done_op", "") or "").strip()
+    if (not at or not op) and c.status == "USED":
+        v = ctx.verify(c.no)
+        if v:
+            at = at or str(v.at or "")
+            op = op or ctx.nick(int(v.op_uid or 0))
     return at, op
 
 
@@ -3706,24 +3794,28 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
             ))
 
     if kind in ("ALL", "CARD"):
-        game_cache: dict[int, GameRecord | None] = {}
+        ctx = _CardLedgerCtx(sess, uid)
         for c in sess.query(Card).filter_by(uid=uid).order_by(Card.id.desc()).limit(80):
             tm = tpl(sess, c.tpl)
             name = tm.name if tm else "卡券"
             st, tone = _CARD_STATUS.get(c.status, (c.status or "—", "grey"))
-            content = c.src_desc or _CARD_SRC_LABEL.get(c.src, c.src or "获得卡券")
-            issued_at, op = _card_issue_meta(sess, c, game_cache)
+            form, remark = _card_form_and_remark(c)
+            if c.status == "VOID" and c.void_reason:
+                remark = "；".join(p for p in (remark, c.void_reason) if p)
+            done_at, done_op = _card_done_meta(c, ctx)
             item = _ledger_item(
                 key=f"card-{c.id}", kind="card", typ="card",
-                title=name, amount="+1 张",
+                title=name, amount="",
                 status=st, tone=tone, meta="",
-                at=issued_at, sort_id=c.id,
-                content=content, operator=op,
+                at=_card_issue_at(c, name, ctx), sort_id=c.id,
+                content=remark, operator=done_op,
             )
-            if c.status == "VOID" and c.void_reason:
-                item["voidReason"] = c.void_reason
-            if c.expire:
-                item["expire"] = c.expire
+            item["content"] = remark
+            item["form"] = form
+            item["cardNo"] = c.no or ""
+            item["doneAt"] = _ledger_display_time(done_at)
+            item["doneLabel"] = {"USED": "核销", "VOID": "作废"}.get(c.status, "核销/作废")
+            item["meta"] = " · ".join(p for p in (form, item["at"], c.no, remark) if p)
             rows.append(item)
 
     rows.sort(key=lambda x: (x.get("_sort") or "", x.get("id") or ""), reverse=True)
@@ -3802,7 +3894,7 @@ def staff_direct_verify(sess: Session, uid: int, card_id: int, tail: str, reason
     if not card or card.uid != uid or card.status != "UNUSED":
         raise ValueError("卡券状态已变更，请返回重试")
     tm = tpl(sess, card.tpl)
-    card.status = "USED"
+    close_card(card, "USED", staff)
     sess.add(VerifyLog(
         card_no=card.no,
         tpl_name=tm.name if tm else "卡券",

@@ -87,40 +87,86 @@ class CustomerLedgerPointSourcesTests(unittest.TestCase):
         self.assertEqual(adj["operator"], "老板")
         self.assertTrue(adj["at"].startswith("20"))
 
-    def test_card_ledger_uses_unified_fields(self):
-        new_card = SimpleNamespace(
-            id=21, uid=9, tpl=1, no="KQ111", src="EXCHANGE", src_desc="积分兑换",
-            status="UNUSED", expire="", void_reason=None, at="2026-09-29 14:30", op="本人",
-        )
-        legacy_game_card = SimpleNamespace(
-            id=20, uid=9, tpl=2, no="KQ222", src="GAME_GIFT", src_desc="对局赠送 · 德州扑克 #124",
-            status="VOID", expire="", void_reason="对局作废 · 测试", at="", op="",
-        )
+    def test_card_ledger_fields(self):
+        def card(**kw):
+            base = dict(uid=9, expire="", void_reason=None, at="", op="", done_at="", done_op="")
+            base.update(kw)
+            return SimpleNamespace(**base)
+
+        combo = card(id=24, tpl=1, no="KQ614", src="ORDER_COMBO", src_desc="套餐自动发放 · DD260928158026",
+                     status="UNUSED")
+        legacy_grant = card(id=23, tpl=2, no="KQ427", src="MANUAL_GRANT", src_desc="店员补发 · 09-28",
+                            status="UNUSED")
+        used = card(id=22, tpl=1, no="KQ333", src="EXCHANGE", src_desc="积分兑换", status="USED",
+                    at="2026-09-29 14:30")
+        voided = card(id=20, tpl=2, no="KQ222", src="GAME_GIFT", src_desc="对局赠送 · 德州扑克 #124",
+                      status="VOID", void_reason="对局作废 · 测试",
+                      done_at="2026-09-29 15:00", done_op="老板")
         game = SimpleNamespace(id=124, time="2026-09-28 21:00", op="店员小王")
+        order = SimpleNamespace(no="DD260928158026", at="2026-09-28 18:02")
+        grant_log = SimpleNamespace(t="09-28 23:10", op="老板", detail="快速补发 天才儿童 · 酒水小食卡 ×5")
+        verify = SimpleNamespace(card_no="KQ333", at="2026-09-29 16:05", op_uid=5)
         tpls = {1: SimpleNamespace(name="游戏卡"), 2: SimpleNamespace(name="酒水小食卡")}
 
+        def query_side(model):
+            q = MagicMock()
+            if model is L.Card:
+                q.filter_by.return_value.order_by.return_value.limit.return_value = [combo, legacy_grant, used, voided]
+            elif model is L.Order:
+                q.filter.return_value.first.return_value = order
+            elif model is L.VerifyLog:
+                q.filter.return_value.all.return_value = [verify]
+            elif model is L.OpLog:
+                q.filter.return_value.all.return_value = [grant_log]
+            return q
+
+        def get_side(model, pk):
+            if model is L.GameRecord and pk == 124:
+                return game
+            if model is L.User and pk == 5:
+                return SimpleNamespace(nick="店员小李")
+            return None
+
         sess = MagicMock()
-        sess.query.return_value.filter_by.return_value.order_by.return_value.limit.return_value = [
-            new_card, legacy_game_card,
-        ]
-        sess.get.side_effect = lambda model, pk: game if model is L.GameRecord and pk == 124 else None
+        sess.query.side_effect = query_side
+        sess.get.side_effect = get_side
 
         with patch.object(L, "tpl", side_effect=lambda _s, tid: tpls.get(tid)):
             items = L.customer_ledger(sess, uid=9, kind="CARD", limit=80)
-
         by_id = {x["id"]: x for x in items}
-        fresh = by_id["card-21"]
-        self.assertEqual(fresh["content"], "积分兑换")
-        self.assertEqual(fresh["amount"], "+1 张")
-        self.assertEqual(fresh["at"], "2026-09-29 14:30")
-        self.assertEqual(fresh["operator"], "本人")
-        self.assertNotIn("KQ111", fresh["meta"])
 
-        legacy = by_id["card-20"]
-        self.assertEqual(legacy["content"], "对局赠送 · 德州扑克 #124")
-        self.assertEqual(legacy["voidReason"], "对局作废 · 测试")
-        self.assertEqual(legacy["at"], "2026-09-28 21:00")
-        self.assertEqual(legacy["operator"], "店员小王")
+        c = by_id["card-24"]
+        self.assertEqual(c["form"], "套餐自动发放")
+        self.assertEqual(c["content"], "订单 DD260928158026")
+        self.assertEqual(c["at"], "2026-09-28 18:02")
+        self.assertEqual(c["cardNo"], "KQ614")
+        self.assertEqual(c["doneAt"], "")
+
+        g = by_id["card-23"]
+        self.assertEqual(g["form"], "店员补发")
+        self.assertEqual(g["content"], "")
+        self.assertTrue(g["at"].endswith("09-28 23:10"))
+
+        u = by_id["card-22"]
+        self.assertEqual(u["doneLabel"], "核销")
+        self.assertEqual(u["doneAt"], "2026-09-29 16:05")
+        self.assertEqual(u["operator"], "店员小李")
+
+        v = by_id["card-20"]
+        self.assertEqual(v["form"], "对局赠送")
+        self.assertEqual(v["content"], "德州扑克 #124；对局作废 · 测试")
+        self.assertEqual(v["at"], "2026-09-28 21:00")
+        self.assertEqual(v["doneLabel"], "作废")
+        self.assertEqual(v["doneAt"], "2026-09-29 15:00")
+        self.assertEqual(v["operator"], "老板")
+
+    def test_close_card_records_time_and_operator(self):
+        c = SimpleNamespace(status="UNUSED", void_reason=None, done_at="", done_op="")
+        L.close_card(c, "VOID", {"nick": "店长A"}, "手动扣减 · 测试")
+        self.assertEqual(c.status, "VOID")
+        self.assertEqual(c.void_reason, "手动扣减 · 测试")
+        self.assertEqual(c.done_op, "店长A")
+        self.assertRegex(c.done_at, r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$")
 
     def test_streak_ending_on(self):
         signed = {date(2026, 9, 26), date(2026, 9, 27), date(2026, 9, 28)}

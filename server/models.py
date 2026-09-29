@@ -225,6 +225,8 @@ class Card(Base):
     void_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
     at: Mapped[str] = mapped_column(String(16), default="")
     op: Mapped[str] = mapped_column(String(64), default="")
+    done_at: Mapped[str] = mapped_column(String(16), default="")
+    done_op: Mapped[str] = mapped_column(String(64), default="")
 
     def to_dict(self):
         d = {"id": self.id, "uid": self.uid, "tpl": self.tpl, "no": self.no, "src": self.src,

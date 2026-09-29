@@ -152,7 +152,7 @@ function reorder(order) {
       >{{ item.label }}</view>
     </view>
 
-    <view class="order-hint">{{ tab === 'point' ? '积分变更明细：备注、数量、时间、余额变化与操作员' : tab === 'card' ? '卡券变更明细：来源、数量、获得时间与操作员' : '以下为资产变更明细，含下单、充值、提分、兑换、签到、对局与店员调整' }}</view>
+    <view class="order-hint">{{ tab === 'point' ? '积分变更明细：备注、数量、时间、余额变化与操作员' : tab === 'card' ? '卡券变更明细：下发形式、下发时间、卡券号与核销/作废记录' : '以下为资产变更明细，含下单、充值、提分、兑换、签到、对局与店员调整' }}</view>
 
     <view v-if="loading && !items.length" class="empty">加载中…</view>
     <view v-else-if="msg && !items.length" class="card empty-box">
@@ -167,15 +167,39 @@ function reorder(order) {
         <text class="order-status" :class="'status-' + (row.statusTone || 'grey')">{{ row.status }}</text>
       </view>
 
-      <!-- 积分/卡包订单统一：显示内容 / 加减数量 / 时间 / 变更过程 / 操作员 -->
-      <view v-if="row.kind === 'point' || row.kind === 'card'" class="point-grid">
+      <!-- 卡包订单：备注 / 下发形式 / 下发时间 / 卡券号 / 核销或作废时间 / 核销或作废操作员 -->
+      <view v-if="row.kind === 'card'" class="point-grid">
+        <view class="point-row">
+          <text class="point-k card-k">备注</text>
+          <text class="point-v">{{ row.content || '—' }}</text>
+        </view>
+        <view class="point-row">
+          <text class="point-k card-k">下发形式</text>
+          <text class="point-v">{{ row.form || '—' }}</text>
+        </view>
+        <view class="point-row">
+          <text class="point-k card-k">下发时间</text>
+          <text class="point-v">{{ row.at || '—' }}</text>
+        </view>
+        <view class="point-row">
+          <text class="point-k card-k">卡券号</text>
+          <text class="point-v">{{ row.cardNo || '—' }}</text>
+        </view>
+        <view class="point-row">
+          <text class="point-k card-k">{{ row.doneLabel || '核销/作废' }}时间</text>
+          <text class="point-v">{{ row.doneAt || '—' }}</text>
+        </view>
+        <view class="point-row">
+          <text class="point-k card-k">{{ row.doneLabel || '核销/作废' }}操作员</text>
+          <text class="point-v">{{ row.operator || '—' }}</text>
+        </view>
+      </view>
+
+      <!-- 4.3 积分订单统一：显示内容 / 加减数量 / 时间 / 变更过程 / 操作员 -->
+      <view v-else-if="row.kind === 'point'" class="point-grid">
         <view class="point-row">
           <text class="point-k">备注</text>
           <text class="point-v">{{ row.content || '—' }}</text>
-        </view>
-        <view v-if="row.voidReason" class="point-row">
-          <text class="point-k">作废</text>
-          <text class="point-v">{{ row.voidReason }}</text>
         </view>
         <view class="point-row">
           <text class="point-k">数量</text>
@@ -188,13 +212,9 @@ function reorder(order) {
           <text class="point-k">时间</text>
           <text class="point-v">{{ row.at || '—' }}</text>
         </view>
-        <view v-if="row.kind === 'point'" class="point-row">
+        <view class="point-row">
           <text class="point-k">余额</text>
           <text class="point-v">{{ row.process || '—' }}</text>
-        </view>
-        <view v-if="row.expire" class="point-row">
-          <text class="point-k">有效期</text>
-          <text class="point-v">至 {{ row.expire }}</text>
         </view>
         <view class="point-row">
           <text class="point-k">操作员</text>
@@ -303,6 +323,7 @@ function reorder(order) {
 .point-grid { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
 .point-row { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; line-height: 1.45; }
 .point-k { flex: none; width: 48px; color: #9c9a93; }
+.point-k.card-k { width: 96px; }
 .point-v { flex: 1; min-width: 0; color: #6b6a65; word-break: break-all; }
 .point-v.order-amt { margin-right: 0; font-size: 15px; }
 .order-actions { display: flex; gap: 8px; margin-top: 12px; }
