@@ -37,7 +37,7 @@ class ExchangePerLimitTests(unittest.TestCase):
 
         sess = MagicMock()
         sess.query.side_effect = query_side_effect
-        with patch.object(L, "issue_card") as issue:
+        with patch.object(L, "issue_card") as issue, patch.object(L, "flow_put"):
             ok = L.do_exchange(sess, uid=9, tid=3, qty=1)
         self.assertTrue(ok)
         self.assertEqual(wallet.point_av, 900)
@@ -67,7 +67,8 @@ class ExchangePerLimitTests(unittest.TestCase):
         sess.query.return_value = q
         admin = {"id": 1, "role": "BOSS", "nick": "老板"}
 
-        out = L.member_revoke_cards(sess, 9, 3, 1, "测限额", admin)
+        with patch.object(L, "flow_card_out"):
+            out = L.member_revoke_cards(sess, 9, 3, 1, "测限额", admin)
         self.assertEqual(out["qty"], 1)
         self.assertEqual(card.status, "VOID")
         self.assertEqual(tm.stock, 1)

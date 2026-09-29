@@ -50,7 +50,12 @@ def run_monthly_point_clear(db, *, trigger: str = "auto") -> dict:
         if av > 0:
             total_cleared += av
         if av:
-            L.point_log(db, w.user_id, f"clear-{period}", av, 0)
+            L.flow_put(
+                db, w.user_id, "POINT", f"clear-{period}", stamp=True, history=False,
+                typ="clear", title="积分月清零", amount=L._signed(-av), delta=-av,
+                status="已清零", tone="grey", content="每月 1 日 13:00 可用积分清零",
+                bal_before=av, bal_after=0, op="系统",
+            )
         w.point_av = 0
         w.point_pd = 0
         w.point_mg = 0

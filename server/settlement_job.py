@@ -88,7 +88,10 @@ def reset_weekly_rank_counters(db: Session) -> None:
     day = L.business_today().isoformat()
     for w in db.query(Wallet).all():
         if int(w.shard_w or 0) > 0:
-            L.point_log(db, w.user_id, f"shardw-{day}", int(w.shard_w), 0, "系统")
+            L.flow_shard(
+                db, w.user_id, f"shardw-{day}", typ="weekly", title="周榜结算 · 当周碎片清零",
+                delta=-int(w.shard_w), op="系统", remark="历史累计不变", history=False,
+            )
         w.shard_w = 0
         w.point_wg = 0
 

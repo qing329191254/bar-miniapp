@@ -1,4 +1,4 @@
-"""Unit tests: customer_ledger includes sign-in and game points."""
+"""Unit tests: legacy ledger rebuild (used to copy pre-asset_flows history)."""
 from __future__ import annotations
 
 import sys
@@ -73,7 +73,7 @@ class CustomerLedgerPointSourcesTests(unittest.TestCase):
         sess.get.side_effect = lambda model, pk: SimpleNamespace(nick="店员小李") if model is L.User and pk == 7 else None
 
         with patch.object(L, "setting", return_value={"signPoints": 100}):
-            items = L.customer_ledger(sess, uid=9, kind="POINT", limit=80)
+            items = L._legacy_customer_ledger(sess, uid=9, kind="POINT", limit=80)
 
         wdr = next(x for x in items if x["title"] == "积分提取")
         self.assertEqual(wdr["operator"], "店员小李")
@@ -152,7 +152,7 @@ class CustomerLedgerPointSourcesTests(unittest.TestCase):
         sess.get.side_effect = get_side
 
         with patch.object(L, "tpl", side_effect=lambda _s, tid: tpls.get(tid)):
-            items = L.customer_ledger(sess, uid=9, kind="CARD", limit=80)
+            items = L._legacy_customer_ledger(sess, uid=9, kind="CARD", limit=80)
         by_id = {x["id"]: x for x in items}
 
         self.assertNotIn("card-out-24", by_id)
@@ -250,7 +250,7 @@ class CustomerLedgerPointSourcesTests(unittest.TestCase):
         sess = MagicMock()
         sess.query.side_effect = query_side
         sess.get.side_effect = lambda model, pk: SimpleNamespace(nick="店员小李") if model is L.User and pk == 7 else None
-        items = {x["id"]: x for x in L.customer_ledger(sess, uid=9, kind="COIN", limit=80)}
+        items = {x["id"]: x for x in L._legacy_customer_ledger(sess, uid=9, kind="COIN", limit=80)}
 
         rf = items["refund-9"]
         self.assertEqual(rf["title"], "订单退款")
@@ -321,7 +321,7 @@ class CustomerLedgerPointSourcesTests(unittest.TestCase):
         sess.query.side_effect = query_side
         sess.get.side_effect = lambda model, pk: SimpleNamespace(nick="店员小李") if model is L.User and pk == 7 else None
         with patch.object(L, "setting", return_value={}):
-            items = {x["id"]: x for x in L.customer_ledger(sess, uid=9, kind="POINT", limit=80)}
+            items = {x["id"]: x for x in L._legacy_customer_ledger(sess, uid=9, kind="POINT", limit=80)}
 
         self.assertFalse(items["wdr-3"]["struck"])
         back = items["wdr-back-3"]
@@ -336,7 +336,7 @@ class CustomerLedgerPointSourcesTests(unittest.TestCase):
         self.assertEqual(void["process"], "1,200→1,000")
         self.assertEqual(void["operator"], "张老板")
 
-    def test_do_sign_writes_point_log(self):
+    def test_do_sign_writes_flow(self):
         wallet = SimpleNamespace(point_av=0, point_wg=0, point_mg=0, point_pd=0, sign_streak=0)
         sess = MagicMock()
         sess.query.return_value.filter_by.return_value.first.return_value = None
@@ -351,16 +351,20 @@ class CustomerLedgerPointSourcesTests(unittest.TestCase):
 
         sess.flush.side_effect = flush
         with patch.object(L, "setting", return_value={"signPoints": 1000}), \
-                patch.object(L, "wallet_of", return_value=wallet):
+                patch.object(L, "wallet_of", return_value=wallet), \
+                patch.object(L, "flow_put") as flow:
             L.do_sign(sess, 9)
 
-        logs = [x for x in added if isinstance(x, L.PointLog)]
-        self.assertEqual(len(logs), 1)
-        self.assertEqual((logs[0].ref, logs[0].before, logs[0].after), ("sign-31", 0, 1000))
+        flow.assert_called_once()
+        args, kwargs = flow.call_args
+        self.assertEqual(args[1:4], (9, "POINT", "sign-31"))
+        self.assertEqual((kwargs["bal_before"], kwargs["bal_after"], kwargs["op"]), (0, 1000, "系统"))
 
     def test_close_card_records_time_and_operator(self):
         c = SimpleNamespace(status="UNUSED", void_reason=None, done_at="", done_op="")
-        L.close_card(c, "VOID", {"nick": "店长A"}, "手动扣减 · 测试")
+        with patch.object(L, "flow_card_out") as flow:
+            L.close_card(MagicMock(), c, "VOID", {"nick": "店长A"}, "手动扣减 · 测试")
+        flow.assert_called_once()
         self.assertEqual(c.status, "VOID")
         self.assertEqual(c.void_reason, "手动扣减 · 测试")
         self.assertEqual(c.done_op, "店长A")

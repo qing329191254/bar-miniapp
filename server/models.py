@@ -71,6 +71,8 @@ class Wallet(Base):
     shard_w: Mapped[int] = mapped_column(Integer, default=0)
     shard_t: Mapped[int] = mapped_column(Integer, default=0)
     sign_streak: Mapped[int] = mapped_column(Integer, default=0)
+    # True once pre-asset_flows history has been copied into asset_flows for this user.
+    flow_ready: Mapped[bool] = mapped_column(Boolean, default=False)
     user: Mapped[User] = relationship(back_populates="wallet")
 
 
@@ -427,7 +429,7 @@ class SignRecord(Base):
 
 
 class PointLog(Base):
-    """Balance before/after each points or coin change; ref matches the customer ledger row id (wdr-/sign-/ord-/rc-…)."""
+    """Legacy balance log (superseded by asset_flows); read only when copying old history into asset_flows."""
     __tablename__ = "point_logs"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     uid: Mapped[int] = mapped_column(Integer, index=True)
@@ -435,6 +437,37 @@ class PointLog(Base):
     before: Mapped[int] = mapped_column(Integer, default=0)
     after: Mapped[int] = mapped_column(Integer, default=0)
     at: Mapped[str] = mapped_column(String(16), default="")
+    op: Mapped[str] = mapped_column(String(64), default="")
+
+
+class AssetFlow(Base):
+    """Customer-visible asset change rows (积分/金币/卡券/碎片), written when the change happens.
+
+    One row per change event; rows that track a business record (order / recharge / withdrawal /
+    coin adjust / game) are updated in place as that record changes status.
+    """
+    __tablename__ = "asset_flows"
+    __table_args__ = (UniqueConstraint("uid", "asset", "ref", name="uk_flow_uid_asset_ref"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    uid: Mapped[int] = mapped_column(Integer, index=True)
+    asset: Mapped[str] = mapped_column(String(8))  # POINT / COIN / CARD / SHARD
+    ref: Mapped[str] = mapped_column(String(48))
+    typ: Mapped[str] = mapped_column(String(24), default="")
+    title: Mapped[str] = mapped_column(String(128), default="")
+    amount: Mapped[str] = mapped_column(String(32), default="")
+    delta: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(16), default="")
+    tone: Mapped[str] = mapped_column(String(8), default="")
+    content: Mapped[str] = mapped_column(String(255), default="")
+    bal_before: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    bal_after: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    note: Mapped[str] = mapped_column(String(32), default="")  # shown instead of balance, e.g. 余额未变动
+    meta: Mapped[str] = mapped_column(String(255), default="")  # 碎片记录副标题
+    card_no: Mapped[str] = mapped_column(String(32), default="")
+    ref_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # order id for 订单操作按钮
+    struck: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    at: Mapped[str] = mapped_column(String(16), default="")
+    sort_at: Mapped[str] = mapped_column(String(19), default="", index=True)
     op: Mapped[str] = mapped_column(String(64), default="")
 
 

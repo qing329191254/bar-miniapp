@@ -133,6 +133,10 @@ def seed_all(reset: bool = False):
     if plog_cols and "op" not in plog_cols:
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE point_logs ADD COLUMN op VARCHAR(64) NOT NULL DEFAULT ''"))
+    wallet_cols = {c["name"] for c in insp.get_columns("wallets")}
+    if "flow_ready" not in wallet_cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE wallets ADD COLUMN flow_ready BOOLEAN NOT NULL DEFAULT 0"))
     db = SessionLocal()
     try:
         if reset:

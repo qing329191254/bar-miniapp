@@ -45,7 +45,7 @@ class ShardRecordsTests(unittest.TestCase):
 
         sess = MagicMock()
         sess.query.side_effect = query_side
-        rows = L.shard_records(sess, 9)
+        rows = L._legacy_shard_records(sess, 9)
 
         self.assertEqual([r["key"] for r in rows], ["game-3", "adj-40", "game-1"])
         self.assertEqual(rows[0]["delta"], 10)
@@ -75,7 +75,7 @@ class ShardRecordsTests(unittest.TestCase):
 
         sess = MagicMock()
         sess.query.side_effect = query_side
-        rows = {r["key"]: r for r in L.shard_records(sess, 9)}
+        rows = {r["key"]: r for r in L._legacy_shard_records(sess, 9)}
 
         self.assertFalse(rows["game-5"]["void"])
         self.assertEqual(rows["void-5"]["delta"], -8)

@@ -16,7 +16,7 @@ from sqlalchemy.orm.attributes import flag_modified
 import cache
 from settings import demo_starter_enabled, in_cloud
 from models import (
-    AgreeLog, AppLock, Card, CardTpl, Category, Champ, CoinAdjust, DailyBiz, Deactivation,
+    AgreeLog, AppLock, AssetFlow, Card, CardTpl, Category, Champ, CoinAdjust, DailyBiz, Deactivation,
     GameRecord, OpLog, Order, PointLog, Product, Project, Recharge, Setting, SettleLog,
     SignRecord, SignRule, SmsCode, StaffEvent, TableSeat, Team, Tier, User, VerifyCode,
     VerifyLog, Wallet, Withdrawal,
@@ -344,14 +344,6 @@ def public_user(sess: Session, user: User | dict | None) -> dict | None:
     return user.to_public(user.wallet, tm.name if tm else None)
 
 
-def point_log(sess: Session, uid: int, ref: str, before: int, after: int, op="") -> None:
-    nick = op.get("nick") if isinstance(op, dict) else op
-    sess.add(PointLog(
-        uid=int(uid), ref=ref, before=int(before or 0), after=int(after or 0),
-        at=business_now().strftime("%Y-%m-%d %H:%M"), op=str(nick or "")[:64],
-    ))
-
-
 def log(sess: Session, action: str, detail: str, uid=None, op=None):
     staff = op or {"nick": "系统", "role": "—"}
     nick = staff.get("nick") if isinstance(staff, dict) else str(staff)
@@ -361,6 +353,215 @@ def log(sess: Session, action: str, detail: str, uid=None, op=None):
         role={"STAFF": "店员", "MANAGER": "店长", "BOSS": "老板"}.get(role, "—"),
         action=action, detail=detail, uid=uid,
     ))
+
+
+# ---------------------------------------------------------------------------
+# Asset flows: every customer-visible points / coin / card / shard change is written here
+# at the moment it happens (time, operator name, balance before/after, remark).
+# ---------------------------------------------------------------------------
+_FLOW_LIMITS = {
+    "typ": 24, "title": 128, "amount": 32, "status": 16, "tone": 8, "content": 255,
+    "note": 32, "meta": 255, "card_no": 32, "op": 64,
+}
+NO_BALANCE_CHANGE = "余额未变动"
+
+
+def _op_name(op) -> str:
+    if isinstance(op, dict):
+        return str(op.get("nick") or "")
+    return str(op or "")
+
+
+def _signed(n: int) -> str:
+    n = int(n or 0)
+    return f"+{n:,}" if n > 0 else f"−{-n:,}" if n < 0 else "0"
+
+
+def _flow_sort_at(at: str) -> str:
+    text = _ledger_display_time(at)
+    if len(text) == 16 and text[4] == "-":
+        return text + ":00"
+    return _ledger_sort_at(text)
+
+
+def _ensure_flow_history(sess: Session, uid: int) -> None:
+    """Copy this user's pre-asset_flows history into asset_flows once, before any new row is written."""
+    uid = int(uid)
+    done = sess.info.setdefault("flow_ready_uids", set())
+    if uid in done:
+        return
+    w = sess.get(Wallet, uid)
+    if w is not None and not w.flow_ready:
+        w = sess.query(Wallet).filter_by(user_id=uid).populate_existing().with_for_update().first()
+    done.add(uid)
+    if w is None or w.flow_ready:
+        return
+    _backfill_flow_history(sess, uid)
+    w.flow_ready = True
+
+
+def flow_put(sess: Session, uid: int, asset: str, ref: str, *, at: str | None = None,
+             stamp: bool = False, history: bool = True, **fields) -> AssetFlow:
+    """Insert or update one asset flow row keyed by (uid, asset, ref).
+
+    stamp=True sets the row time to now; at= gives the business time for a newly created row.
+    history=False skips the one-time history copy (bulk jobs touching every wallet).
+    """
+    uid = int(uid)
+    if history:
+        _ensure_flow_history(sess, uid)
+    row = sess.query(AssetFlow).filter_by(uid=uid, asset=asset, ref=ref).first()
+    now = business_now()
+    is_new = row is None
+    if is_new:
+        row = AssetFlow(uid=uid, asset=asset, ref=ref[:48], at=now.strftime("%Y-%m-%d %H:%M"),
+                        sort_at=now.strftime("%Y-%m-%d %H:%M:%S"))
+        if asset in ("POINT", "COIN") and fields.get("bal_before") is None:
+            row.note = NO_BALANCE_CHANGE
+        sess.add(row)
+    if stamp:
+        row.at = now.strftime("%Y-%m-%d %H:%M")
+        row.sort_at = now.strftime("%Y-%m-%d %H:%M:%S")
+    elif at and is_new and _ledger_display_time(at) != row.at:
+        row.at = _ledger_display_time(at)
+        row.sort_at = _flow_sort_at(at)
+    if fields.get("bal_before") is not None:
+        fields.setdefault("note", "")
+    for key, value in fields.items():
+        if isinstance(value, str) and key in _FLOW_LIMITS:
+            value = value[:_FLOW_LIMITS[key]]
+        setattr(row, key, value)
+    return row
+
+
+def _new_ref(prefix: str) -> str:
+    return f"{prefix}-{now_ms()}{rand_digits(3)}"
+
+
+def _order_title(o: Order) -> str:
+    return "、".join(
+        f"{it.get('name') or '商品'}{('×' + str(it.get('qty'))) if int(it.get('qty') or 1) > 1 else ''}"
+        for it in (o.items or [])
+    ) or o.no
+
+
+def flow_order(sess: Session, o: Order, op=None, bal: tuple[int, int] | None = None) -> None:
+    """Order row keeps the order time until coins are actually deducted (accept), then moves to that moment."""
+    is_coin = o.pay_type == "COIN"
+    st, tone = _ORDER_STATUS.get(o.status, (o.status or "—", "grey"))
+    bits = ["金币支付" if is_coin else "到吧台付款", o.table_name or "未指定桌台", o.no]
+    if o.status in ("CANCELLED", "REFUNDED", "CLOSED") and o.cancel_reason:
+        bits.append(_ORDER_CLOSE_REASON.get(o.cancel_reason, o.cancel_reason))
+    fields = dict(
+        typ="order", title=_order_title(o),
+        amount=f"−{int(o.total or 0):,}" if is_coin else f"¥{int(o.total or 0):,}",
+        delta=-int(o.total or 0) if is_coin else 0,
+        status=st, tone=tone, content=" · ".join(p for p in bits if p), ref_id=int(o.id),
+    )
+    if op is not None:
+        fields["op"] = _op_name(op)
+    if bal:
+        fields["bal_before"], fields["bal_after"] = int(bal[0]), int(bal[1])
+    flow_put(sess, o.uid, "COIN", f"ord-{o.id}", at=None if bal else o.at, stamp=bool(bal), **fields)
+
+
+def flow_recharge(sess: Session, r: Recharge, op=None, bal: tuple[int, int] | None = None) -> None:
+    st, tone = _RC_STATUS.get(r.status, (r.status or "—", "grey"))
+    amt, bonus = int(r.amount or 0), int(r.bonus or 0)
+    paid = r.status in ("PAID", "DONE")
+    bits = [f"充值 ¥{amt:,}" + (f"，赠送 {bonus:,}" if bonus else ""), r.no, r.reject_remark]
+    fields = dict(
+        typ="recharge", title="金币充值", amount=f"+{amt + bonus:,}" if paid else f"{amt:,}",
+        delta=amt + bonus if paid else 0, status=st, tone=tone,
+        content=" · ".join(p for p in bits if p),
+    )
+    if op is not None:
+        fields["op"] = _op_name(op)
+    if bal:
+        fields["bal_before"], fields["bal_after"] = int(bal[0]), int(bal[1])
+    flow_put(sess, r.uid, "COIN", f"rc-{r.id}", at=None if bal else r.at, stamp=bool(bal), **fields)
+
+
+def flow_withdraw(sess: Session, w: Withdrawal, op=None, bal: tuple[int, int] | None = None,
+                  extra: str = "") -> None:
+    st, tone = _WDR_STATUS.get(w.status, (w.status or "—", "grey"))
+    remark = w.reject_remark or (f"提分单 {w.no}" if w.no else "积分提取")
+    fields = dict(
+        typ="withdraw", title="积分提取", amount=f"−{int(w.pts or 0):,}", delta=-int(w.pts or 0),
+        status=st, tone=tone, content=" · ".join(p for p in (remark, extra) if p), struck=False,
+    )
+    if op is not None:
+        fields["op"] = _op_name(op)
+    if bal:
+        fields["bal_before"], fields["bal_after"] = int(bal[0]), int(bal[1])
+    flow_put(sess, w.uid, "POINT", f"wdr-{w.id}", at=w.at, **fields)
+
+
+_ADJ_STATUS = {"PENDING": ("待审批", "gold"), "APPROVED": ("已生效", "green"), "REJECTED": ("已驳回", "red")}
+
+
+def flow_coin_adjust(sess: Session, a: CoinAdjust, applicant: str, bal: tuple[int, int] | None = None,
+                     stamp: bool = False) -> None:
+    st, tone = _ADJ_STATUS.get(a.status, (a.status or "—", "grey"))
+    fields = dict(
+        typ="adjust", title="店员调整金币", amount=_signed(a.delta),
+        delta=int(a.delta or 0) if a.status == "APPROVED" else 0, status=st, tone=tone,
+        content="；".join(p for p in (a.reason, a.audit_remark) if p) or "店员手动调整", op=applicant,
+    )
+    if bal:
+        fields["bal_before"], fields["bal_after"] = int(bal[0]), int(bal[1])
+    flow_put(sess, a.uid, "COIN", f"cadj-{a.id}", at=None if stamp else a.at, stamp=stamp, **fields)
+
+
+def _game_remark(g: GameRecord) -> str:
+    return " · ".join(x for x in (g.pname or "对局", g.table, g.round) if x)
+
+
+def _card_flow_name(sess: Session, card: Card) -> str:
+    tm = tpl(sess, card.tpl)
+    return tm.name if tm else "卡券"
+
+
+def flow_card_in(sess: Session, card: Card, name: str) -> None:
+    form, remark = _card_form_and_remark(card)
+    flow_put(
+        sess, card.uid, "CARD", f"card-in-{card.id}", stamp=True,
+        typ="card_in", title=f"卡券新增 · {name}", amount="+1 张", delta=1,
+        status="已发放", tone="blue", content=" · ".join(p for p in (form, remark) if p),
+        card_no=card.no or "", op=card.op or "",
+    )
+
+
+_CARD_OUT = {
+    "USED": ("卡券核销", "已核销", "green"),
+    "VOID": ("卡券作废", "已作废", "red"),
+    "EXPIRED": ("卡券过期", "已过期", "grey"),
+}
+
+
+def flow_card_out(sess: Session, card: Card) -> None:
+    title, st, tone = _CARD_OUT[card.status]
+    if card.status == "VOID":
+        remark = card.void_reason or "卡券作废"
+    elif card.status == "USED":
+        remark = "到店核销使用"
+    else:
+        remark = "超过有效期"
+    flow_put(
+        sess, card.uid, "CARD", f"card-out-{card.id}", stamp=True,
+        typ="card_out", title=f"{title} · {_card_flow_name(sess, card)}", amount="−1 张", delta=-1,
+        status=st, tone=tone, content=remark, card_no=card.no or "", op=card.done_op or "",
+    )
+
+
+def flow_shard(sess: Session, uid: int, ref: str, *, typ: str, title: str, delta: int, op: str,
+               remark: str = "", history: bool = True) -> AssetFlow:
+    at = business_now().strftime("%Y-%m-%d %H:%M")
+    meta = " · ".join(p for p in (at, f"操作员 {op}" if op else "", remark) if p)
+    return flow_put(
+        sess, uid, "SHARD", ref, stamp=True, history=history,
+        typ=typ, title=title, amount=_signed(delta), delta=int(delta), meta=meta, op=op,
+    )
 
 
 def remain(expire_at) -> str | None:
@@ -381,7 +582,10 @@ def _withdraw_created_day(w: Withdrawal) -> str:
     return ""
 
 
-def restore_withdraw_frozen(sess: Session, w: Withdrawal) -> None:
+_WDR_BACK_NOTE = {"REJECTED": "提分驳回", "CLOSED_TIMEOUT": "提分超时未确认", "CANCELLED": "提分已取消"}
+
+
+def restore_withdraw_frozen(sess: Session, w: Withdrawal, op="") -> None:
     """Unfreeze withdraw points. After a monthly clear that already wiped the old month,
     do not resurrect those points into available balance."""
     pt = wallet_of(sess, w.uid)
@@ -393,10 +597,19 @@ def restore_withdraw_frozen(sess: Session, w: Withdrawal) -> None:
     if clear_day and created_day and created_day < clear_day:
         # Cleared month's frozen points expire with the clear; absorb without restoring.
         pt.point_pd = 0 if pt.point_av >= 0 else -pt.point_av
+        flow_withdraw(sess, w, op=op, extra="已过月清零，积分不退回")
         return
-    point_log(sess, w.uid, f"wdr-back-{w.id}", int(pt.point_av or 0), int(pt.point_av or 0) + pts)
+    before = int(pt.point_av or 0)
     pt.point_av += pts
     pt.point_pd = 0 if pt.point_av >= 0 else -pt.point_av
+    flow_withdraw(sess, w, op=op)
+    flow_put(
+        sess, w.uid, "POINT", f"wdr-back-{w.id}", stamp=True,
+        typ="withdraw_back", title="积分退回", amount=f"+{pts:,}", delta=pts,
+        status="已退回", tone="green",
+        content=" · ".join(p for p in (_WDR_BACK_NOTE.get(w.status, "提分未完成"), w.no, w.reject_remark) if p),
+        bal_before=before, bal_after=int(pt.point_av), op=_op_name(op),
+    )
 
 
 def expire_timeouts(sess: Session):
@@ -412,6 +625,7 @@ def expire_timeouts(sess: Session):
         r.status = "CLOSED"
         r.close_reason = "TIMEOUT"
         r.pending_uid = None
+        flow_recharge(sess, r, op="系统")
         try:
             cache.unlock_pending(sess, "recharge", r.uid)
         except Exception:
@@ -426,6 +640,7 @@ def expire_timeouts(sess: Session):
             continue
         o.status = "CLOSED"
         o.cancel_reason = "TIMEOUT"
+        flow_order(sess, o, op="系统")
     for w in (
         sess.query(Withdrawal)
         .filter(Withdrawal.status == "PENDING_CONFIRM", Withdrawal.expire_at.isnot(None), Withdrawal.expire_at <= now)
@@ -437,7 +652,7 @@ def expire_timeouts(sess: Session):
         w.status = "CLOSED_TIMEOUT"
         w.closed_at = f"{today_str()} {clock()}"
         w.pending_uid = None
-        restore_withdraw_frozen(sess, w)
+        restore_withdraw_frozen(sess, w, op="系统")
         try:
             cache.unlock_pending(sess, "withdraw", w.uid)
         except Exception:
@@ -880,7 +1095,14 @@ def do_sign(sess: Session, uid: int) -> dict:
     sess.add(sr)
     sess.flush()
     if sp + extra_pts:
-        point_log(sess, uid, f"sign-{sr.id}", av_before, int(w.point_av or 0))
+        bits = ["每日签到", f"连续 {w.sign_streak} 天" if w.sign_streak else "",
+                f"含连续奖励 +{extra_pts:,}" if extra_pts else ""]
+        flow_put(
+            sess, uid, "POINT", f"sign-{sr.id}", stamp=True,
+            typ="sign", title="签到积分", amount=f"+{sp + extra_pts:,}", delta=sp + extra_pts,
+            status="已到账", tone="green", content=" · ".join(p for p in bits if p),
+            bal_before=av_before, bal_after=int(w.point_av or 0), op="系统",
+        )
     return {"points": sp, "extraPts": extra_pts, "cards": names, "streak": w.sign_streak}
 
 
@@ -899,17 +1121,18 @@ def issue_card(sess: Session, uid: int, tm: CardTpl, src: str, src_desc: str, op
         op=str(op or "")[:64],
     )
     sess.add(card)
+    flow_card_in(sess, card, tm.name)
     return card
 
 
-def close_card(card: Card, status: str, op, void_reason: str | None = None) -> None:
+def close_card(sess: Session, card: Card, status: str, op, void_reason: str | None = None) -> None:
     """Mark a card USED/VOID and record when and by whom (shown in 卡包订单)."""
     card.status = status
     if void_reason is not None:
         card.void_reason = void_reason[:64]
     card.done_at = business_now().strftime("%Y-%m-%d %H:%M")
-    nick = op.get("nick") if isinstance(op, dict) else op
-    card.done_op = str(nick or "")[:64]
+    card.done_op = _op_name(op)[:64]
+    flow_card_out(sess, card)
 
 
 def resolve_reward_card_tpl(sess: Session, ref) -> CardTpl | None:
@@ -1003,6 +1226,7 @@ def create_order(sess: Session, uid: int, items: list, pay_type: str, table_id, 
     )
     sess.add(order)
     sess.flush()
+    flow_order(sess, order, op="本人")
     return order.to_dict()
 
 
@@ -1030,6 +1254,7 @@ def create_recharge(sess: Session, uid: int, tier_id: int) -> dict:
     )
     sess.add(ro)
     sess.flush()
+    flow_recharge(sess, ro, op="本人")
     return ro.to_dict()
 
 
@@ -1040,6 +1265,7 @@ def cancel_recharge(sess: Session, uid: int, rid: int) -> dict:
     r.status = "CLOSED"
     r.close_reason = "USER_CANCEL"
     r.pending_uid = None
+    flow_recharge(sess, r, op="本人")
     try:
         cache.unlock_pending(sess, "recharge", uid)
     except Exception:
@@ -1083,8 +1309,8 @@ def create_withdraw(sess: Session, uid: int, pts: int) -> dict:
         pending_uid=uid,
     )
     sess.add(wo)
-    point_log(sess, uid, f"wdr-{wo.id}", av_before, int(wlt.point_av or 0))
     sess.flush()
+    flow_withdraw(sess, wo, op="本人", bal=(av_before, int(wlt.point_av or 0)))
     return wo.to_dict()
 
 
@@ -1100,7 +1326,7 @@ def cancel_withdraw(sess: Session, uid: int) -> dict:
     w.status = "CANCELLED"
     w.closed_at = f"{today_str()} {clock()}"
     w.pending_uid = None
-    restore_withdraw_frozen(sess, w)
+    restore_withdraw_frozen(sess, w, op="本人")
     try:
         cache.unlock_pending(sess, "withdraw", uid)
     except Exception:
@@ -1144,10 +1370,16 @@ def do_exchange(sess: Session, uid: int, tid: int, qty: int) -> bool:
     w.point_av -= t.cost * qty
     if stk >= 0:
         t.stock = stk - qty
+    cost = int(t.cost or 0)
     for _ in range(qty):
         card = issue_card(sess, uid, t, "EXCHANGE", "积分兑换", op="本人")
-        point_log(sess, uid, f"ex-{card.id}", av, av - int(t.cost or 0))
-        av -= int(t.cost or 0)
+        flow_put(
+            sess, uid, "POINT", f"ex-{card.id}", stamp=True,
+            typ="exchange", title="积分兑换", amount=f"−{cost:,}", delta=-cost,
+            status="兑换成功", tone="blue", content=f"兑换 {t.name}",
+            bal_before=av, bal_after=av - cost, op="本人",
+        )
+        av -= cost
     return True
 
 
@@ -1218,6 +1450,7 @@ def accept_order(sess: Session, oid: int, staff: dict) -> dict:
     o = sess.query(Order).filter_by(id=oid).with_for_update().first()
     if not o or o.status != "PENDING_ACCEPT":
         err("订单状态已变更")
+    bal = None
     if o.pay_type == "COIN":
         c = sess.query(Wallet).filter_by(user_id=o.uid).with_for_update().first()
         if not c:
@@ -1231,13 +1464,14 @@ def accept_order(sess: Session, oid: int, staff: dict) -> dict:
         coin_before = c.coin_p + c.coin_b
         c.coin_p -= dp
         c.coin_b -= bonus
-        point_log(sess, o.uid, f"ord-{o.id}", coin_before, c.coin_p + c.coin_b)
+        bal = (coin_before, c.coin_p + c.coin_b)
         o.paid_principal = dp
         o.paid_bonus = bonus
     o.status = "MAKING"
     o.accepted_by = staff["id"]
     o.op_uid = staff["id"]
     o.at = o.at or f"{today_str()} {clock()}"
+    flow_order(sess, o, op=staff, bal=bal)
     n = grant_combo(sess, o)
     log(sess, "ORDER_ACCEPT", f"{o.no} · {o.total} 金币", o.uid, staff)
     return {"order": o.to_dict(), "combo": n}
@@ -1256,6 +1490,7 @@ def reject_order(sess: Session, oid: int, reason: str, staff: dict) -> dict:
     o.status = "CANCELLED"
     o.cancel_reason = reason
     o.op_uid = staff["id"]
+    flow_order(sess, o, op=staff)
     log(sess, "ORDER_REJECT", f"{o.no} · {reason}", o.uid, staff)
     return o.to_dict()
 
@@ -1284,7 +1519,12 @@ def refund_order(sess: Session, oid: int, reason: str, admin: dict) -> dict:
         coin_before = wallet.coin_p + wallet.coin_b
         wallet.coin_p += principal
         wallet.coin_b += bonus
-        point_log(sess, o.uid, f"refund-{o.no}", coin_before, wallet.coin_p + wallet.coin_b)
+        flow_put(
+            sess, o.uid, "COIN", f"refund-o{o.id}", stamp=True,
+            typ="refund", title="订单退款", amount=f"+{principal + bonus:,}", delta=principal + bonus,
+            status="已退回", tone="green", content=f"{o.no} · {reason}",
+            bal_before=coin_before, bal_after=wallet.coin_p + wallet.coin_b, op=_op_name(admin),
+        )
         refund_type = "COIN"
     else:
         if o.status not in ("PENDING_ACCEPT", "MAKING", "FINISHED"):
@@ -1297,11 +1537,12 @@ def refund_order(sess: Session, oid: int, reason: str, admin: dict) -> dict:
     voided = 0
     for card in sess.query(Card).filter_by(uid=o.uid, src="ORDER_COMBO", status="UNUSED"):
         if o.no in (card.src_desc or ""):
-            close_card(card, "VOID", admin, f"订单退款 · {o.no}")
+            close_card(sess, card, "VOID", admin, f"订单退款 · {o.no}")
             voided += 1
 
     o.status = "REFUNDED"
     o.cancel_reason = f"退款：{reason}"[:128]
+    flow_order(sess, o)
     detail = f"{o.no} · "
     if refund_type == "COIN":
         detail += f"退回金币 {principal + bonus}（本金 {principal} / 赠送 {bonus}）"
@@ -1320,6 +1561,7 @@ def confirm_pay_order(sess: Session, oid: int, staff: dict) -> dict:
         err("订单状态已变更")
     o.status = "PENDING_ACCEPT"
     o.op_uid = staff["id"]
+    flow_order(sess, o, op=staff)
     log(sess, "ORDER_PAY_CONFIRM", o.no, o.uid, staff)
     return o.to_dict()
 
@@ -1329,6 +1571,7 @@ def finish_order(sess: Session, oid: int) -> dict:
     if not o or o.status != "MAKING":
         err("订单状态已变更")
     o.status = "FINISHED"
+    flow_order(sess, o)
     return o.to_dict()
 
 
@@ -1345,10 +1588,10 @@ def confirm_recharge(sess: Session, rid: int, staff: dict) -> dict:
     coin_before = c.coin_p + c.coin_b
     c.coin_p += r.amount
     c.coin_b += r.bonus
-    point_log(sess, r.uid, f"rc-{r.id}", coin_before, c.coin_p + c.coin_b)
     r.op_uid = staff["id"]
     r.at = r.at or f"{today_str()} {clock()}"
     r.pending_uid = None
+    flow_recharge(sess, r, op=staff, bal=(coin_before, c.coin_p + c.coin_b))
     try:
         cache.unlock_pending(sess, "recharge", r.uid)
     except Exception:
@@ -1366,6 +1609,7 @@ def reject_recharge(sess: Session, rid: int, reason: str, staff: dict) -> dict:
     r.reject_remark = reason
     r.op_uid = staff["id"]
     r.pending_uid = None
+    flow_recharge(sess, r, op=staff)
     try:
         cache.unlock_pending(sess, "recharge", r.uid)
     except Exception:
@@ -1389,6 +1633,7 @@ def confirm_withdraw(sess: Session, wid: int, staff: dict) -> dict:
     w.pending_uid = None
     pt.point_fz = max(0, pt.point_fz - w.pts)
     pt.point_wd += w.pts
+    flow_withdraw(sess, w, op=staff)
     try:
         cache.unlock_pending(sess, "withdraw", w.uid)
     except Exception:
@@ -1407,7 +1652,7 @@ def reject_withdraw(sess: Session, wid: int, reason: str, staff: dict) -> dict:
     w.reject_remark = reason
     w.closed_at = f"{today_str()} {clock()}"
     w.pending_uid = None
-    restore_withdraw_frozen(sess, w)
+    restore_withdraw_frozen(sess, w, op=staff)
     try:
         cache.unlock_pending(sess, "withdraw", w.uid)
     except Exception:
@@ -1435,7 +1680,7 @@ def verify_confirm(sess: Session, code: str, staff: dict) -> dict:
     for cid in vc.card_ids or []:
         c = sess.get(Card, cid)
         if c and c.status == "LOCKED":
-            close_card(c, "USED", staff)
+            close_card(sess, c, "USED", staff)
             tm = tpl(sess, c.tpl)
             sess.add(VerifyLog(
                 card_no=c.no, tpl_name=tm.name if tm else "卡券",
@@ -1550,14 +1795,27 @@ def submit_game(sess: Session, staff: dict, pid: int, table_id, players: list, w
     for row in prepared:
         wlt = wallet_of(sess, row["uid"])
         if row["pts"]:
-            point_log(sess, row["uid"], f"game-pts-{rec.id}", int(wlt.point_av or 0), int(wlt.point_av or 0) + row["pts"])
+            av_before = int(wlt.point_av or 0)
             wlt.point_av += row["pts"]
             wlt.point_wg += row["pts"]
             wlt.point_mg += row["pts"]
             wlt.point_pd = 0 if wlt.point_av >= 0 else -wlt.point_av
+            if row["pts"] > 0:
+                flow_put(
+                    sess, row["uid"], "POINT", f"game-pts-{rec.id}", stamp=True,
+                    typ="game", title="对局积分", amount=f"+{row['pts']:,}", delta=row["pts"],
+                    status="已到账", tone="green", content=_game_remark(rec),
+                    bal_before=av_before, bal_after=int(wlt.point_av), op=staff["nick"],
+                )
         if row["sh"]:
             wlt.shard_w += row["sh"]
             wlt.shard_t += row["sh"]
+            if row["sh"] > 0:
+                flow_shard(
+                    sess, row["uid"], f"game-{rec.id}", typ="game",
+                    title=" · ".join(x for x in (pname, rec.table or "未指定桌台", rec.round) if x),
+                    delta=row["sh"], op=staff["nick"],
+                )
         card_ids = _grant_game_gift_cards(
             sess, row["uid"], row["gifts"], pname=pname or "对局", game_id=rec.id, op=staff["nick"],
         )
@@ -2164,28 +2422,48 @@ def void_game(sess: Session, gid: int, reason: str, void_cards: bool, admin: dic
         if not w:
             w = wallet_of(sess, uid)
         if pts > 0:
-            # 跨月作废不扣积分：记一条前后相同的日志，用于说明
-            av_now = int(w.point_av or 0)
-            point_log(sess, uid, f"game-void-{g.id}", av_now, av_now if skip_pts else av_now - pts, admin)
+            flow_put(
+                sess, uid, "POINT", f"game-pts-{g.id}",
+                typ="game", title="对局积分", amount=f"+{pts:,}", delta=pts,
+                status="已作废", tone="red", struck=False,
+                content=_game_remark(g) + (" · 跨月作废，积分不扣回" if skip_pts else ""),
+            )
         if not skip_pts and pts > 0:
+            av_now = int(w.point_av or 0)
             w.point_av -= pts
             w.point_wg = max(0, int(w.point_wg or 0) - pts)
             w.point_mg = max(0, int(w.point_mg or 0) - pts)
             w.point_pd = 0 if w.point_av >= 0 else -w.point_av
+            flow_put(
+                sess, uid, "POINT", f"game-void-{g.id}", stamp=True,
+                typ="game_void", title="对局作废扣回", amount=f"−{pts:,}", delta=-pts,
+                status="已扣回", tone="red", content=f"{_game_remark(g)} · {reason}",
+                bal_before=av_now, bal_after=int(w.point_av), op=_op_name(admin),
+            )
             if w.point_av < 0 and void_cards:
                 for c in sess.query(Card).filter_by(uid=uid, status="UNUSED", src="EXCHANGE"):
-                    close_card(c, "VOID", admin, f"对局作废 · {reason}")
+                    close_card(sess, c, "VOID", admin, f"对局作废 · {reason}")
         if sh > 0:
             sh_before = int(w.shard_t or 0)
             w.shard_w = max(0, int(w.shard_w or 0) - sh)
             w.shard_t = max(0, int(w.shard_t or 0) - sh)
-            point_log(sess, uid, f"game-void-sh-{g.id}", sh_before, int(w.shard_t or 0), admin)
+            game_row = flow_put(
+                sess, uid, "SHARD", f"game-{g.id}", typ="game", amount=_signed(sh), delta=sh,
+                title=" · ".join(x for x in (g.pname, g.table or "未指定桌台", g.round) if x), struck=False,
+            )
+            if "已作废" not in (game_row.meta or ""):
+                base = game_row.meta or f"{_ledger_display_time(g.time or '')} · 操作员 {g.op or '—'}"
+                game_row.meta = f"{base} · 已作废"[:255]
+            flow_shard(
+                sess, uid, f"void-{g.id}", typ="void", title=f"对局作废扣回 · {g.pname or '对局'}",
+                delta=int(w.shard_t) - sh_before, op=_op_name(admin), remark=reason,
+            )
         # Rollback unused cards gifted in this game; already used/locked ones stay.
         for cid in p.get("cardIds") or []:
             c = sess.get(Card, int(cid))
             if not c or c.uid != uid or c.src != "GAME_GIFT" or c.status != "UNUSED":
                 continue
-            close_card(c, "VOID", admin, f"对局作废 · {reason}")
+            close_card(sess, c, "VOID", admin, f"对局作废 · {reason}")
             gift_voided += 1
             tm = tpl(sess, c.tpl)
             if tm and tm.stock >= 0:
@@ -2264,6 +2542,7 @@ def cancel_order(sess: Session, uid: int, oid: int) -> dict:
         err("无法取消")
     o.status = "CLOSED"
     o.cancel_reason = "USER_CANCEL"
+    flow_order(sess, o, op="本人")
     return o.to_dict()
 
 
@@ -2395,6 +2674,9 @@ def exec_deactivation(sess: Session, did: int, action: str, reason: str, admin: 
             # Free mobile / WeChat immediately so they can re-register.
             release_deactivated_login_identity(sess, usr)
         void_n = 0
+        coin_total = int(w.coin_p or 0) + int(w.coin_b or 0)
+        av_total = int(w.point_av or 0)
+        shard_t = int(w.shard_t or 0)
         w.coin_p = 0
         w.coin_b = 0
         w.point_av = 0
@@ -2402,8 +2684,26 @@ def exec_deactivation(sess: Session, did: int, action: str, reason: str, admin: 
         w.point_fz = 0
         w.shard_w = 0
         w.shard_t = 0
+        op_name = _op_name(admin)
+        if coin_total:
+            flow_put(
+                sess, d.uid, "COIN", f"deact-{d.id}", stamp=True,
+                typ="deactivate", title="账号注销清零", amount=_signed(-coin_total), delta=-coin_total,
+                status="已清零", tone="grey", content=f"退还本金 ¥{refunded:,}，赠送 {coin_b:,} 作废",
+                bal_before=coin_total, bal_after=0, op=op_name,
+            )
+        if av_total:
+            flow_put(
+                sess, d.uid, "POINT", f"deact-{d.id}", stamp=True,
+                typ="deactivate", title="账号注销清零", amount=_signed(-av_total), delta=-av_total,
+                status="已清零", tone="grey", content="账号注销，可用积分清零",
+                bal_before=av_total, bal_after=0, op=op_name,
+            )
+        if shard_t:
+            flow_shard(sess, d.uid, f"deact-{d.id}", typ="deactivate", title="账号注销清零",
+                       delta=-shard_t, op=op_name, remark="碎片清零")
         for card in sess.query(Card).filter_by(uid=d.uid, status="UNUSED"):
-            close_card(card, "VOID", admin, "账号注销作废")
+            close_card(sess, card, "VOID", admin, "账号注销作废")
             void_n += 1
         d.refund_ok = True
         d.refunded = refunded
@@ -3154,6 +3454,8 @@ def member_adjust_coin(sess: Session, uid: int, delta: int, reason: str, admin: 
             status="PENDING",
         )
         sess.add(adj)
+        sess.flush()
+        flow_coin_adjust(sess, adj, _op_name(admin))
         log(sess, "COIN_ADJUST_APPLY",
             f"店长发起金币调整申请 · {user.nick} {'+' if delta > 0 else ''}{delta} 本金 · 原因：{reason} · 待老板审批",
             uid, admin)
@@ -3169,6 +3471,12 @@ def member_adjust_coin(sess: Session, uid: int, delta: int, reason: str, admin: 
         w.coin_p -= dp
         w.coin_b -= need - dp
     after = w.coin_p + w.coin_b
+    flow_put(
+        sess, uid, "COIN", _new_ref("cdir"), stamp=True,
+        typ="adjust", title="店员调整金币", amount=_signed(delta), delta=delta,
+        status="已生效", tone="blue", content=reason or "店员手动调整",
+        bal_before=before, bal_after=after, op=_op_name(admin),
+    )
     log(sess, "COIN_ADJUST",
         f"调整 {user.nick} 金币 {'+' if delta > 0 else ''}{delta} · 余额 {before}→{after} · 原因：{reason}",
         uid, admin)
@@ -3202,6 +3510,12 @@ def member_adjust_point(sess: Session, uid: int, delta: int, reason: str, admin:
     before = int(w.point_av or 0)
     w.point_av += delta
     w.point_pd = 0 if w.point_av >= 0 else -w.point_av
+    flow_put(
+        sess, uid, "POINT", _new_ref("padj"), stamp=True,
+        typ="adjust", title="店员调整积分", amount=_signed(delta), delta=delta,
+        status="已生效", tone="blue", content=reason or "店员手动调整",
+        bal_before=before, bal_after=int(w.point_av), op=_op_name(admin),
+    )
     log(
         sess, "POINT_ADJUST",
         f"快速调整 {user.nick} 积分 {'+' if delta > 0 else ''}{delta} · 可用 {before}→{w.point_av}"
@@ -3229,6 +3543,8 @@ def member_adjust_shard(sess: Session, uid: int, delta: int, reason: str, admin:
     bw, bt = w.shard_w, w.shard_t
     w.shard_w += delta
     w.shard_t = max(w.shard_w, w.shard_t + delta)
+    flow_shard(sess, uid, _new_ref("adj"), typ="adjust", title="店员调整碎片",
+               delta=delta, op=_op_name(admin), remark=reason)
     log(sess, "SHARD_ADJUST",
         f"快速调整 {user.nick} 碎片 {'+' if delta > 0 else ''}{delta} · 本周 {bw}→{w.shard_w} · 累计 {bt}→{w.shard_t}{_reason_tail(reason)}",
         uid, admin)
@@ -3281,7 +3597,7 @@ def member_revoke_cards(sess: Session, uid: int, tpl_id: int, qty: int, reason: 
     if len(cards) < qty:
         raise ValueError(f"未使用「{tm.name}」仅剩 {len(cards)} 张，无法扣减 {qty} 张")
     for c in cards:
-        close_card(c, "VOID", admin, f"手动扣减 · {reason or '快速调整'}")
+        close_card(sess, c, "VOID", admin, f"手动扣减 · {reason or '快速调整'}")
         # Exchange stock was decremented on redeem; restore when unused exch cards are voided.
         if c.src == "EXCHANGE" and tm.stock is not None and int(tm.stock) >= 0:
             tm.stock = int(tm.stock or 0) + 1
@@ -3490,15 +3806,18 @@ def _parse_point_adjust_detail(detail: str) -> tuple[str, str, str]:
     return amount or "调整", proc, remark
 
 
-def shard_records(sess: Session, uid: int, limit: int = 30) -> list[dict]:
-    """碎片记录：对局获得 / 对局作废扣回 / 店员调整 / 每周当周碎片清零，按时间倒序。"""
+def _legacy_shard_records(sess: Session, uid: int, limit: int = 30, full: bool = False) -> list[dict]:
+    """Pre-asset_flows shard history rebuilt from business tables (history copy only)."""
+    cap = (lambda n: n * 50) if full else (lambda n: n)
+    if full:
+        limit = 100_000
     rows: list[dict] = []
     logs = {
         str(x.ref): x
-        for x in sess.query(PointLog).filter(PointLog.uid == uid).order_by(PointLog.id.desc()).limit(500)
+        for x in sess.query(PointLog).filter(PointLog.uid == uid).order_by(PointLog.id.desc()).limit(cap(500))
     }
     hits = 0
-    for g in sess.query(GameRecord).order_by(GameRecord.id.desc()).limit(400):
+    for g in sess.query(GameRecord).order_by(GameRecord.id.desc()).limit(cap(400)):
         if hits >= limit:
             break
         p = next((x for x in (g.players or []) if int(x.get("uid") or 0) == uid), None)
@@ -3560,8 +3879,9 @@ def shard_records(sess: Session, uid: int, limit: int = 30) -> list[dict]:
             "meta": meta, "delta": delta, "void": False, "_sort": _ledger_sort_at(at, log_row.id),
         })
     rows.sort(key=lambda x: x["_sort"], reverse=True)
-    for r in rows:
-        r.pop("_sort", None)
+    if not full:
+        for r in rows:
+            r.pop("_sort", None)
     return rows[:limit]
 
 
@@ -3754,12 +4074,14 @@ def _card_done_meta(c: Card, ctx: _CardLedgerCtx) -> tuple[str, str]:
     return at, op
 
 
-def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80) -> list[dict]:
-    """Aggregate customer-visible asset changes for 金币/积分/卡券订单页."""
+def _legacy_customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80,
+                            full: bool = False) -> list[dict]:
+    """Pre-asset_flows ledger rebuilt from business tables (history copy only)."""
+    cap = (lambda n: n * 50) if full else (lambda n: n)
     kind = (kind or "all").upper()
     if kind not in ("ALL", "COIN", "POINT", "CARD"):
         kind = "ALL"
-    limit = max(1, min(int(limit or 80), 200))
+    limit = 1_000_000 if full else max(1, min(int(limit or 80), 200))
     rows: list[dict] = []
     nicks: dict[int, str] = {}
 
@@ -3773,14 +4095,14 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
     if kind in ("ALL", "POINT"):
         plogs = {
             str(x.ref): x
-            for x in sess.query(PointLog).filter(PointLog.uid == uid).order_by(PointLog.id.desc()).limit(500)
+            for x in sess.query(PointLog).filter(PointLog.uid == uid).order_by(PointLog.id.desc()).limit(cap(500))
         }
 
         def balance(ref: str) -> str:
             x = plogs.get(ref)
             return f"{int(x.before):,}→{int(x.after):,}" if x else ""
 
-        for w in sess.query(Withdrawal).filter_by(uid=uid).order_by(Withdrawal.id.desc()).limit(60):
+        for w in sess.query(Withdrawal).filter_by(uid=uid).order_by(Withdrawal.id.desc()).limit(cap(60)):
             st, tone = _WDR_STATUS.get(w.status, (w.status or "—", "grey"))
             when = w.grant_at or w.closed_at or w.at or w.created or ""
             remark = w.reject_remark or (f"提分单 {w.no}" if w.no else "积分提取")
@@ -3820,7 +4142,7 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
             sess.query(OpLog)
             .filter(OpLog.uid == uid, OpLog.action == "POINT_ADJUST")
             .order_by(OpLog.id.desc())
-            .limit(60)
+            .limit(cap(60))
         ):
             amount, process, remark = _parse_point_adjust_detail(str(log_row.detail or ""))
             rows.append(_ledger_item(
@@ -3830,7 +4152,7 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
                 at=log_row.t or "", sort_id=log_row.id,
                 content=remark, process=process, operator=str(log_row.op or "").strip(),
             ))
-        for c in sess.query(Card).filter_by(uid=uid, src="EXCHANGE").order_by(Card.id.desc()).limit(60):
+        for c in sess.query(Card).filter_by(uid=uid, src="EXCHANGE").order_by(Card.id.desc()).limit(cap(60)):
             tm = tpl(sess, c.tpl)
             name = tm.name if tm else "卡券"
             cost = int(tm.cost or 0) if tm else 0
@@ -3859,7 +4181,7 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
             sess.query(SignRecord)
             .filter_by(uid=uid)
             .order_by(SignRecord.month.desc(), SignRecord.day.desc())
-            .limit(90)
+            .limit(cap(90))
         ):
             base, extra, streak = _sign_award_for_record(sess, sr, signed_dates)
             total = base + extra
@@ -3882,8 +4204,8 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
             ))
         # 对局录入积分
         game_hits = 0
-        for g in sess.query(GameRecord).order_by(GameRecord.id.desc()).limit(400):
-            if game_hits >= 60:
+        for g in sess.query(GameRecord).order_by(GameRecord.id.desc()).limit(cap(400)):
+            if game_hits >= cap(60):
                 break
             player = next(
                 (p for p in (g.players or []) if int(p.get("uid") or 0) == uid),
@@ -3928,14 +4250,14 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
     if kind in ("ALL", "COIN"):
         clogs = {
             str(x.ref): x
-            for x in sess.query(PointLog).filter(PointLog.uid == uid).order_by(PointLog.id.desc()).limit(500)
+            for x in sess.query(PointLog).filter(PointLog.uid == uid).order_by(PointLog.id.desc()).limit(cap(500))
         }
 
         def coin_balance(ref: str) -> str:
             x = clogs.get(ref)
             return f"{int(x.before):,}→{int(x.after):,}" if x else ""
 
-        for o in sess.query(Order).filter_by(uid=uid).order_by(Order.id.desc()).limit(60):
+        for o in sess.query(Order).filter_by(uid=uid).order_by(Order.id.desc()).limit(cap(60)):
             st, tone = _ORDER_STATUS.get(o.status, (o.status or "—", "grey"))
             title = "、".join(
                 f"{it.get('name') or '商品'}{('×' + str(it.get('qty'))) if int(it.get('qty') or 1) > 1 else ''}"
@@ -3967,7 +4289,7 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
                 process=o_bal,
                 operator=o_op,
             ))
-        for r in sess.query(Recharge).filter_by(uid=uid).order_by(Recharge.id.desc()).limit(60):
+        for r in sess.query(Recharge).filter_by(uid=uid).order_by(Recharge.id.desc()).limit(cap(60)):
             st, tone = _RC_STATUS.get(r.status, (r.status or "—", "grey"))
             bonus = int(r.bonus or 0)
             amt = int(r.amount or 0)
@@ -3987,7 +4309,7 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
                 ),
             ))
         for adj in (
-            sess.query(CoinAdjust).filter_by(uid=uid).order_by(CoinAdjust.id.desc()).limit(40)
+            sess.query(CoinAdjust).filter_by(uid=uid).order_by(CoinAdjust.id.desc()).limit(cap(40))
         ):
             st_map = {"PENDING": ("待审批", "gold"), "APPROVED": ("已生效", "green"), "REJECTED": ("已驳回", "red")}
             st, tone = st_map.get(adj.status, (adj.status or "—", "grey"))
@@ -4007,7 +4329,7 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
             sess.query(OpLog)
             .filter(OpLog.uid == uid, OpLog.action == "ORDER_REFUND")
             .order_by(OpLog.id.desc())
-            .limit(40)
+            .limit(cap(40))
         ):
             detail = str(log_row.detail or "")
             m = re.search(r"退回金币\s*(\d+)", detail)
@@ -4029,7 +4351,7 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
             sess.query(OpLog)
             .filter(OpLog.uid == uid, OpLog.action == "COIN_ADJUST")
             .order_by(OpLog.id.desc())
-            .limit(40)
+            .limit(cap(40))
         ):
             detail = str(log_row.detail or "")
             m = re.search(r"金币\s*([+-]?\d+)", detail)
@@ -4054,7 +4376,7 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
             "VOID": ("卡券作废", "已作废", "red"),
             "EXPIRED": ("卡券过期", "已过期", "grey"),
         }
-        for c in sess.query(Card).filter_by(uid=uid).order_by(Card.id.desc()).limit(80):
+        for c in sess.query(Card).filter_by(uid=uid).order_by(Card.id.desc()).limit(cap(80)):
             tm = tpl(sess, c.tpl)
             name = tm.name if tm else "卡券"
             form, remark = _card_form_and_remark(c)
@@ -4094,9 +4416,110 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
             rows.append(out)
 
     rows.sort(key=lambda x: (x.get("_sort") or "", x.get("id") or ""), reverse=True)
-    for r in rows:
-        r.pop("_sort", None)
+    if not full:
+        for r in rows:
+            r.pop("_sort", None)
     return rows[:limit]
+
+
+def _parse_balance_text(text: str) -> tuple[int | None, int | None, str]:
+    m = re.fullmatch(r"\s*(-?[\d,]+)\s*→\s*(-?[\d,]+)\s*", str(text or ""))
+    if m:
+        return int(m.group(1).replace(",", "")), int(m.group(2).replace(",", "")), ""
+    return None, None, str(text or "")
+
+
+def _backfill_flow_history(sess: Session, uid: int) -> None:
+    """Copy rows the old ledger rebuilt from business tables into asset_flows (runs once per user)."""
+    have = {(a, r) for a, r in sess.query(AssetFlow.asset, AssetFlow.ref).filter(AssetFlow.uid == uid).all()}
+    for it in _legacy_customer_ledger(sess, uid, "ALL", full=True):
+        asset, ref = str(it.get("kind") or "").upper(), str(it.get("id") or "")
+        if asset not in ("POINT", "COIN", "CARD") or not ref or (asset, ref) in have:
+            continue
+        have.add((asset, ref))
+        before, after, note = _parse_balance_text(it.get("process"))
+        sess.add(AssetFlow(
+            uid=uid, asset=asset, ref=ref[:48], typ=str(it.get("type") or "")[:24],
+            title=str(it.get("title") or "")[:128], amount=str(it.get("amount") or "")[:32],
+            status=str(it.get("status") or "")[:16], tone=str(it.get("statusTone") or "")[:8],
+            content=str(it.get("content") or "")[:255], bal_before=before, bal_after=after, note=note[:32],
+            card_no=str(it.get("cardNo") or "")[:32], ref_id=(it.get("order") or {}).get("id"),
+            struck=it.get("struck"), at=str(it.get("at") or "")[:16],
+            sort_at=str(it.get("_sort") or "")[:19], op=str(it.get("operator") or "")[:64],
+        ))
+    for it in _legacy_shard_records(sess, uid, full=True):
+        ref = str(it.get("key") or "")
+        if not ref or ("SHARD", ref) in have:
+            continue
+        have.add(("SHARD", ref))
+        delta = int(it.get("delta") or 0)
+        sess.add(AssetFlow(
+            uid=uid, asset="SHARD", ref=ref[:48], typ=ref.split("-", 1)[0][:24],
+            title=str(it.get("title") or "")[:128], amount=_signed(delta), delta=delta,
+            meta=str(it.get("meta") or "")[:255], struck=bool(it.get("void")),
+            at=_ledger_display_time(str(it.get("time") or ""))[:16],
+            sort_at=str(it.get("_sort") or "")[:19], op=str(it.get("op") or "")[:64],
+        ))
+    sess.flush()
+
+
+def _flow_item(row: AssetFlow, orders: dict[int, Order]) -> dict:
+    kind = str(row.asset or "").lower()
+    if row.bal_before is not None and row.bal_after is not None:
+        process = f"{int(row.bal_before):,}→{int(row.bal_after):,}"
+    else:
+        process = row.note or ""
+    item = _ledger_item(
+        key=row.ref, kind=kind, typ=row.typ or "", title=row.title or "", amount=row.amount or "",
+        status=row.status or "", tone=row.tone or "", meta="", at=row.at or "",
+        content=row.content or "", process="" if kind == "card" else process, operator=row.op or "",
+    )
+    item.pop("_sort", None)
+    if kind == "card":
+        item["cardNo"] = row.card_no or ""
+    if row.struck is not None:
+        item["struck"] = bool(row.struck)
+    if row.typ == "order" and row.ref_id in orders:
+        item["order"] = orders[row.ref_id].to_dict()
+    return item
+
+
+def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80) -> list[dict]:
+    """金币/积分/卡券订单页：直接读取资产流水表，按时间倒序。"""
+    kind = (kind or "all").upper()
+    assets = {"COIN": ("COIN",), "POINT": ("POINT",), "CARD": ("CARD",)}.get(kind, ("POINT", "COIN", "CARD"))
+    limit = max(1, min(int(limit or 80), 200))
+    _ensure_flow_history(sess, uid)
+    rows = (
+        sess.query(AssetFlow)
+        .filter(AssetFlow.uid == uid, AssetFlow.asset.in_(assets))
+        .order_by(AssetFlow.sort_at.desc(), AssetFlow.id.desc())
+        .limit(limit)
+        .all()
+    )
+    order_ids = [int(r.ref_id) for r in rows if r.typ == "order" and r.ref_id]
+    orders = {o.id: o for o in sess.query(Order).filter(Order.id.in_(order_ids)).all()} if order_ids else {}
+    return [_flow_item(r, orders) for r in rows]
+
+
+def shard_records(sess: Session, uid: int, limit: int = 30) -> list[dict]:
+    """碎片记录：对局获得 / 对局作废扣回 / 店员调整 / 每周当周碎片清零，按时间倒序。"""
+    _ensure_flow_history(sess, uid)
+    rows = (
+        sess.query(AssetFlow)
+        .filter(AssetFlow.uid == uid, AssetFlow.asset == "SHARD")
+        .order_by(AssetFlow.sort_at.desc(), AssetFlow.id.desc())
+        .limit(max(1, min(int(limit or 30), 200)))
+        .all()
+    )
+    return [
+        {
+            "id": r.ref, "key": r.ref, "pname": r.title or "", "table": "", "round": "",
+            "time": r.at or "", "op": r.op or "", "my": {"sh": int(r.delta or 0)},
+            "title": r.title or "", "meta": r.meta or "", "delta": int(r.delta or 0), "void": bool(r.struck),
+        }
+        for r in rows
+    ]
 
 
 def staff_member_adjust_detail(sess: Session, uid: int) -> dict:
@@ -4155,7 +4578,7 @@ def staff_direct_verify(sess: Session, uid: int, card_id: int, tail: str, reason
     if not card or card.uid != uid or card.status != "UNUSED":
         raise ValueError("卡券状态已变更，请返回重试")
     tm = tpl(sess, card.tpl)
-    close_card(card, "USED", staff)
+    close_card(sess, card, "USED", staff)
     sess.add(VerifyLog(
         card_no=card.no,
         tpl_name=tm.name if tm else "卡券",
@@ -4294,10 +4717,10 @@ def approve_coin_adjust(sess: Session, aid: int, action: str, admin: dict, reaso
         if w.coin_b < 0:
             w.coin_b = 0
         after = w.coin_p + w.coin_b
-        point_log(sess, a.uid, f"cadj-{a.id}", before, after)
         a.status = "APPROVED"
         a.audit_by = admin["id"]
         a.audit_at = fmt_hm()
+        flow_coin_adjust(sess, a, adj_name, bal=(before, after), stamp=True)
         log(sess, "COIN_ADJUST_APPROVE",
             f"{nick} · {'+' if a.delta > 0 else ''}{a.delta} {typ} · 余额 {before}→{after} · 申请人 {adj_name} · 原因：{a.reason}",
             a.uid, admin)
@@ -4309,6 +4732,7 @@ def approve_coin_adjust(sess: Session, aid: int, action: str, admin: dict, reaso
         a.audit_by = admin["id"]
         a.audit_at = fmt_hm()
         a.audit_remark = r
+        flow_coin_adjust(sess, a, adj_name, stamp=True)
         log(sess, "COIN_ADJUST_REJECT",
             f"{nick} · {'+' if a.delta > 0 else ''}{a.delta} 已驳回 · 原因：{r}",
             a.uid, admin)
@@ -4673,6 +5097,7 @@ _PURGE_FULL_CLEAR_MODELS = (
     GameRecord,
     SignRecord,
     PointLog,
+    AssetFlow,
     CoinAdjust,
     Deactivation,
     Withdrawal,
@@ -4701,6 +5126,7 @@ def _purge_reset_bosses(sess: Session, bosses: list[User]) -> list[dict]:
         w.point_av = w.point_wg = w.point_mg = w.point_pd = w.point_wd = w.point_fz = 0
         w.shard_w = w.shard_t = 0
         w.sign_streak = 0
+        w.flow_ready = True
     return kept
 
 
