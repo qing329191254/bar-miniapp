@@ -1226,8 +1226,10 @@ def accept_order(sess: Session, oid: int, staff: dict) -> dict:
             err(f"余额不足，差 {o.total - c.coin_p - c.coin_b} 金币")
         dp = min(c.coin_p, o.total)
         bonus = o.total - dp
+        coin_before = c.coin_p + c.coin_b
         c.coin_p -= dp
         c.coin_b -= bonus
+        point_log(sess, o.uid, f"ord-{o.id}", coin_before, c.coin_p + c.coin_b)
         o.paid_principal = dp
         o.paid_bonus = bonus
     o.status = "MAKING"
@@ -1335,8 +1337,10 @@ def confirm_recharge(sess: Session, rid: int, staff: dict) -> dict:
         sess.flush()
         c = sess.query(Wallet).filter_by(user_id=r.uid).with_for_update().first()
     r.status = "PAID"
+    coin_before = c.coin_p + c.coin_b
     c.coin_p += r.amount
     c.coin_b += r.bonus
+    point_log(sess, r.uid, f"rc-{r.id}", coin_before, c.coin_p + c.coin_b)
     r.op_uid = staff["id"]
     r.at = r.at or f"{today_str()} {clock()}"
     r.pending_uid = None
@@ -3551,8 +3555,8 @@ def _ledger_item(
     }
     if order is not None:
         item["order"] = order
-    if kind in ("point", "card"):
-        # 积分/卡包订单统一字段：显示内容 / 数量 / 时间 / 变更过程 / 操作员
+    if kind in ("point", "card", "coin"):
+        # 金币/积分/卡包订单统一字段：显示内容 / 数量 / 时间 / 变更过程 / 操作员
         item["content"] = content or title
         item["process"] = process or ""
         item["operator"] = operator or ""
@@ -3802,35 +3806,58 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
             ))
 
     if kind in ("ALL", "COIN"):
+        clogs = {
+            str(x.ref): x
+            for x in sess.query(PointLog).filter(PointLog.uid == uid).order_by(PointLog.id.desc()).limit(500)
+        }
+        nicks: dict[int, str] = {}
+
+        def coin_balance(ref: str) -> str:
+            x = clogs.get(ref)
+            return f"{int(x.before):,}→{int(x.after):,}" if x else ""
+
+        def nick_of(staff_uid) -> str:
+            sid = int(staff_uid or 0)
+            if sid not in nicks:
+                usr = sess.get(User, sid) if sid else None
+                nicks[sid] = (usr.nick if usr else "") or ""
+            return nicks[sid]
+
         for o in sess.query(Order).filter_by(uid=uid).order_by(Order.id.desc()).limit(60):
             st, tone = _ORDER_STATUS.get(o.status, (o.status or "—", "grey"))
             title = "、".join(
                 f"{it.get('name') or '商品'}{('×' + str(it.get('qty'))) if int(it.get('qty') or 1) > 1 else ''}"
                 for it in (o.items or [])
             ) or o.no
-            pay = "金币支付" if o.pay_type == "COIN" else "到吧台付款"
+            is_coin = o.pay_type == "COIN"
+            remark_bits = ["金币支付" if is_coin else "到吧台付款", o.table_name or "未指定桌台", o.no]
+            if o.status in ("CANCELLED", "REFUNDED", "CLOSED") and o.cancel_reason:
+                remark_bits.append(o.cancel_reason)
             rows.append(_ledger_item(
                 key=f"ord-{o.id}", kind="coin", typ="order",
-                title=title, amount=f"−{int(o.total or 0):,}",
-                status=st, tone=tone,
-                meta=" · ".join(p for p in [o.ago or o.at, o.table_name or "未指定桌台", f"{pay} {o.total}"] if p),
+                title=title,
+                amount=f"−{int(o.total or 0):,}" if is_coin else f"¥{int(o.total or 0):,}",
+                status=st, tone=tone, meta="",
                 at=o.at or o.ago or "", sort_id=int(o.id),
                 order=o.to_dict(),
+                content=" · ".join(p for p in remark_bits if p),
+                process=coin_balance(f"ord-{o.id}"),
+                operator=nick_of(o.accepted_by or o.op_uid),
             ))
         for r in sess.query(Recharge).filter_by(uid=uid).order_by(Recharge.id.desc()).limit(60):
             st, tone = _RC_STATUS.get(r.status, (r.status or "—", "grey"))
             bonus = int(r.bonus or 0)
             amt = int(r.amount or 0)
             amount = f"+{amt + bonus:,}" if r.status in ("PAID", "DONE") else f"{amt:,}"
-            title = "金币充值" + (f"（含赠送 {bonus}）" if bonus else "")
-            meta_parts = [r.at or r.created, r.no]
-            if r.reject_remark:
-                meta_parts.append(r.reject_remark)
+            remark_bits = [f"充值 ¥{amt:,}" + (f"，赠送 {bonus:,}" if bonus else ""), r.no, r.reject_remark]
             rows.append(_ledger_item(
                 key=f"rc-{r.id}", kind="coin", typ="recharge",
-                title=title, amount=amount,
-                status=st, tone=tone, meta=" · ".join(p for p in meta_parts if p),
+                title="金币充值", amount=amount,
+                status=st, tone=tone, meta="",
                 at=r.at or r.created or "", sort_id=int(r.id),
+                content=" · ".join(p for p in remark_bits if p),
+                process=coin_balance(f"rc-{r.id}"),
+                operator=nick_of(r.op_uid),
             ))
         for adj in (
             sess.query(CoinAdjust).filter_by(uid=uid).order_by(CoinAdjust.id.desc()).limit(40)
@@ -3843,29 +3870,32 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
             rows.append(_ledger_item(
                 key=f"cadj-{adj.id}", kind="coin", typ="adjust",
                 title="店员调整金币", amount=amount,
-                status=st, tone=tone,
-                meta=" · ".join(p for p in [when, adj.reason, adj.audit_remark] if p),
+                status=st, tone=tone, meta="",
                 at=when, sort_id=adj.id,
+                content="；".join(p for p in (adj.reason, adj.audit_remark) if p) or "店员手动调整",
+                process=coin_balance(f"cadj-{adj.id}"),
+                operator=nick_of(adj.adjust_by),
             ))
-        # Boss direct COIN_ADJUST may not create CoinAdjust row — include OpLog.
+        # 老板直接调整不生成 CoinAdjust，只有操作日志（审批通过的已由 CoinAdjust 覆盖）
         for log_row in (
             sess.query(OpLog)
-            .filter(OpLog.uid == uid, OpLog.action.in_(("COIN_ADJUST", "COIN_ADJUST_APPROVE")))
+            .filter(OpLog.uid == uid, OpLog.action == "COIN_ADJUST")
             .order_by(OpLog.id.desc())
             .limit(40)
         ):
-            # Skip if we already have a matching CoinAdjust APPROVED row covering it (best-effort by time).
             detail = str(log_row.detail or "")
             m = re.search(r"金币\s*([+-]?\d+)", detail)
-            delta = m.group(1) if m else ""
-            amount = f"{'+' if delta and not delta.startswith(('+', '-')) else ''}{delta}" if delta else "调整"
-            reason = detail.split("原因：", 1)[-1].strip() if "原因：" in detail else detail
+            delta = int(m.group(1)) if m else 0
+            pm = re.search(r"余额\s*(-?\d+)\s*(?:→|->)\s*(-?\d+)", detail)
+            reason = detail.split("原因：", 1)[-1].strip() if "原因：" in detail else ""
             rows.append(_ledger_item(
                 key=f"clog-{log_row.id}", kind="coin", typ="adjust",
-                title="店员调整金币", amount=amount if amount != "调整" else "金币调整",
-                status="已生效", tone="blue",
-                meta=" · ".join(p for p in [log_row.t, reason] if p),
+                title="店员调整金币", amount=f"{'+' if delta > 0 else ''}{delta:,}" if delta else "调整",
+                status="已生效", tone="blue", meta="",
                 at=log_row.t or "", sort_id=log_row.id,
+                content=reason or "店员手动调整",
+                process=f"{int(pm.group(1)):,}→{int(pm.group(2)):,}" if pm else "",
+                operator=str(log_row.op or "").strip(),
             ))
 
     if kind in ("ALL", "CARD"):
@@ -3896,20 +3926,6 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
     rows.sort(key=lambda x: (x.get("_sort") or "", x.get("id") or ""), reverse=True)
     for r in rows:
         r.pop("_sort", None)
-    # Deduplicate coin adjusts: prefer CoinAdjust rows over OpLog with same day+delta (keep both if unsure).
-    # Soft dedupe: drop OpLog COIN_ADJUST when an APPROVED CoinAdjust exists with same delta and close time.
-    if kind in ("ALL", "COIN"):
-        adj_keys = {
-            (str(x.get("amount")), str(x.get("at") or "")[:10])
-            for x in rows if x.get("type") == "adjust" and str(x.get("id") or "").startswith("cadj-")
-        }
-        rows = [
-            x for x in rows
-            if not (
-                str(x.get("id") or "").startswith("clog-")
-                and (str(x.get("amount")), str(x.get("at") or "")[:10]) in adj_keys
-            )
-        ]
     return rows[:limit]
 
 
@@ -4108,6 +4124,7 @@ def approve_coin_adjust(sess: Session, aid: int, action: str, admin: dict, reaso
         if w.coin_b < 0:
             w.coin_b = 0
         after = w.coin_p + w.coin_b
+        point_log(sess, a.uid, f"cadj-{a.id}", before, after)
         a.status = "APPROVED"
         a.audit_by = admin["id"]
         a.audit_at = fmt_hm()

@@ -427,7 +427,7 @@ class SignRecord(Base):
 
 
 class PointLog(Base):
-    """Available-points balance before/after each change; ref matches the customer ledger row id."""
+    """Balance before/after each points or coin change; ref matches the customer ledger row id (wdr-/sign-/ord-/rc-…)."""
     __tablename__ = "point_logs"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     uid: Mapped[int] = mapped_column(Integer, index=True)

@@ -167,6 +167,58 @@ class CustomerLedgerPointSourcesTests(unittest.TestCase):
         self.assertEqual(v["doneAt"], "2026-09-29 15:00")
         self.assertEqual(v["operator"], "老板")
 
+    def test_coin_ledger_fields(self):
+        order = SimpleNamespace(
+            id=5, no="DD1", uid=9, items=[{"name": "可乐", "qty": 2}], pay_type="COIN", status="FINISHED",
+            table_name="A1", total=30, at="2026-09-29 12:00", ago="", accepted_by=7, op_uid=7, cancel_reason=None,
+        )
+        order.to_dict = lambda: {"id": 5, "status": "FINISHED"}
+        recharge = SimpleNamespace(
+            id=6, no="CZ1", uid=9, amount=100, bonus=20, status="PAID", at="2026-09-29 10:00",
+            created="", reject_remark=None, op_uid=7,
+        )
+        boss_adj = SimpleNamespace(
+            id=8, t="09-29 13:00", op="张老板", action="COIN_ADJUST",
+            detail="调整 天才儿童 金币 +1000 · 余额 120→1120 · 原因：活动",
+        )
+        logs = [
+            SimpleNamespace(ref="rc-6", before=0, after=120, at=""),
+            SimpleNamespace(ref="ord-5", before=1120, after=1090, at=""),
+        ]
+
+        def query_side(model):
+            q = MagicMock()
+            if model is L.Order:
+                q.filter_by.return_value.order_by.return_value.limit.return_value = [order]
+            elif model is L.Recharge:
+                q.filter_by.return_value.order_by.return_value.limit.return_value = [recharge]
+            elif model is L.CoinAdjust:
+                q.filter_by.return_value.order_by.return_value.limit.return_value = []
+            elif model is L.OpLog:
+                q.filter.return_value.order_by.return_value.limit.return_value = [boss_adj]
+            elif model is L.PointLog:
+                q.filter.return_value.order_by.return_value.limit.return_value = logs
+            return q
+
+        sess = MagicMock()
+        sess.query.side_effect = query_side
+        sess.get.side_effect = lambda model, pk: SimpleNamespace(nick="店员小李") if model is L.User and pk == 7 else None
+        items = {x["id"]: x for x in L.customer_ledger(sess, uid=9, kind="COIN", limit=80)}
+
+        o = items["ord-5"]
+        self.assertEqual(o["amount"], "−30")
+        self.assertEqual(o["process"], "1,120→1,090")
+        self.assertEqual(o["operator"], "店员小李")
+        self.assertIn("金币支付", o["content"])
+        r = items["rc-6"]
+        self.assertEqual(r["amount"], "+120")
+        self.assertEqual(r["process"], "0→120")
+        a = items["clog-8"]
+        self.assertEqual(a["amount"], "+1,000")
+        self.assertEqual(a["process"], "120→1,120")
+        self.assertEqual(a["content"], "活动")
+        self.assertEqual(a["operator"], "张老板")
+
     def test_do_sign_writes_point_log(self):
         wallet = SimpleNamespace(point_av=0, point_wg=0, point_mg=0, point_pd=0, sign_streak=0)
         sess = MagicMock()

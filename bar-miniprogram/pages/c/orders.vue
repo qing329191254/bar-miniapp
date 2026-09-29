@@ -152,7 +152,7 @@ function reorder(order) {
       >{{ item.label }}</view>
     </view>
 
-    <view class="order-hint">{{ tab === 'point' ? '积分变更明细：备注、数量、时间、余额变化与操作员' : tab === 'card' ? '卡券变更明细：下发形式、下发时间、卡券号与核销/作废记录' : '以下为资产变更明细，含下单、充值、提分、兑换、签到、对局与店员调整' }}</view>
+    <view class="order-hint">{{ tab === 'point' ? '积分变更明细：备注、数量、时间、余额变化与操作员' : tab === 'coin' ? '金币变更明细：备注、数量、时间、余额变化与操作员' : tab === 'card' ? '卡券变更明细：下发形式、下发时间、卡券号与核销/作废记录' : '以下为资产变更明细，含下单、充值、提分、兑换、签到、对局与店员调整' }}</view>
 
     <view v-if="loading && !items.length" class="empty">加载中…</view>
     <view v-else-if="msg && !items.length" class="card empty-box">
@@ -195,8 +195,8 @@ function reorder(order) {
         </view>
       </view>
 
-      <!-- 4.3 积分订单统一：显示内容 / 加减数量 / 时间 / 变更过程 / 操作员 -->
-      <view v-else-if="row.kind === 'point'" class="point-grid">
+      <!-- 金币/积分订单统一：显示内容 / 加减数量 / 时间 / 变更过程 / 操作员 -->
+      <view v-else-if="row.kind === 'point' || row.kind === 'coin'" class="point-grid">
         <view class="point-row">
           <text class="point-k">备注</text>
           <text class="point-v">{{ row.content || '—' }}</text>
@@ -205,7 +205,7 @@ function reorder(order) {
           <text class="point-k">数量</text>
           <text
             class="point-v order-amt"
-            :class="{ plus: String(row.amount).startsWith('+'), minus: String(row.amount).startsWith('−') || String(row.amount).startsWith('-') }"
+            :class="{ plus: String(row.amount).startsWith('+'), minus: String(row.amount).startsWith('−') || String(row.amount).startsWith('-'), void: ['已作废', '已驳回', '已取消', '已关闭', '已退款'].includes(row.status) }"
           >{{ row.amount || '—' }}</text>
         </view>
         <view class="point-row">
@@ -320,6 +320,7 @@ function reorder(order) {
 .order-amt { margin-right: 8px; font-weight: 600; color: #1c1b19; }
 .order-amt.plus { color: #3b6d11; }
 .order-amt.minus { color: #a32d2d; }
+.order-amt.void { color: #9c9a93; text-decoration: line-through; }
 .point-grid { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
 .point-row { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; line-height: 1.45; }
 .point-k { flex: none; width: 48px; color: #9c9a93; }
