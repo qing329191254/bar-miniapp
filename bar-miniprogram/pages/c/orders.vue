@@ -136,7 +136,7 @@ function reorder(order) {
       >{{ item.label }}</button>
     </view>
 
-    <view class="order-hint">以下为资产变更明细，含下单、充值、提分、兑换与店员调整</view>
+    <view class="order-hint">{{ tab === 'point' ? '积分变更明细：备注、数量、时间、余额变化与操作店员' : '以下为资产变更明细，含下单、充值、提分、兑换、签到、对局与店员调整' }}</view>
 
     <view v-if="loading && !items.length" class="empty">加载中…</view>
     <view v-else-if="msg && !items.length" class="card empty-box">
@@ -150,7 +150,35 @@ function reorder(order) {
         <text class="order-name">{{ row.title }}</text>
         <text class="order-status" :class="'status-' + (row.statusTone || 'grey')">{{ row.status }}</text>
       </view>
-      <view class="order-meta">
+
+      <!-- 4.3 积分订单统一：显示内容 / 加减数量 / 时间 / 变更过程 / 店员 -->
+      <view v-if="row.kind === 'point'" class="point-grid">
+        <view class="point-row">
+          <text class="point-k">备注</text>
+          <text class="point-v">{{ row.content || '—' }}</text>
+        </view>
+        <view class="point-row">
+          <text class="point-k">数量</text>
+          <text
+            class="point-v order-amt"
+            :class="{ plus: String(row.amount).startsWith('+'), minus: String(row.amount).startsWith('−') || String(row.amount).startsWith('-') }"
+          >{{ row.amount || '—' }}</text>
+        </view>
+        <view class="point-row">
+          <text class="point-k">时间</text>
+          <text class="point-v">{{ row.at || '—' }}</text>
+        </view>
+        <view class="point-row">
+          <text class="point-k">余额</text>
+          <text class="point-v">{{ row.process || '—' }}</text>
+        </view>
+        <view class="point-row">
+          <text class="point-k">店员</text>
+          <text class="point-v">{{ row.operator || '—' }}</text>
+        </view>
+      </view>
+
+      <view v-else class="order-meta">
         <text v-if="row.amount" class="order-amt" :class="{ plus: String(row.amount).startsWith('+'), minus: String(row.amount).startsWith('−') || String(row.amount).startsWith('-') }">{{ row.amount }}</text>
         <text>{{ row.meta }}</text>
       </view>
@@ -248,6 +276,11 @@ function reorder(order) {
 .order-amt { margin-right: 8px; font-weight: 600; color: #1c1b19; }
 .order-amt.plus { color: #3b6d11; }
 .order-amt.minus { color: #a32d2d; }
+.point-grid { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.point-row { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; line-height: 1.45; }
+.point-k { flex: none; width: 36px; color: #9c9a93; }
+.point-v { flex: 1; min-width: 0; color: #6b6a65; word-break: break-all; }
+.point-v.order-amt { margin-right: 0; font-size: 15px; }
 .order-actions { display: flex; gap: 8px; margin-top: 12px; }
 .order-actions .btn, .reorder-btn { flex: 1; margin: 0; padding: 9px 10px; font-size: 13px; }
 .reorder-btn { display: block; width: 100%; margin-top: 12px; }

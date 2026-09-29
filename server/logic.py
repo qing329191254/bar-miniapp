@@ -3407,6 +3407,42 @@ def _ledger_sort_at(raw: str, fallback_id: int = 0) -> str:
     return f"0000-00-00 {int(fallback_id):08d}"
 
 
+def _ledger_display_time(raw: str) -> str:
+    """Normalize to YYYY-MM-DD HH:MM when possible (需求：年月日时分)."""
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    if len(text) >= 16 and text[4] == "-" and text[10] == " ":
+        return text[:16]
+    if len(text) >= 11 and text[2] == "-" and " " in text:
+        return f"{business_now().year}-{text[:11]}"
+    if len(text) == 10 and text[4] == "-":
+        return f"{text} 00:00"
+    if len(text) == 5 and text[2] == "-":
+        return f"{business_now().year}-{text} 00:00"
+    return text
+
+
+def _parse_point_adjust_detail(detail: str) -> tuple[str, str, str]:
+    """Extract (amount, process, remark) from POINT_ADJUST OpLog detail."""
+    text = str(detail or "")
+    m = re.search(r"积分\s*([+-]?\d+)", text)
+    delta = m.group(1) if m else ""
+    amount = ""
+    if delta:
+        amount = f"{'+' if not delta.startswith(('+', '-')) else ''}{delta}"
+    proc = ""
+    pm = re.search(r"可用\s*(-?\d+)\s*(?:→|->)\s*(-?\d+)", text)
+    if pm:
+        proc = f"{int(pm.group(1)):,}→{int(pm.group(2)):,}"
+    remark = ""
+    if "原因：" in text:
+        remark = text.split("原因：", 1)[-1].strip()
+    if not remark:
+        remark = "店员手动调整"
+    return amount or "调整", proc, remark
+
+
 def _ledger_item(
     *,
     key: str,
@@ -3420,6 +3456,9 @@ def _ledger_item(
     at: str,
     sort_id: int = 0,
     order: dict | None = None,
+    content: str = "",
+    process: str = "",
+    operator: str = "",
 ) -> dict:
     item = {
         "id": key,
@@ -3435,6 +3474,20 @@ def _ledger_item(
     }
     if order is not None:
         item["order"] = order
+    if kind == "point":
+        # 4.3 积分订单统一字段：显示内容 / 数量 / 时间 / 变更过程 / 店员
+        item["content"] = content or title
+        item["process"] = process or ""
+        item["operator"] = operator or ""
+        item["at"] = _ledger_display_time(at) or item["at"]
+        # Rebuild meta for older clients / 全部变更兜底
+        meta_parts = [
+            item["at"],
+            item.get("content") or "",
+            f"余额 {item['process']}" if item.get("process") else "",
+            f"店员 {item['operator']}" if item.get("operator") else "",
+        ]
+        item["meta"] = " · ".join(p for p in meta_parts if p) or meta
     return item
 
 
@@ -3450,14 +3503,13 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
         for w in sess.query(Withdrawal).filter_by(uid=uid).order_by(Withdrawal.id.desc()).limit(60):
             st, tone = _WDR_STATUS.get(w.status, (w.status or "—", "grey"))
             when = w.grant_at or w.closed_at or w.at or w.created or ""
-            meta_parts = [when, w.no]
-            if w.reject_remark:
-                meta_parts.append(w.reject_remark)
+            remark = w.reject_remark or (f"提分单 {w.no}" if w.no else "积分提取")
             rows.append(_ledger_item(
                 key=f"wdr-{w.id}", kind="point", typ="withdraw",
                 title="积分提取", amount=f"−{int(w.pts or 0):,}",
-                status=st, tone=tone, meta=" · ".join(p for p in meta_parts if p),
+                status=st, tone=tone, meta="",
                 at=when or w.created or "", sort_id=w.id,
+                content=remark, process="", operator="",
             ))
         for log_row in (
             sess.query(OpLog)
@@ -3465,19 +3517,13 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
             .order_by(OpLog.id.desc())
             .limit(60)
         ):
-            detail = str(log_row.detail or "")
-            m = re.search(r"积分\s*([+-]?\d+)", detail)
-            delta = m.group(1) if m else ""
-            amount = f"{'+' if delta and not delta.startswith(('+', '-')) else ''}{delta}" if delta else "调整"
-            reason = ""
-            if "原因：" in detail:
-                reason = detail.split("原因：", 1)[-1].strip()
+            amount, process, remark = _parse_point_adjust_detail(str(log_row.detail or ""))
             rows.append(_ledger_item(
                 key=f"plog-{log_row.id}", kind="point", typ="adjust",
-                title="店员调整积分", amount=amount if amount != "调整" else "积分调整",
-                status="已生效", tone="blue",
-                meta=" · ".join(p for p in [log_row.t, reason or detail] if p),
+                title="店员调整积分", amount=amount,
+                status="已生效", tone="blue", meta="",
                 at=log_row.t or "", sort_id=log_row.id,
+                content=remark, process=process, operator=str(log_row.op or "").strip(),
             ))
         for c in sess.query(Card).filter_by(uid=uid, src="EXCHANGE").order_by(Card.id.desc()).limit(60):
             tm = tpl(sess, c.tpl)
@@ -3485,10 +3531,11 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
             cost = int(tm.cost or 0) if tm else 0
             rows.append(_ledger_item(
                 key=f"ex-{c.id}", kind="point", typ="exchange",
-                title=f"积分兑换 · {name}", amount=f"−{cost:,}" if cost else "兑换",
-                status="兑换成功", tone="blue",
-                meta=" · ".join(p for p in [c.src_desc or "积分兑换", c.no] if p),
+                title="积分兑换", amount=f"−{cost:,}" if cost else "兑换",
+                status="兑换成功", tone="blue", meta="",
                 at="", sort_id=c.id,
+                content=f"{name}" + (f" · {c.no}" if c.no else ""),
+                process="", operator="",
             ))
         # 签到积分（含连续签到额外积分）
         signed_dates = _signed_date_set(sess, uid)
@@ -3503,18 +3550,18 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
             if total <= 0:
                 continue
             on = _sign_record_date(sr.month, sr.day)
-            when = on.strftime("%m-%d") if on else f"{sr.month}-{int(sr.day):02d}"
-            meta_parts = [when]
+            when = on.strftime("%Y-%m-%d") if on else f"{sr.month}-{int(sr.day):02d}"
+            remark_bits = ["每日签到"]
             if streak:
-                meta_parts.append(f"连续 {streak} 天")
+                remark_bits.append(f"连续 {streak} 天")
             if extra:
-                meta_parts.append(f"含连续奖励 +{extra:,}")
+                remark_bits.append(f"含连续奖励 +{extra:,}")
             rows.append(_ledger_item(
                 key=f"sign-{sr.id}", kind="point", typ="sign",
                 title="签到积分", amount=f"+{total:,}",
-                status="已到账", tone="green",
-                meta=" · ".join(meta_parts),
+                status="已到账", tone="green", meta="",
                 at=when, sort_id=int(sr.id or 0),
+                content=" · ".join(remark_bits), process="", operator="系统",
             ))
         # 对局录入积分
         game_hits = 0
@@ -3532,16 +3579,18 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
                 continue
             game_hits += 1
             voided = (g.status or "") == "VOID"
-            title = f"对局积分 · {g.pname or '对局'}"
+            remark = g.pname or "对局"
+            if g.table:
+                remark += f" · {g.table}"
+            if g.round:
+                remark += f" · {g.round}"
             rows.append(_ledger_item(
                 key=f"game-pts-{g.id}", kind="point", typ="game",
-                title=title, amount=f"+{pts:,}",
+                title="对局积分", amount=f"+{pts:,}",
                 status="已作废" if voided else "已到账",
-                tone="red" if voided else "green",
-                meta=" · ".join(
-                    p for p in [g.time or "", g.table or "", g.round or "", g.op or ""] if p
-                ),
+                tone="red" if voided else "green", meta="",
                 at=g.time or "", sort_id=int(g.id),
+                content=remark, process="", operator=str(g.op or "").strip(),
             ))
 
     if kind in ("ALL", "COIN"):
