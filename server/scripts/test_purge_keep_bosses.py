@@ -71,6 +71,23 @@ class PurgeTests(unittest.TestCase):
         recon = L.pt_identity_check(sess)
         self.assertTrue(recon["ok"], recon)
 
+    def test_ids_not_reused_after_purge(self, _lock):
+        sess = make_session()
+        self._dirty(sess)
+        last_order = max(o.id for o in sess.query(Order).all())
+        L.purge_test_data_keep_bosses(sess, BOSS, L.PURGE_KEEP_BOSSES_CONFIRM)
+        sess.flush()
+        self.assertEqual(L.new_id(sess, User), 11)
+        self.assertEqual(L.new_id(sess, User), 12)
+        self.assertEqual(L.new_id(sess, Order), last_order + 1)
+
+    def test_floor_from_startup(self, _lock):
+        sess = make_session()
+        L.raise_id_floor(sess, {"users": 64, "orders": 24})
+        self.assertEqual(L.new_id(sess, User), 65)
+        self.assertEqual(L.new_id(sess, Order), 25)
+        self.assertEqual(L.new_id(sess, Recharge), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

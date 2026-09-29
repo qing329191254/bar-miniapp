@@ -2,18 +2,22 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from sqlalchemy import inspect, text
+from sqlalchemy.exc import IntegrityError
 
 from database import SessionLocal, engine
 from logic import (
     DEFAULT_PWD,
+    ID_HW_MODELS,
     bind_wx_phone,
     grant_demo_coins,
     grant_demo_points,
     grant_demo_sign,
     hash_pwd,
+    raise_id_floor,
 )
 from settings import demo_starter_enabled
 from models import (
@@ -42,6 +46,29 @@ def _wallet(uid: int, seed: dict) -> Wallet:
         shard_w=int(sh.get("w") or 0), shard_t=int(sh.get("t") or 0),
         sign_streak=int(streak),
     )
+
+
+# Highest ids issued on cloud before the 2026-09-29 cleanup; those rows are gone but must not be reissued.
+_CLOUD_ID_FLOOR = {"users": 64, "orders": 24, "recharges": 9}
+
+
+def _raise_id_floor(db) -> None:
+    floors: dict[str, int] = {}
+    if engine.dialect.name == "mysql":
+        floors = dict(_CLOUD_ID_FLOOR)
+        for model in ID_HW_MODELS:
+            t = model.__tablename__
+            ddl = db.execute(text(f"SHOW CREATE TABLE {t}")).fetchone()[1]
+            m = re.search(r"AUTO_INCREMENT=(\d+)", ddl)
+            if m:
+                floors[t] = max(floors.get(t, 0), int(m.group(1)) - 1)
+    try:
+        raise_id_floor(db, floors)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise_id_floor(db, floors)
+        db.commit()
 
 
 def seed_all(reset: bool = False):
@@ -163,6 +190,7 @@ def seed_all(reset: bool = False):
             for t in reversed(Base.metadata.sorted_tables):
                 db.execute(t.delete())
             db.commit()
+        _raise_id_floor(db)
         hashed = hash_pwd(DEFAULT_PWD)
         if db.query(User).count():
             # Local/demo only: never rewrite passwords, boss phone, or seed rows on cloud hosting.

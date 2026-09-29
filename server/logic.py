@@ -265,9 +265,47 @@ def next_seq(sess: Session, key: str) -> int:
     return seq[key]
 
 
+ID_HW_KEY = "idHw"
+# Tables whose ids come from new_id(). Ids are never reissued: session tokens carry the user id.
+ID_HW_MODELS = (User, Order, Recharge, Category, Tier, CoinAdjust)
+
+
+def _id_hw_row(sess: Session) -> Setting | None:
+    return (
+        sess.query(Setting).filter(Setting.k == ID_HW_KEY)
+        .with_for_update().populate_existing().one_or_none()
+    )
+
+
+def _save_id_hw(sess: Session, row: Setting | None, hw: dict) -> None:
+    if row:
+        row.v = hw
+        flag_modified(row, "v")
+    else:
+        sess.add(Setting(k=ID_HW_KEY, v=hw))
+    sess.flush()
+
+
+def raise_id_floor(sess: Session, floors: dict[str, int] | None = None) -> dict:
+    row = _id_hw_row(sess)
+    hw = dict(row.v or {}) if row else {}
+    for model in ID_HW_MODELS:
+        t = model.__tablename__
+        m = int(sess.query(func.max(model.id)).scalar() or 0)
+        hw[t] = max(int(hw.get(t) or 0), m, int((floors or {}).get(t) or 0))
+    _save_id_hw(sess, row, hw)
+    return hw
+
+
 def new_id(sess: Session, model) -> int:
-    m = sess.query(func.max(model.id)).scalar() or 0
-    return int(m) + 1
+    row = _id_hw_row(sess)
+    hw = dict(row.v or {}) if row else {}
+    t = model.__tablename__
+    m = int(sess.query(func.max(model.id)).scalar() or 0)
+    nid = max(m, int(hw.get(t) or 0)) + 1
+    hw[t] = nid
+    _save_id_hw(sess, row, hw)
+    return nid
 
 
 def u(sess: Session, uid: int) -> User | None:
@@ -5183,6 +5221,7 @@ def purge_test_data_keep_bosses(sess: Session, admin: dict, confirm: str, dry_ru
             "ledger": setting(sess, "ledger") or {},
         }
 
+    raise_id_floor(sess)
     for tid, n in stock_back.items():
         t = sess.get(CardTpl, tid)
         t.stock = int(t.stock or 0) + n
@@ -5232,6 +5271,7 @@ def purge_demo_catalog_for_handover(sess: Session, admin: dict, confirm: str) ->
     if not bosses:
         raise ValueError("未找到老板账号，已中止")
     boss_ids = [b.id for b in bosses]
+    raise_id_floor(sess)
     kept = _purge_reset_bosses(sess, bosses)
 
     deleted: dict[str, int] = {
