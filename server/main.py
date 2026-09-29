@@ -1512,7 +1512,7 @@ def settlement_force(body: PatchIn, admin: dict = Depends(admin_user), db: Sessi
         user = db.get(User, row.uid) if row.uid else None
         if not tm or not user or user.role != "CUSTOMER" or user.status != "ACTIVE":
             continue
-        card = L.issue_card(db, user.id, tm, "SETTLE_REWARD", f"{week} · 强制发放：{reason}")
+        card = L.issue_card(db, user.id, tm, "SETTLE_REWARD", f"{week} · 强制发放：{reason}", op=admin.get("nick") or "")
         row.card_id, row.status, row.force_reason = card.id, "GRANTED", reason[:128]
         row.sub = L.reward_tpl_ref(tm)
         granted += 1
@@ -1537,7 +1537,7 @@ def settlement_manual(body: PatchIn, admin: dict = Depends(admin_user), db: Sess
     if not tm:
         raise HTTPException(400, "补发奖励不可用")
     week = SJ.settlement_week(db)
-    card = L.issue_card(db, uid, tm, "SETTLE_MANUAL", f"{week} · 手动补发：{reason}")
+    card = L.issue_card(db, uid, tm, "SETTLE_MANUAL", f"{week} · 手动补发：{reason}", op=admin.get("nick") or "")
     row = SettleLog(id=L.next_seq(db, "settle"), uid=uid, week=week, type="MANUAL", sub=L.reward_tpl_ref(tm),
                     target="手动补发", nick=user.nick, sh=L.shard_of(db, uid)["w"], status="GRANTED",
                     card_id=card.id, desc=f"{tm.name} · {reason}")

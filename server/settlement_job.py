@@ -245,7 +245,7 @@ def run_settlement(db: Session, week: str | None = None, admin: dict | None = No
         if item["eligible"]:
             tm = db.get(CardTpl, int(item["tplId"])) if item.get("tplId") else L.resolve_reward_card_tpl(db, item.get("sub"))
             if tm:
-                card = L.issue_card(db, item["uid"], tm, "SETTLE_REWARD", f"{week} · {item['target']}")
+                card = L.issue_card(db, item["uid"], tm, "SETTLE_REWARD", f"{week} · {item['target']}", op="系统")
                 card_id, status, desc = card.id, "GRANTED", tm.name
                 granted += 1
         db.add(SettleLog(

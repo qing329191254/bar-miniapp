@@ -223,6 +223,8 @@ class Card(Base):
     days_left: Mapped[int] = mapped_column(Integer, default=30)
     expire: Mapped[str] = mapped_column(String(16), default="")
     void_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    at: Mapped[str] = mapped_column(String(16), default="")
+    op: Mapped[str] = mapped_column(String(64), default="")
 
     def to_dict(self):
         d = {"id": self.id, "uid": self.uid, "tpl": self.tpl, "no": self.no, "src": self.src,

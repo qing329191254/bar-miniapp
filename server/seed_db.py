@@ -122,6 +122,13 @@ def seed_all(reset: bool = False):
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE sign_records ADD COLUMN pts INTEGER NOT NULL DEFAULT 0"))
             conn.execute(text("ALTER TABLE sign_records ADD COLUMN extra_pts INTEGER NOT NULL DEFAULT 0"))
+    card_cols = {c["name"] for c in insp.get_columns("cards")} if insp.has_table("cards") else set()
+    if card_cols and ("at" not in card_cols or "op" not in card_cols):
+        with engine.begin() as conn:
+            if "at" not in card_cols:
+                conn.execute(text("ALTER TABLE cards ADD COLUMN at VARCHAR(16) NOT NULL DEFAULT ''"))
+            if "op" not in card_cols:
+                conn.execute(text("ALTER TABLE cards ADD COLUMN op VARCHAR(64) NOT NULL DEFAULT ''"))
     db = SessionLocal()
     try:
         if reset:

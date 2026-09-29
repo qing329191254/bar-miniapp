@@ -87,6 +87,41 @@ class CustomerLedgerPointSourcesTests(unittest.TestCase):
         self.assertEqual(adj["operator"], "老板")
         self.assertTrue(adj["at"].startswith("20"))
 
+    def test_card_ledger_uses_unified_fields(self):
+        new_card = SimpleNamespace(
+            id=21, uid=9, tpl=1, no="KQ111", src="EXCHANGE", src_desc="积分兑换",
+            status="UNUSED", expire="", void_reason=None, at="2026-09-29 14:30", op="本人",
+        )
+        legacy_game_card = SimpleNamespace(
+            id=20, uid=9, tpl=2, no="KQ222", src="GAME_GIFT", src_desc="对局赠送 · 德州扑克 #124",
+            status="VOID", expire="", void_reason="对局作废 · 测试", at="", op="",
+        )
+        game = SimpleNamespace(id=124, time="2026-09-28 21:00", op="店员小王")
+        tpls = {1: SimpleNamespace(name="游戏卡"), 2: SimpleNamespace(name="酒水小食卡")}
+
+        sess = MagicMock()
+        sess.query.return_value.filter_by.return_value.order_by.return_value.limit.return_value = [
+            new_card, legacy_game_card,
+        ]
+        sess.get.side_effect = lambda model, pk: game if model is L.GameRecord and pk == 124 else None
+
+        with patch.object(L, "tpl", side_effect=lambda _s, tid: tpls.get(tid)):
+            items = L.customer_ledger(sess, uid=9, kind="CARD", limit=80)
+
+        by_id = {x["id"]: x for x in items}
+        fresh = by_id["card-21"]
+        self.assertEqual(fresh["content"], "积分兑换")
+        self.assertEqual(fresh["amount"], "+1 张")
+        self.assertEqual(fresh["at"], "2026-09-29 14:30")
+        self.assertEqual(fresh["operator"], "本人")
+        self.assertNotIn("KQ111", fresh["meta"])
+
+        legacy = by_id["card-20"]
+        self.assertEqual(legacy["content"], "对局赠送 · 德州扑克 #124")
+        self.assertEqual(legacy["voidReason"], "对局作废 · 测试")
+        self.assertEqual(legacy["at"], "2026-09-28 21:00")
+        self.assertEqual(legacy["operator"], "店员小王")
+
     def test_streak_ending_on(self):
         signed = {date(2026, 9, 26), date(2026, 9, 27), date(2026, 9, 28)}
         self.assertEqual(L._streak_ending_on(signed, date(2026, 9, 28)), 3)

@@ -864,13 +864,13 @@ def do_sign(sess: Session, uid: int) -> dict:
             if not tm:
                 continue
             for _ in range(c["qty"]):
-                issue_card(sess, uid, tm, "SIGN_IN_REWARD", f"连续签到 {r.days} 天奖励")
+                issue_card(sess, uid, tm, "SIGN_IN_REWARD", f"连续签到 {r.days} 天奖励", op="系统")
             names.append(f"{tm.name}×{c['qty']}")
     sess.add(SignRecord(uid=uid, day=today, month=month, pts=sp, extra_pts=extra_pts))
     return {"points": sp, "extraPts": extra_pts, "cards": names, "streak": w.sign_streak}
 
 
-def issue_card(sess: Session, uid: int, tm: CardTpl, src: str, src_desc: str) -> Card:
+def issue_card(sess: Session, uid: int, tm: CardTpl, src: str, src_desc: str, op: str = "") -> Card:
     card = Card(
         id=next_seq(sess, "card"),
         uid=uid,
@@ -881,6 +881,8 @@ def issue_card(sess: Session, uid: int, tm: CardTpl, src: str, src_desc: str) ->
         status="UNUSED",
         days_left=tm.days or 30,
         expire="",
+        at=business_now().strftime("%Y-%m-%d %H:%M"),
+        op=str(op or "")[:64],
     )
     sess.add(card)
     return card
@@ -1116,7 +1118,7 @@ def do_exchange(sess: Session, uid: int, tid: int, qty: int) -> bool:
     if stk >= 0:
         t.stock = stk - qty
     for _ in range(qty):
-        issue_card(sess, uid, t, "EXCHANGE", "积分兑换")
+        issue_card(sess, uid, t, "EXCHANGE", "积分兑换", op="本人")
     return True
 
 
@@ -1178,7 +1180,7 @@ def grant_combo(sess: Session, order: Order) -> int:
                 if not tm:
                     continue
                 for _ in range(c["qty"]):
-                    issue_card(sess, order.uid, tm, "ORDER_COMBO", f"套餐自动发放 · {order.no}")
+                    issue_card(sess, order.uid, tm, "ORDER_COMBO", f"套餐自动发放 · {order.no}", op="系统")
                     n += 1
     return n
 
@@ -1431,7 +1433,7 @@ def _normalize_game_gift_cards(sess: Session, cards_in) -> list[dict]:
     return out
 
 
-def _grant_game_gift_cards(sess: Session, uid: int, gifts: list[dict], *, pname: str, game_id: int) -> list[int]:
+def _grant_game_gift_cards(sess: Session, uid: int, gifts: list[dict], *, pname: str, game_id: int, op: str = "") -> list[int]:
     card_ids: list[int] = []
     for g in gifts:
         tm = tpl(sess, g["tpl"])
@@ -1444,7 +1446,7 @@ def _grant_game_gift_cards(sess: Session, uid: int, gifts: list[dict], *, pname:
         if stk >= 0:
             tm.stock = stk - qty
         for _ in range(qty):
-            card = issue_card(sess, uid, tm, "GAME_GIFT", f"对局赠送 · {pname} #{game_id}")
+            card = issue_card(sess, uid, tm, "GAME_GIFT", f"对局赠送 · {pname} #{game_id}", op=op)
             card_ids.append(card.id)
     return card_ids
 
@@ -1520,7 +1522,7 @@ def submit_game(sess: Session, staff: dict, pid: int, table_id, players: list, w
             wlt.shard_w += row["sh"]
             wlt.shard_t += row["sh"]
         card_ids = _grant_game_gift_cards(
-            sess, row["uid"], row["gifts"], pname=pname or "对局", game_id=rec.id,
+            sess, row["uid"], row["gifts"], pname=pname or "对局", game_id=rec.id, op=staff["nick"],
         )
         total_gift += len(card_ids)
         entry = {
@@ -3209,7 +3211,7 @@ def member_grant_cards(sess: Session, uid: int, tpl_id: int, qty: int, reason: s
     if not tm:
         raise ValueError("卡券模板不存在")
     for _ in range(qty):
-        issue_card(sess, uid, tm, "MANUAL_GRANT", f"店员补发 · {fmt_hm()[:5]}")
+        issue_card(sess, uid, tm, "MANUAL_GRANT", f"店员补发 · {reason or '快速调整'}"[:128], op=admin.get("nick") or "")
     log(sess, "CARD_GRANT", f"快速补发 {user.nick} · {tm.name} ×{qty}{_reason_tail(reason)}", uid, admin)
     sess.flush()
     return {"ok": True, "qty": qty}
@@ -3479,8 +3481,8 @@ def _ledger_item(
     }
     if order is not None:
         item["order"] = order
-    if kind == "point":
-        # 4.3 积分订单统一字段：显示内容 / 数量 / 时间 / 变更过程 / 店员
+    if kind in ("point", "card"):
+        # 积分/卡包订单统一字段：显示内容 / 数量 / 时间 / 变更过程 / 操作员
         item["content"] = content or title
         item["process"] = process or ""
         item["operator"] = operator or ""
@@ -3494,6 +3496,44 @@ def _ledger_item(
         ]
         item["meta"] = " · ".join(p for p in meta_parts if p) or meta
     return item
+
+
+_CARD_SRC_LABEL = {
+    "EXCHANGE": "积分兑换",
+    "SIGN": "签到奖励",
+    "SIGN_IN_REWARD": "签到奖励",
+    "GAME": "对局赠送",
+    "GAME_GIFT": "对局赠送",
+    "SETTLE_REWARD": "榜单奖励",
+    "SETTLE_MANUAL": "榜单补发",
+    "GRANT": "店员发放",
+    "MANUAL": "店员发放",
+    "MANUAL_GRANT": "店员补发",
+    "ORDER_COMBO": "套餐赠送",
+}
+
+
+def _card_issue_meta(sess: Session, c: Card, game_cache: dict[int, GameRecord | None]) -> tuple[str, str]:
+    """Return (issued_at, operator); older cards without stored values fall back to the source game."""
+    at = str(getattr(c, "at", "") or "").strip()
+    op = str(getattr(c, "op", "") or "").strip()
+    if at and op:
+        return at, op
+    if c.src in ("GAME", "GAME_GIFT"):
+        m = re.search(r"#(\d+)", str(c.src_desc or ""))
+        if m:
+            gid = int(m.group(1))
+            if gid not in game_cache:
+                game_cache[gid] = sess.get(GameRecord, gid)
+            g = game_cache[gid]
+            if g:
+                at = at or str(g.time or "")
+                op = op or str(g.op or "").strip()
+    elif c.src in ("SIGN", "SIGN_IN_REWARD", "SETTLE_REWARD", "ORDER_COMBO"):
+        op = op or "系统"
+    elif c.src == "EXCHANGE":
+        op = op or "本人"
+    return at, op
 
 
 def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80) -> list[dict]:
@@ -3538,9 +3578,9 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
                 key=f"ex-{c.id}", kind="point", typ="exchange",
                 title="积分兑换", amount=f"−{cost:,}" if cost else "兑换",
                 status="兑换成功", tone="blue", meta="",
-                at="", sort_id=c.id,
-                content=f"{name}" + (f" · {c.no}" if c.no else ""),
-                process="", operator="",
+                at=str(getattr(c, "at", "") or ""), sort_id=c.id,
+                content=f"兑换 {name}",
+                process="", operator=str(getattr(c, "op", "") or "") or "本人",
             ))
         # 签到积分（含连续签到额外积分）
         signed_dates = _signed_date_set(sess, uid)
@@ -3666,32 +3706,25 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
             ))
 
     if kind in ("ALL", "CARD"):
+        game_cache: dict[int, GameRecord | None] = {}
         for c in sess.query(Card).filter_by(uid=uid).order_by(Card.id.desc()).limit(80):
             tm = tpl(sess, c.tpl)
             name = tm.name if tm else "卡券"
             st, tone = _CARD_STATUS.get(c.status, (c.status or "—", "grey"))
-            src = c.src_desc or ({
-                "EXCHANGE": "积分兑换",
-                "SIGN": "签到奖励",
-                "SIGN_IN_REWARD": "签到奖励",
-                "GAME": "对局赠送",
-                "GAME_GIFT": "对局赠送",
-                "SETTLE_REWARD": "榜单奖励",
-                "SETTLE_MANUAL": "榜单补发",
-                "GRANT": "店员发放",
-                "MANUAL": "店员发放",
-            }.get(c.src, c.src or "获得卡券"))
-            meta_parts = [src, c.no]
-            if c.void_reason:
-                meta_parts.append(c.void_reason)
-            if c.expire:
-                meta_parts.append(f"有效至 {c.expire}")
-            rows.append(_ledger_item(
+            content = c.src_desc or _CARD_SRC_LABEL.get(c.src, c.src or "获得卡券")
+            issued_at, op = _card_issue_meta(sess, c, game_cache)
+            item = _ledger_item(
                 key=f"card-{c.id}", kind="card", typ="card",
-                title=name, amount="",
-                status=st, tone=tone, meta=" · ".join(p for p in meta_parts if p),
-                at="", sort_id=c.id,
-            ))
+                title=name, amount="+1 张",
+                status=st, tone=tone, meta="",
+                at=issued_at, sort_id=c.id,
+                content=content, operator=op,
+            )
+            if c.status == "VOID" and c.void_reason:
+                item["voidReason"] = c.void_reason
+            if c.expire:
+                item["expire"] = c.expire
+            rows.append(item)
 
     rows.sort(key=lambda x: (x.get("_sort") or "", x.get("id") or ""), reverse=True)
     for r in rows:
