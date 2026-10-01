@@ -1,0 +1,6 @@
+server/scripts/cloud_*.py export-ignore
+server/scripts/*smoke*.py export-ignore
+server/scripts/*e2e*.py export-ignore
+server/scripts/flow_test.py export-ignore
+server/scripts/set_boss_phone.py export-ignore
+.gitattributes export-ignore
