@@ -97,7 +97,7 @@ def reset_weekly_rank_counters(db: Session) -> None:
 
 
 def ensure_settle_week_current(db: Session):
-    """After a settled week ends, roll settleWeek forward to the current calendar week."""
+    """After a settled week ends, roll the display week forward. Do not touch live counters."""
     period = L.setting(db, "settleWeek") or {}
     if not period.get("start"):
         L.save_setting(db, "settleWeek", week_period(L.business_today()))
@@ -106,17 +106,15 @@ def ensure_settle_week_current(db: Session):
     if not wk:
         return
     if db.query(SettleLog).filter(SettleLog.week == wk).count() and period_end_date(period) < L.business_today():
-        advance_settle_week_after_run(db)
+        L.save_setting(db, "settleWeek", week_period(L.business_today()))
 
 
 def pending_auto_week(now: datetime | None = None) -> dict | None:
-    """Last complete Mon–Sun week ready after Monday 12:00 Asia/Shanghai."""
+    """Last complete Mon–Sun week, only on Monday at/after 12:00 Asia/Shanghai."""
     now = now or L.business_now()
-    if now.weekday() == 6:
+    if now.weekday() != 0 or now.hour < L.SETTLE_HOUR:
         return None
-    if now.weekday() == 0 and now.hour < 12:
-        return None
-    last_sunday = now.date() - timedelta(days=1 if now.weekday() == 0 else now.weekday() + 1)
+    last_sunday = now.date() - timedelta(days=1)
     return week_period(last_sunday)
 
 
@@ -144,9 +142,9 @@ def month_key(period: dict) -> str:
 
 
 def pending_auto_month(now: datetime | None = None) -> dict | None:
-    """Previous calendar month ready after the 1st 12:00 Asia/Shanghai."""
+    """Previous calendar month, only on the 1st at/after 12:00 Asia/Shanghai."""
     now = now or L.business_now()
-    if now.day == 1 and now.hour < 12:
+    if now.day != 1 or now.hour < L.SETTLE_HOUR:
         return None
     first_this = now.date().replace(day=1)
     last_prev = first_this - timedelta(days=1)

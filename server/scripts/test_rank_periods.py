@@ -16,7 +16,7 @@ from sqlalchemy.orm import sessionmaker  # noqa: E402
 
 import logic as L  # noqa: E402
 import settlement_job as SJ  # noqa: E402
-from models import AssetFlow, Base, CardTpl, Champ, GameRecord, Team, User, Wallet  # noqa: E402
+from models import AssetFlow, Base, CardTpl, Champ, GameRecord, SettleLog, Team, User, Wallet  # noqa: E402
 
 
 def make_session():
@@ -148,6 +148,33 @@ class MonthSettlementTests(unittest.TestCase):
         closed_p = [x for x in closed if x["type"].startswith("PERSONAL")]
         self.assertEqual(live_p[0]["uid"], 2)
         self.assertEqual(closed_p[0]["uid"], 1)
+
+
+class AutoWindowTests(unittest.TestCase):
+    def test_week_auto_only_monday_noon(self):
+        self.assertIsNone(SJ.pending_auto_week(datetime(2026, 10, 2, 15, 0)))
+        self.assertIsNone(SJ.pending_auto_week(datetime(2026, 10, 5, 11, 0)))
+        week = SJ.pending_auto_week(datetime(2026, 10, 5, 12, 0))
+        self.assertEqual(SJ.week_key(week), "09-28~10-04")
+
+    def test_month_auto_only_first_noon(self):
+        self.assertIsNone(SJ.pending_auto_month(datetime(2026, 10, 2, 9, 0)))
+        self.assertIsNone(SJ.pending_auto_month(datetime(2026, 10, 1, 11, 0)))
+        month = SJ.pending_auto_month(datetime(2026, 10, 1, 12, 0))
+        self.assertEqual(SJ.month_key(month), "2026-09")
+
+    def test_ensure_settle_week_does_not_wipe_live_shards(self):
+        sess = make_session()
+        L.save_setting(sess, "settleWeek", {"start": "09-21", "end": "09-27"})
+        sess.add(SettleLog(
+            id=1, uid=1, week="09-21~09-27", type="PERSONAL_RANK1", sub="5",
+            target="个人榜", nick="甲", sh=10, status="GRANTED",
+        ))
+        sess.flush()
+        with at(datetime(2026, 10, 2, 15, 0)):
+            SJ.ensure_settle_week_current(sess)
+        self.assertEqual(sess.get(Wallet, 1).shard_w, 99)
+        self.assertEqual(SJ.week_key(L.setting(sess, "settleWeek")), "09-28~10-04")
 
 
 if __name__ == "__main__":
