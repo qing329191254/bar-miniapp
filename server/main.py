@@ -390,7 +390,7 @@ def me(user: dict = Depends(current_user), db: Session = Depends(get_db)):
         "user": user,
         "signedToday": L.today_day() in days,
         "signDays": len(days),
-        "streak": user.get("signStreak") or 0,
+        "streak": L.live_sign_streak(db, user["id"]),
         "usableCards": len(cards),
         "newRewardCards": sum(1 for c in cards if c.src == "SETTLE_REWARD" and (c.days_left or 0) > 5),
         "expiring": sum(1 for c in cards if (c.days_left or 0) <= 3),
@@ -438,10 +438,7 @@ def home(
     user = L.public_user(db, L.u(db, uid)) if uid else None
     content = L.content_setting(db)
     days = L.signed_days(db, uid) if uid else []
-    streak = 0
-    if uid:
-        w = db.get(Wallet, uid)
-        streak = int(w.sign_streak or 0) if w else 0
+    streak = L.live_sign_streak(db, uid) if uid else 0
     return {
         "user": user,
         "gallery": content.get("gallery") or {"title": "店铺相册", "items": []},
@@ -1710,9 +1707,10 @@ def signin_overview(
 ):
     config = L.setting(db, "config") or {}
     members = []
+    recent = L.recent_signers(db)
     for user in db.query(User).filter(User.role == "CUSTOMER").order_by(User.id.desc()).all():
         wallet = L.wallet_of(db, user.id)
-        members.append({"id": user.id, "nick": user.nick, "streak": wallet.sign_streak or 0})
+        members.append({"id": user.id, "nick": user.nick, "streak": L.live_sign_streak(db, user.id, wallet, recent)})
     rules = [r.to_dict() for r in db.query(SignRule).order_by(SignRule.days)]
     for rule in rules:
         rule["qualified"] = sum(1 for m in members if m["streak"] >= rule["days"])

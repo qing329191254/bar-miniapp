@@ -2200,9 +2200,9 @@ def rank_rows(sess: Session, kind: str, dim: str, subject: str):
             sw, st, pav, pm, cc = metrics(x)
             rk = reg.get(x.id, 10**9 + x.id)
             if kind == "SHARD":
-                # 当周碎片 → 历史碎片 → 当月积分 → 注册时间
+                # 按所看维度（当周 / 历史）在前，另一维度 → 当月积分 → 注册时间
                 v = sw if dim == "WEEK" else st
-                sort = (-sw, -st, -pm, rk)
+                sort = (-sw, -st, -pm, rk) if dim == "WEEK" else (-st, -sw, -pm, rk)
             elif kind == "POINT":
                 # 实时库存 → 当周碎片 → 历史碎片 → 注册时间
                 v = pav
@@ -2226,7 +2226,7 @@ def rank_rows(sess: Session, kind: str, dim: str, subject: str):
             tid = int(t.id)
             if kind == "SHARD":
                 v = sw if dim == "WEEK" else st
-                sort = (-sw, -st, -pm, tid)
+                sort = (-sw, -st, -pm, tid) if dim == "WEEK" else (-st, -sw, -pm, tid)
             elif kind == "POINT":
                 # 战队积分 = 成员实时库存之和
                 v = pav
@@ -2584,6 +2584,25 @@ def void_game(sess: Session, gid: int, reason: str, void_cards: bool, admin: dic
 
 def signed_days(sess: Session, uid: int) -> list[int]:
     return [r.day for r in sess.query(SignRecord).filter_by(uid=uid, month=current_month()).all()]
+
+
+def recent_signers(sess: Session) -> set[int]:
+    """Members who signed today or yesterday, i.e. whose stored streak is still unbroken."""
+    today = business_today()
+    uids: set[int] = set()
+    for d in (today, today - timedelta(days=1)):
+        rows = sess.query(SignRecord.uid).filter_by(month=d.strftime("%Y-%m"), day=d.day).all()
+        uids.update(int(r[0]) for r in rows)
+    return uids
+
+
+def live_sign_streak(sess: Session, uid: int, w: Wallet | None = None, recent: set[int] | None = None) -> int:
+    """sign_streak is only written on sign-in, so a missed day must read as 0 rather than the old count."""
+    w = w or sess.get(Wallet, uid)
+    n = int(w.sign_streak or 0) if w else 0
+    if not n:
+        return 0
+    return n if uid in (recent if recent is not None else recent_signers(sess)) else 0
 
 
 DEMO_SIGNED_DAYS = [1, 2, 4, 6, 7, 8, 12, 15, 16, 18, 19, 20, 22, 23, 25]
