@@ -16,7 +16,7 @@ from sqlalchemy.orm import sessionmaker  # noqa: E402
 
 import logic as L  # noqa: E402
 import settlement_job as SJ  # noqa: E402
-from models import AssetFlow, Base, CardTpl, Champ, GameRecord, SettleLog, Team, User, Wallet  # noqa: E402
+from models import AssetFlow, Base, Card, CardTpl, Champ, GameRecord, SettleLog, Team, User, Wallet  # noqa: E402
 
 
 def make_session():
@@ -197,6 +197,31 @@ class AutoWindowTests(unittest.TestCase):
         self.assertFalse(first["skipped"])
         self.assertTrue(second["skipped"])
         self.assertEqual(len(first["restored"]), 2)
+
+    def test_delete_friday_ghost_cards_removes_unused_pack_rows(self):
+        sess = make_session()
+        sess.add(Card(
+            id=50, uid=1, tpl=7, no="KQTEST", src="SETTLE_REWARD",
+            src_desc="09-21~09-27 · 个人榜", status="UNUSED",
+        ))
+        sess.add(SettleLog(
+            id=9, uid=1, week="09-21~09-27", type="PERSONAL_RANK3", sub="7",
+            target="个人榜", nick="甲", sh=15, status="GRANTED", card_id=50, desc="青铜奖励卡",
+        ))
+        sess.add(AssetFlow(
+            uid=1, asset="CARD", ref="card-in-50", typ="card_in",
+            title="卡券新增 · 青铜奖励卡", amount="+1 张", delta=1, at="2026-10-02 09:13",
+        ))
+        sess.flush()
+        first = SJ.delete_false_friday_reward_cards(sess)
+        second = SJ.delete_false_friday_reward_cards(sess)
+        self.assertFalse(first["skipped"])
+        self.assertTrue(second["skipped"])
+        self.assertEqual(len(first["deleted"]), 1)
+        self.assertIsNone(sess.get(Card, 50))
+        self.assertEqual(sess.query(AssetFlow).filter_by(ref="card-in-50").count(), 0)
+        self.assertEqual(sess.get(SettleLog, 9).status, "REVOKED")
+        self.assertIsNone(sess.get(SettleLog, 9).card_id)
 
 
 if __name__ == "__main__":

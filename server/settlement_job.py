@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 import logic as L
 import cache
 from database import session_scope
-from models import AssetFlow, CardTpl, SettleLog, Team, User, Wallet
+from models import AssetFlow, Card, CardTpl, SettleLog, Team, User, Wallet
 
 
 def week_period(d: date) -> dict:
@@ -380,10 +380,61 @@ def restore_false_friday_week_shards(db: Session) -> dict:
     return {"ok": True, "skipped": False, "restored": restored}
 
 
+GHOST_CARD_DELETE_KEY = "ghostCardDel1002"
+GHOST_SETTLE_WEEKS = ("2026-09", "09-21~09-27")
+
+
+def delete_false_friday_reward_cards(db: Session) -> dict:
+    """Remove unused reward cards from the Friday mis-issue. Keep settle rows as REVOKED."""
+    prev = L.setting(db, GHOST_CARD_DELETE_KEY) or {}
+    if prev.get("done"):
+        return {
+            "ok": True, "skipped": True,
+            "deleted": prev.get("deleted") or [],
+            "keptUsed": prev.get("keptUsed") or [],
+        }
+    deleted: list[dict] = []
+    kept_used: list[dict] = []
+    rows = (
+        db.query(SettleLog)
+        .filter(SettleLog.week.in_(GHOST_SETTLE_WEEKS), SettleLog.status == "GRANTED")
+        .order_by(SettleLog.id)
+        .all()
+    )
+    for row in rows:
+        card = db.get(Card, int(row.card_id)) if row.card_id else None
+        if card and card.status == "USED":
+            kept_used.append({"id": int(card.id), "no": card.no, "nick": row.nick, "week": row.week})
+            continue
+        if card:
+            db.query(AssetFlow).filter(
+                AssetFlow.uid == card.uid,
+                AssetFlow.asset == "CARD",
+                AssetFlow.ref.in_([f"card-in-{card.id}", f"card-out-{card.id}"]),
+            ).delete(synchronize_session=False)
+            deleted.append({
+                "uid": int(card.uid), "nick": row.nick, "no": card.no,
+                "week": row.week, "desc": row.desc,
+            })
+            db.delete(card)
+        row.card_id = None
+        row.status = "REVOKED"
+    L.log(
+        db, "SETTLE_REVOKE",
+        f"删除周五误发奖励卡 {len(deleted)} 张 · 已核销保留 {len(kept_used)} 张",
+        None, {"role": "BOSS", "nick": "系统"},
+    )
+    payload = {"done": True, "deleted": deleted, "keptUsed": kept_used}
+    L.save_setting(db, GHOST_CARD_DELETE_KEY, payload)
+    db.flush()
+    return {"ok": True, "skipped": False, **payload}
+
+
 def bootstrap_settlement(db: Session):
     sync_demo_settle_settings(db)
     tick_settlement(db)
     restore_false_friday_week_shards(db)
+    delete_false_friday_reward_cards(db)
 
 
 def sync_demo_settle_settings(db: Session):

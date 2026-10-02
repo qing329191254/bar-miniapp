@@ -1522,6 +1522,13 @@ def repair_week_shards_1002(admin: dict = Depends(admin_user), db: Session = Dep
     return SJ.restore_false_friday_week_shards(db)
 
 
+@app.post("/api/admin/repair/ghost-cards-1002")
+def repair_ghost_cards_1002(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    if admin["role"] != "BOSS":
+        raise HTTPException(403, "仅老板可删除误发奖励卡")
+    return SJ.delete_false_friday_reward_cards(db)
+
+
 @app.post("/api/admin/settlement/force")
 def settlement_force(body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
     if admin["role"] != "BOSS":
