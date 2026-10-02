@@ -135,8 +135,7 @@ const displayRows = computed(() => {
       >{{ periodText }} <text v-if="kind !== 'POINT'">▾</text></view>
     </view>
     <view class="rk-reward" v-if="kind === 'SHARD'">
-      <view style="font-size:12.5px;color:#633806;font-weight:600">{{ shopDim === "MONTH" ? "本月奖励 · 次月 1 日 12:00 自动发放" : "本周奖励 · 每周一 12:00 自动发放" }}</view>
-      <view class="tiny gold" style="margin-top:3px;line-height:1.65">第一名战队全员得战队奖励卡 · 个人榜前三名得店内奖励卡（碎片为荣誉值，不可兑换）</view>
+      <view style="font-size:12.5px;color:#633806;font-weight:600">{{ shopDim === "MONTH" ? "本月榜单 · 次月 1 日 12:00 更新" : "本周榜单 · 每周一 12:00 更新" }}</view>
     </view>
     <view class="rk-reward point-hint" v-else-if="kind === 'POINT'">
       <view style="font-size:12.5px;color:#0C447C;font-weight:600">会员积分排行</view>

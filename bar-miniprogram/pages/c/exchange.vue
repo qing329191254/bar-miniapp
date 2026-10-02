@@ -141,7 +141,7 @@ onShow(() => {
       </view>
     </view>
     <view v-if="!(data.tpls || []).length" class="card tiny" style="text-align:center;padding:24px">暂无可兑换卡券</view>
-    <view class="note">仅展示已开启「积分兑换」且积分价大于 0 的卡券。周榜奖励卡由每周结算自动发放，不在此兑换。一次兑换多张时，积分需足够支付全部数量。</view>
+    <view class="note">仅展示已开启「积分兑换」且积分价大于 0 的卡券。一次兑换多张时，积分需足够支付全部数量。</view>
     <view class="err" v-if="msg">{{ msg }}</view>
 
     <view v-if="dlg" class="mask" @tap="closeDlg">

@@ -32,7 +32,7 @@ const personalHint = computed(() => {
 
 const teamHint = computed(() => {
   const mine = teamRank.value.mine;
-  return mine ? `战队榜第 ${mine.rank} 名 · 第一名可得战队奖励卡` : "暂无战队";
+  return mine ? `战队榜第 ${mine.rank} 名` : "暂无战队";
 });
 
 onShow(async () => {
