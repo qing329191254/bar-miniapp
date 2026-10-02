@@ -176,6 +176,28 @@ class AutoWindowTests(unittest.TestCase):
         self.assertEqual(sess.get(Wallet, 1).shard_w, 99)
         self.assertEqual(SJ.week_key(L.setting(sess, "settleWeek")), "09-28~10-04")
 
+    def test_restore_friday_wipe_puts_week_shards_back_without_touching_total(self):
+        sess = make_session()
+        sess.get(Wallet, 1).shard_w = 0
+        sess.get(Wallet, 1).shard_t = 2
+        sess.get(Wallet, 2).shard_w = 0
+        sess.add(SettleLog(
+            id=1, uid=1, week="09-21~09-27", type="TEAM_CHAMPION", sub="8",
+            target="飞行家战队", nick="甲", sh=2, status="GRANTED",
+        ))
+        add_shard(sess, 2, "2026-10-02 09:13", -15, typ="weekly", ref="shardw-2026-10-02")
+        sess.flush()
+        first = SJ.restore_false_friday_week_shards(sess)
+        second = SJ.restore_false_friday_week_shards(sess)
+        w1, w2 = sess.get(Wallet, 1), sess.get(Wallet, 2)
+        self.assertEqual(w1.shard_w, 2)
+        self.assertEqual(w1.shard_t, 2)
+        self.assertEqual(w2.shard_w, 15)
+        self.assertEqual(w2.shard_t, 50)
+        self.assertFalse(first["skipped"])
+        self.assertTrue(second["skipped"])
+        self.assertEqual(len(first["restored"]), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

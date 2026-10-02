@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 import logic as L
 import cache
 from database import session_scope
-from models import CardTpl, SettleLog, Team, User, Wallet
+from models import AssetFlow, CardTpl, SettleLog, Team, User, Wallet
 
 
 def week_period(d: date) -> dict:
@@ -318,9 +318,72 @@ def start_settlement_scheduler():
     threading.Thread(target=settlement_scheduler_loop, name="settlement-scheduler", daemon=True).start()
 
 
+WEEK_SHARD_RESTORE_KEY = "wkFix1002"
+WEEK_SHARD_RESTORE_DAY = "2026-10-02"
+WEEK_SHARD_RESTORE_WEEK = "09-21~09-27"
+
+
+def wiped_week_shard_amounts(db: Session) -> dict[int, int]:
+    """Week counters cleared by the false Friday auto-settle on 2026-10-02."""
+    amounts: dict[int, int] = {}
+    flows = (
+        db.query(AssetFlow)
+        .filter(
+            AssetFlow.asset == "SHARD",
+            AssetFlow.typ == "weekly",
+            AssetFlow.at.like(f"{WEEK_SHARD_RESTORE_DAY}%"),
+        )
+        .all()
+    )
+    for row in flows:
+        delta = -int(row.delta or 0)
+        if delta > 0:
+            uid = int(row.uid)
+            amounts[uid] = amounts.get(uid, 0) + delta
+    for row in db.query(SettleLog).filter(SettleLog.week == WEEK_SHARD_RESTORE_WEEK).all():
+        uid = int(row.uid)
+        shard = int(row.sh or 0)
+        if shard > 0:
+            amounts[uid] = max(amounts.get(uid, 0), shard)
+    return amounts
+
+
+def restore_false_friday_week_shards(db: Session) -> dict:
+    """Put this week's shard_w back without touching 累计. Idempotent."""
+    prev = L.setting(db, WEEK_SHARD_RESTORE_KEY) or {}
+    if prev.get("done"):
+        return {"ok": True, "skipped": True, "restored": prev.get("restored") or []}
+    restored: list[dict] = []
+    admin = {"role": "BOSS", "nick": "系统"}
+    for uid, amount in wiped_week_shard_amounts(db).items():
+        if amount <= 0:
+            continue
+        ref = f"wkfix1002-{uid}"
+        if db.query(AssetFlow).filter_by(uid=uid, asset="SHARD", ref=ref).first():
+            continue
+        wallet = L.wallet_of(db, uid)
+        before = int(wallet.shard_w or 0)
+        wallet.shard_w = before + amount
+        user = db.get(User, uid)
+        nick = user.nick if user else str(uid)
+        L.flow_shard(
+            db, uid, ref, typ="adjust", title="补回本周碎片",
+            delta=amount, op="系统", remark="周五误清算，累计不变", history=False,
+        )
+        L.log(
+            db, "SHARD_ADJUST",
+            f"补回 {nick} 本周碎片 {before}→{wallet.shard_w} · 累计不变",
+            uid, admin,
+        )
+        restored.append({"uid": uid, "nick": nick, "from": before, "to": int(wallet.shard_w)})
+    L.save_setting(db, WEEK_SHARD_RESTORE_KEY, {"done": True, "restored": restored})
+    return {"ok": True, "skipped": False, "restored": restored}
+
+
 def bootstrap_settlement(db: Session):
     sync_demo_settle_settings(db)
     tick_settlement(db)
+    restore_false_friday_week_shards(db)
 
 
 def sync_demo_settle_settings(db: Session):

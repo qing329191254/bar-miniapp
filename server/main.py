@@ -1515,6 +1515,13 @@ def settlement_rerun(admin: dict = Depends(admin_user), db: Session = Depends(ge
     return SJ.run_settlement(db, week=week, admin=admin, trigger="manual")
 
 
+@app.post("/api/admin/repair/week-shards-1002")
+def repair_week_shards_1002(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    if admin["role"] != "BOSS":
+        raise HTTPException(403, "仅老板可补回本周碎片")
+    return SJ.restore_false_friday_week_shards(db)
+
+
 @app.post("/api/admin/settlement/force")
 def settlement_force(body: PatchIn, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
     if admin["role"] != "BOSS":
