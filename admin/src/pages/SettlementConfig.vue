@@ -45,8 +45,8 @@ const prizeRows = computed(() => {
 });
 const dimHint = computed(() =>
   cfg.value.rankDim === "WEEK"
-    ? "每周一 12:00 结算重置 · 结算发奖励卡"
-    : "按自然月累计 · 次月 1 日 12:00 结算 · 1 日 13:00 积分清零",
+    ? "当期从每周一 12:00 起算 · 下周一 12:00 结算发奖励卡"
+    : "当期从每月 1 日 12:00 起算 · 次月 1 日 12:00 结算发奖励卡 · 1 日 13:00 积分清零",
 );
 
 /** Options come only from live 卡券配置 (template id). */
@@ -200,7 +200,7 @@ onMounted(load);
           </div>
           <span class="tiny">{{ dimHint }}</span>
         </div>
-        <div class="note section-note">切换后，顾客端碎片榜/冠军榜会同步更换统计维度。积分榜固定为实时可用库存，不随周/月切换。</div>
+        <div class="note section-note">切换后，顾客端碎片榜/冠军榜的「当期新增」会变成当周或当月。积分榜固定为当前可用积分，不随周/月切换。</div>
       </section>
 
       <section class="card">

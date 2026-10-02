@@ -1,8 +1,8 @@
 """Rank settlement: plan, execute, auto-schedule, and week rollover.
 
 Auto schedule (Asia/Shanghai):
-- WEEK rankDim: Monday 12:00 — settle last Mon–Sun week, then reset week counters
-- MONTH rankDim: 1st of month 12:00 — settle previous calendar month
+- WEEK rankDim: Monday 12:00 — settle the period that just ended (previous Mon 12:00–this Mon 12:00), then reset week counters
+- MONTH rankDim: 1st 12:00 — settle previous month (1st 12:00–this 1st 12:00)
 Point clear runs separately at 1st 13:00 (see point_clear_job).
 """
 from __future__ import annotations
@@ -153,16 +153,18 @@ def pending_auto_month(now: datetime | None = None) -> dict | None:
     return month_period(last_prev)
 
 
-def settlement_plan(db: Session) -> list[dict]:
+def settlement_plan(db: Session, *, closed: bool = False) -> list[dict]:
     cfg = L.normalize_settlement_cfg_refs(db, L.setting(db, "cfg") or {})
     dim = "MONTH" if cfg.get("rankDim") == "MONTH" else "WEEK"
+    since = L.previous_period_start(dim) if closed else L.period_start(dim)
+    period_shards = L.shard_gains_since(db, since)
     rank_range = max(1, int(cfg.get("rankRange") or 3))
     prize_map = cfg.get("prizeMap") or {}
     rows: list[dict] = []
     seen: set[int] = set()
 
     if cfg.get("teamReward"):
-        teams = L.rank_rows(db, "SHARD", dim, "TEAM")
+        teams = L.rank_rows(db, "SHARD", dim, "TEAM", since=since)
         if teams:
             winner = teams[0]
             team = db.get(Team, int(winner["team"]["id"]))
@@ -170,7 +172,7 @@ def settlement_plan(db: Session) -> list[dict]:
             if team and tm:
                 members = db.query(User).filter(User.role == "CUSTOMER", User.status == "ACTIVE", User.team_id == team.id).all()
                 for user in members:
-                    shard = L.shard_of(db, user.id)["w" if dim == "WEEK" else "t"]
+                    shard = int(period_shards.get(user.id, 0))
                     allowed = not cfg.get("reqShard") or shard > 0
                     rows.append({
                         "uid": user.id, "target": team.name, "nick": user.nick, "type": "TEAM_CHAMPION",
@@ -180,7 +182,7 @@ def settlement_plan(db: Session) -> list[dict]:
                     if allowed:
                         seen.add(user.id)
 
-    for ranked in L.rank_rows(db, "SHARD", dim, "USER"):
+    for ranked in L.rank_rows(db, "SHARD", dim, "USER", since=since):
         rank = int(ranked.get("rank") or 0)
         if rank > rank_range:
             continue
@@ -223,7 +225,7 @@ def run_settlement(db: Session, week: str | None = None, admin: dict | None = No
             "executedAt": meta.get("executedAt"), "trigger": meta.get("trigger"),
         }
 
-    plan = settlement_plan(db)
+    plan = settlement_plan(db, closed=trigger == "auto")
     eligible = [x for x in plan if x["eligible"]]
     cap = int((L.setting(db, "cfg") or {}).get("settleCap") or 20)
     executed_at = L.business_now().strftime("%m-%d %H:%M")

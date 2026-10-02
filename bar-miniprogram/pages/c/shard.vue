@@ -14,19 +14,10 @@ function fmt(n) {
   return Number(n || 0).toLocaleString("en-US");
 }
 
-function md(date) {
-  return `${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-
-const weekPeriod = computed(() => {
-  const now = new Date();
-  const day = now.getDay() || 7;
-  const monday = new Date(now);
-  monday.setDate(now.getDate() - day + 1);
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  return `${md(monday)} ~ ${md(sunday)}`;
-});
+const shopDim = computed(() => data.value?.shard?.dim === "MONTH" ? "MONTH" : "WEEK");
+const periodLabel = computed(() =>
+  personalRank.value.periodLabel || teamRank.value.periodLabel || (shopDim.value === "MONTH" ? "当月" : "本周"),
+);
 
 const personalHint = computed(() => {
   const mine = personalRank.value.mine;
@@ -81,7 +72,7 @@ onReachBottom(() => loadMore());
     <view class="summary-card purple-card">
       <view class="summary-grid">
         <view class="summary-item">
-          <view class="summary-label">当周碎片</view>
+          <view class="summary-label">{{ shopDim === "MONTH" ? "当月碎片" : "当周碎片" }}</view>
           <view class="summary-value number-display">{{ fmt(data.shard.w) }}</view>
         </view>
         <view class="summary-item">
@@ -89,13 +80,13 @@ onReachBottom(() => loadMore());
           <view class="summary-value number-display">{{ fmt(data.shard.t) }}</view>
         </view>
       </view>
-      <view class="summary-tip">碎片为荣誉值，不可兑换，仅用于周榜排名</view>
+      <view class="summary-tip">碎片为荣誉值，不可兑换，仅用于{{ shopDim === "MONTH" ? "月" : "周" }}榜排名</view>
     </view>
 
     <view class="rank-card purple-card">
       <view class="rank-head">
-        <text class="rank-title">本周排名</text>
-        <text class="rank-period">{{ weekPeriod }}</text>
+        <text class="rank-title">{{ shopDim === "MONTH" ? "本月排名" : "本周排名" }}</text>
+        <text class="rank-period">{{ periodLabel }}</text>
       </view>
       <view class="rank-line">{{ personalHint }}</view>
       <view class="rank-line">{{ teamHint }}</view>

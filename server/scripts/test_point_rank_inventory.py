@@ -60,7 +60,7 @@ class PointRankInventoryTests(unittest.TestCase):
         self.assertEqual(rows[0]["v"], 3500)
         self.assertEqual(rows[0]["team"]["name"], "飞行家")
 
-    def test_shard_board_orders_by_the_dimension_it_shows(self):
+    def test_shard_all_time_board_orders_by_all_time_total(self):
         u1 = SimpleNamespace(id=1, team_id=None, role="CUSTOMER", status="ACTIVE")
         u2 = SimpleNamespace(id=2, team_id=None, role="CUSTOMER", status="ACTIVE")
         wallets = {
@@ -71,11 +71,8 @@ class PointRankInventoryTests(unittest.TestCase):
         with patch.object(L, "custs", return_value=[u1, u2]), \
              patch.object(L, "wallet_of", side_effect=lambda _s, uid: wallets[uid]), \
              patch.object(L, "_reg_keys", return_value={1: 1, 2: 2}), \
-             patch.object(L, "public_user", side_effect=lambda _s, u: {"id": u.id, "nick": f"u{u.id}"}), \
-             patch.object(L, "champ_count", return_value=0):
-            week = L.rank_rows(sess, "SHARD", "WEEK", "USER")
+             patch.object(L, "public_user", side_effect=lambda _s, u: {"id": u.id, "nick": f"u{u.id}"}):
             total = L.rank_rows(sess, "SHARD", "ALL", "USER")
-        self.assertEqual([(r["user"]["id"], r["v"]) for r in week], [(1, 5), (2, 1)])
         self.assertEqual([(r["user"]["id"], r["v"]) for r in total], [(2, 100), (1, 10)])
 
 

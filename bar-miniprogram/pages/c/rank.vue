@@ -6,15 +6,21 @@ import { getMemberRankCache, setMemberRankCache } from "@/utils/staff-page-cache
 
 const kind = ref("SHARD");
 const subject = ref("TEAM");
-const dim = ref("WEEK");
+/** PERIOD = shop current week/month; ALL = historical. Old cache used WEEK/MONTH. */
+const dim = ref("PERIOD");
 const showMetric = ref(false);
 const cached = getMemberRankCache();
 const data = ref(cached?.data || { rows: [], mine: null });
 if (cached?.kind) kind.value = cached.kind;
 if (cached?.subject) subject.value = cached.subject;
-if (cached?.dim) dim.value = cached.dim;
+if (cached?.dim === "ALL" || cached?.dim === "MONTH") dim.value = "ALL";
+else if (cached?.dim === "PERIOD" || cached?.dim === "WEEK") dim.value = "PERIOD";
 const me = savedUser();
 
+const shopDim = computed(() =>
+  data.value?.rankDim === "MONTH" || data.value?.cfg?.rankDim === "MONTH" ? "MONTH" : "WEEK",
+);
+const queryDim = () => (dim.value === "ALL" ? "ALL" : "WEEK");
 const keyOf = () => `${kind.value}|${dim.value}|${subject.value}`;
 const byKey = new Map(cached?.data ? [[keyOf(), cached.data]] : []);
 const dataKey = ref(cached?.data ? keyOf() : "");
@@ -29,7 +35,7 @@ async function load() {
     dataKey.value = key;
   }
   try {
-    const next = await api(`/rank?kind=${kind.value}&dim=${dim.value}&subject=${subject.value}`, {
+    const next = await api(`/rank?kind=${kind.value}&dim=${queryDim()}&subject=${subject.value}`, {
       loading: !hit,
       silent: !!hit,
     });
@@ -67,11 +73,10 @@ function valOf(r) {
 }
 function chooseKind(value) {
   kind.value = value;
-  // 积分榜固定实时库存，不再跟周/月切换
-  if (value !== "POINT") dim.value = "WEEK";
+  if (value !== "POINT") dim.value = "PERIOD";
 }
 function metricHint(value) {
-  if (value === "WEEK") return "每周一 12:00 结算重置";
+  if (value === "PERIOD") return shopDim.value === "MONTH" ? "每月 1 日 12:00 重置" : "每周一 12:00 重置";
   if (kind.value === "SHARD") return "碎片永久累计";
   return "历次冠军累计";
 }
@@ -84,24 +89,10 @@ function openMetric() {
   if (kind.value === "POINT") return;
   showMetric.value = true;
 }
-function md(d) { return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
 const periodText = computed(() => {
   if (kind.value === "POINT") return "当前积分";
-  if (dim.value !== "WEEK") {
-    if (kind.value === "SHARD") return "历史累计";
-    if (kind.value === "CHAMPION") return "累计冠军";
-    const now = new Date();
-    const first = new Date(now.getFullYear(), now.getMonth(), 1);
-    const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-    return `${md(first)} ~ ${md(last)}`;
-  }
-  const now = new Date();
-  const day = now.getDay() || 7;
-  const monday = new Date(now);
-  monday.setDate(now.getDate() - day + 1);
-  const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  return `${md(monday)} ~ ${md(sunday)}`;
+  if (dim.value === "ALL") return kind.value === "CHAMPION" ? "累计冠军" : "历史累计";
+  return data.value?.periodLabel || (shopDim.value === "MONTH" ? "当月新增" : "当周新增");
 });
 const color = computed(() =>
   kind.value === "SHARD" ? "#534AB7" : kind.value === "POINT" ? "#185FA5" : "#3B6D11",
@@ -109,10 +100,12 @@ const color = computed(() =>
 const emptyText = computed(() => {
   if (kind.value === "POINT") return "暂无可用积分";
   if (kind.value === "CHAMPION") {
-    return dim.value === "WEEK" ? "本周还没有冠军记录" : "暂无累计冠军数据";
+    return dim.value === "ALL"
+      ? "暂无累计冠军数据"
+      : shopDim.value === "MONTH" ? "本月还没有冠军记录" : "本周还没有冠军记录";
   }
-  if (kind.value === "SHARD" && dim.value !== "WEEK") return "暂无历史碎片数据";
-  return "本周还没有数据，快来玩一局";
+  if (kind.value === "SHARD" && dim.value === "ALL") return "暂无历史碎片数据";
+  return shopDim.value === "MONTH" ? "本月还没有数据，快来玩一局" : "本周还没有数据，快来玩一局";
 });
 /** 个人榜默认只展示前十；战队榜仍全量 */
 const displayRows = computed(() => {
@@ -142,7 +135,7 @@ const displayRows = computed(() => {
       >{{ periodText }} <text v-if="kind !== 'POINT'">▾</text></view>
     </view>
     <view class="rk-reward" v-if="kind === 'SHARD'">
-      <view style="font-size:12.5px;color:#633806;font-weight:600">{{ dim === "WEEK" ? "本周奖励 · 每周一 12:00 自动发放" : "本月奖励 · 次月 1 日 12:00 自动发放" }}</view>
+      <view style="font-size:12.5px;color:#633806;font-weight:600">{{ shopDim === "MONTH" ? "本月奖励 · 次月 1 日 12:00 自动发放" : "本周奖励 · 每周一 12:00 自动发放" }}</view>
       <view class="tiny gold" style="margin-top:3px;line-height:1.65">第一名战队全员得战队奖励卡 · 个人榜前三名得店内奖励卡（碎片为荣誉值，不可兑换）</view>
     </view>
     <view class="rk-reward point-hint" v-else-if="kind === 'POINT'">
@@ -178,9 +171,9 @@ const displayRows = computed(() => {
     <view v-if="showMetric && kind !== 'POINT'" class="metric-mask" @tap.self="showMetric = false">
       <view class="metric-sheet">
         <view class="metric-title">统计方式 <text @tap="showMetric = false">关闭</text></view>
-        <view class="metric-option" :class="{ selected: dim === 'WEEK' }" @tap="chooseMetric('WEEK')"><view class="metric-name">当周新增 <text v-if="dim === 'WEEK'">✓</text></view><text>每周一 12:00 结算重置</text></view>
-        <view class="metric-option" :class="{ selected: dim !== 'WEEK' }" @tap="chooseMetric('MONTH')"><view class="metric-name">{{ kind === 'SHARD' ? '历史累计' : '累计冠军' }} <text v-if="dim !== 'WEEK'">✓</text></view><text>{{ metricHint('MONTH') }}</text></view>
-        <view class="metric-tip">碎片榜与冠军榜可按当周或累计查看。积分榜固定为当前可用积分，不支持周/月切换。</view>
+        <view class="metric-option" :class="{ selected: dim === 'PERIOD' }" @tap="chooseMetric('PERIOD')"><view class="metric-name">{{ shopDim === 'MONTH' ? '当月新增' : '当周新增' }} <text v-if="dim === 'PERIOD'">✓</text></view><text>{{ metricHint('PERIOD') }}</text></view>
+        <view class="metric-option" :class="{ selected: dim === 'ALL' }" @tap="chooseMetric('ALL')"><view class="metric-name">{{ kind === 'SHARD' ? '历史累计' : '累计冠军' }} <text v-if="dim === 'ALL'">✓</text></view><text>{{ metricHint('ALL') }}</text></view>
+        <view class="metric-tip">碎片榜与冠军榜可按当期或累计查看。积分榜固定为当前可用积分，不支持周/月切换。</view>
       </view>
     </view>
   </view>

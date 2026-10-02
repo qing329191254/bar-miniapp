@@ -355,8 +355,88 @@ def point_of(sess: Session, uid: int) -> dict:
 
 
 def shard_of(sess: Session, uid: int) -> dict:
+    """w = current shop period (week or month), t = all-time; dim says which period w is."""
     w = wallet_of(sess, uid)
-    return {"w": w.shard_w, "t": w.shard_t}
+    dim = rank_dim(sess)
+    period = shard_gains_since(sess, period_start(dim)).get(int(uid), 0)
+    return {"w": period, "t": int(w.shard_t or 0), "dim": dim}
+
+
+SETTLE_HOUR = 12
+
+
+def rank_dim(sess: Session) -> str:
+    return "MONTH" if (setting(sess, "cfg") or {}).get("rankDim") == "MONTH" else "WEEK"
+
+
+def normalize_board_dim(dim: str) -> str:
+    d = str(dim or "WEEK").upper()
+    if d in ("ALL", "TOTAL", "HISTORY"):
+        return "ALL"
+    if d == "MONTH":
+        return "MONTH"
+    return "WEEK"
+
+
+def customer_rank_dim(sess: Session, dim: str) -> str:
+    """Customer /rank: WEEK = shop current period; MONTH = legacy 'historical'; ALL = all-time."""
+    d = str(dim or "WEEK").upper()
+    if d in ("ALL", "TOTAL", "HISTORY", "MONTH"):
+        return "ALL"
+    return rank_dim(sess)
+
+
+def period_start(dim: str, now: datetime | None = None) -> datetime:
+    """Start of the current rank period: Monday 12:00 (WEEK) or the 1st 12:00 (MONTH), business time."""
+    now = now or business_now()
+    if dim == "MONTH":
+        start = now.replace(day=1, hour=SETTLE_HOUR, minute=0, second=0, microsecond=0)
+        if now < start:
+            start = (start - timedelta(days=1)).replace(day=1, hour=SETTLE_HOUR, minute=0, second=0, microsecond=0)
+        return start
+    start = (now - timedelta(days=now.weekday())).replace(hour=SETTLE_HOUR, minute=0, second=0, microsecond=0)
+    if now < start:
+        start -= timedelta(days=7)
+    return start
+
+
+def previous_period_start(dim: str, now: datetime | None = None) -> datetime:
+    start = period_start(dim, now)
+    if dim == "MONTH":
+        last = start - timedelta(days=1)
+        return last.replace(day=1, hour=SETTLE_HOUR, minute=0, second=0, microsecond=0)
+    return start - timedelta(days=7)
+
+
+def period_end(dim: str, now: datetime | None = None, *, closed: bool = False) -> datetime:
+    start = previous_period_start(dim, now) if closed else period_start(dim, now)
+    if dim == "MONTH":
+        if start.month == 12:
+            return start.replace(year=start.year + 1, month=1)
+        return start.replace(month=start.month + 1)
+    return start + timedelta(days=7)
+
+
+def period_label(dim: str, now: datetime | None = None, *, closed: bool = False) -> str:
+    start = previous_period_start(dim, now) if closed else period_start(dim, now)
+    end = period_end(dim, now, closed=closed)
+    return f"{start.strftime('%m-%d')} 12:00 ~ {end.strftime('%m-%d')} 12:00"
+
+
+def shard_gains_since(sess: Session, since: datetime) -> dict[int, int]:
+    """Net shards gained in [since, now], excluding weekly-counter reset rows."""
+    since_s = since.strftime("%Y-%m-%d %H:%M")
+    rows = (
+        sess.query(AssetFlow.uid, func.coalesce(func.sum(AssetFlow.delta), 0))
+        .filter(
+            AssetFlow.asset == "SHARD",
+            AssetFlow.typ != "weekly",
+            AssetFlow.at >= since_s,
+        )
+        .group_by(AssetFlow.uid)
+        .all()
+    )
+    return {int(uid): int(total) for uid, total in rows}
 
 
 def custs(sess: Session) -> list[User]:
@@ -379,7 +459,9 @@ def public_user(sess: Session, user: User | dict | None) -> dict | None:
         if not user:
             return None
     tm = team(sess, user.team_id)
-    return user.to_public(user.wallet, tm.name if tm else None)
+    d = user.to_public(user.wallet, tm.name if tm else None)
+    d["shard"]["dim"] = rank_dim(sess)
+    return d
 
 
 def log(sess: Session, action: str, detail: str, uid=None, op=None):
@@ -2157,6 +2239,26 @@ def champ_count(sess: Session, uid, dim: str = "ALL") -> int:
     return q.count()
 
 
+def champ_counts(sess: Session, since: str | None = None) -> dict[int, int]:
+    """Wins per member; since='YYYY-MM-DD HH:MM' keeps wins whose game time is at/after it."""
+    rows = sess.query(Champ.uid, Champ.date, Champ.game_id).all()
+    times: dict[int, str] = {}
+    if since:
+        gids = {gid for _, _, gid in rows if gid}
+        if gids:
+            times = {gid: t for gid, t in sess.query(GameRecord.id, GameRecord.time).filter(GameRecord.id.in_(gids)).all()}
+    out: dict[int, int] = {}
+    for uid, day, gid in rows:
+        if since:
+            at = str(times.get(gid) or day or "")[:16]
+            if len(at) == 10:
+                at += " 00:00"
+            if at < since:
+                continue
+        out[int(uid)] = out.get(int(uid), 0) + 1
+    return out
+
+
 def _reg_keys(sess: Session, uids: list[int]) -> dict[int, int]:
     """Smaller key = earlier registration (first AgreeLog id; else large offset + uid)."""
     if not uids:
@@ -2174,24 +2276,35 @@ def _reg_keys(sess: Session, uids: list[int]) -> dict[int, int]:
     return out
 
 
-def rank_rows(sess: Session, kind: str, dim: str, subject: str):
+def rank_rows(sess: Session, kind: str, dim: str, subject: str, since: datetime | None = None):
     """All boards: unique ranks (no ties). Primary metric per kind, then shared breakers.
 
     POINT board always uses live available inventory (point_av), ignoring week/month dim.
-    SHARD / CHAMPION still honor WEEK vs ALL/MONTH.
+    SHARD WEEK/MONTH = net shards since period start (Mon 12:00 / 1st 12:00); ALL = shard_t.
+    CHAMPION WEEK/MONTH = wins whose game time is at/after that 12:00; ALL = all wins.
     """
+    dim = normalize_board_dim(dim)
     people = custs(sess)
     teams = [t for t in sess.query(Team).all() if (t.status or "ACTIVE") != "DISABLED"]
     reg = _reg_keys(sess, [x.id for x in people])
-    cdim = "WEEK" if dim == "WEEK" else "ALL"
+    period_shards: dict[int, int] = {}
+    champ_map: dict[int, int] = {}
+    if kind == "SHARD" and dim in ("WEEK", "MONTH"):
+        period_shards = shard_gains_since(sess, since or period_start(dim))
+    if kind == "CHAMPION":
+        if dim in ("WEEK", "MONTH"):
+            start = since or period_start(dim)
+            champ_map = champ_counts(sess, start.strftime("%Y-%m-%d %H:%M"))
+        else:
+            champ_map = champ_counts(sess)
 
     def metrics(x: User) -> tuple[int, int, int, int, int]:
         w = wallet_of(sess, x.id)
-        sw, st = int(w.shard_w or 0), int(w.shard_t or 0)
-        # 积分榜：实时可用库存（含对局/签到/店员调整等全部渠道净结果）
+        st = int(w.shard_t or 0)
+        sw = int(period_shards.get(x.id, 0) if dim in ("WEEK", "MONTH") else (w.shard_w or 0))
         pav = int(w.point_av or 0)
         pm = int(w.point_mg or 0)
-        cc = champ_count(sess, x.id, cdim) if kind == "CHAMPION" else 0
+        cc = int(champ_map.get(x.id, 0))
         return sw, st, pav, pm, cc
 
     rows: list[dict] = []
@@ -2200,15 +2313,12 @@ def rank_rows(sess: Session, kind: str, dim: str, subject: str):
             sw, st, pav, pm, cc = metrics(x)
             rk = reg.get(x.id, 10**9 + x.id)
             if kind == "SHARD":
-                # 按所看维度（当周 / 历史）在前，另一维度 → 当月积分 → 注册时间
-                v = sw if dim == "WEEK" else st
-                sort = (-sw, -st, -pm, rk) if dim == "WEEK" else (-st, -sw, -pm, rk)
+                v = st if dim == "ALL" else sw
+                sort = (-st, -sw, -pm, rk) if dim == "ALL" else (-sw, -st, -pm, rk)
             elif kind == "POINT":
-                # 实时库存 → 当周碎片 → 历史碎片 → 注册时间
                 v = pav
                 sort = (-pav, -sw, -st, rk)
             else:
-                # 冠军次数 → 当周碎片 → 历史碎片 → 当月积分 → 注册时间
                 v = cc
                 sort = (-cc, -sw, -st, -pm, rk)
             rows.append({"x": x, "v": v, "_sort": sort})
@@ -2225,10 +2335,9 @@ def rank_rows(sess: Session, kind: str, dim: str, subject: str):
                 cc += e
             tid = int(t.id)
             if kind == "SHARD":
-                v = sw if dim == "WEEK" else st
-                sort = (-sw, -st, -pm, tid) if dim == "WEEK" else (-st, -sw, -pm, tid)
+                v = st if dim == "ALL" else sw
+                sort = (-st, -sw, -pm, tid) if dim == "ALL" else (-sw, -st, -pm, tid)
             elif kind == "POINT":
-                # 战队积分 = 成员实时库存之和
                 v = pav
                 sort = (-pav, -sw, -st, tid)
             else:

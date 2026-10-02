@@ -626,14 +626,22 @@ def rank(kind: str = "SHARD", dim: str = "WEEK", subject: str = "TEAM",
          authorization: Optional[str] = Header(default=None)):
     uid = uid_from_headers(authorization)
     me = L.u(db, uid) if uid else None
-    rows = L.rank_rows(db, kind, dim, subject)
+    board = L.customer_rank_dim(db, dim)
+    rows = L.rank_rows(db, kind, board, subject)
     mine = None
     if me:
         if subject == "USER":
             mine = next((r for r in rows if r.get("user") and r["user"]["id"] == me.id), None)
         else:
             mine = next((r for r in rows if r.get("team") and r["team"]["id"] == me.team_id), None)
-    return {"rows": rows[:20] if subject == "USER" else rows, "mine": mine, "cfg": L.setting(db, "cfg")}
+    shop_dim = L.rank_dim(db)
+    return {
+        "rows": rows[:20] if subject == "USER" else rows,
+        "mine": mine,
+        "cfg": L.setting(db, "cfg"),
+        "rankDim": shop_dim,
+        "periodLabel": L.period_label(shop_dim),
+    }
 
 
 @app.get("/api/champions")
