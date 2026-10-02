@@ -2286,6 +2286,7 @@ def rank_rows(sess: Session, kind: str, dim: str, subject: str, since: datetime 
     SHARD WEEK = wallet 本周碎片 (same as 店员调整); MONTH = flows since the 1st 12:00;
     ALL = shard_t. Ties: 累计碎片, then 可用积分, then earlier registration.
     CHAMPION WEEK/MONTH = wins at/after that 12:00; ALL = all wins.
+    Champion ties: 本周碎片, 累计碎片, 可用积分, then earlier registration.
     """
     dim = normalize_board_dim(dim)
     people = custs(sess)
@@ -2324,7 +2325,7 @@ def rank_rows(sess: Session, kind: str, dim: str, subject: str, since: datetime 
                 sort = (-pav, -sw, -st, rk)
             else:
                 v = cc
-                sort = (-cc, -sw, -st, -pm, rk)
+                sort = (-cc, -sw, -st, -pav, rk)
             rows.append({"x": x, "v": v, "_sort": sort})
     else:
         for t in teams:
@@ -2346,7 +2347,7 @@ def rank_rows(sess: Session, kind: str, dim: str, subject: str, since: datetime 
                 sort = (-pav, -sw, -st, tid)
             else:
                 v = cc
-                sort = (-cc, -sw, -st, -pm, tid)
+                sort = (-cc, -sw, -st, -pav, tid)
             rows.append({"t": t, "ms": ms, "v": v, "_sort": sort})
 
     rows = [r for r in rows if r["v"] > 0]
