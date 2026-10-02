@@ -2284,7 +2284,8 @@ def rank_rows(sess: Session, kind: str, dim: str, subject: str, since: datetime 
 
     POINT board always uses live available inventory (point_av), ignoring week/month dim.
     SHARD WEEK = wallet 本周碎片 (same as 店员调整); MONTH = flows since the 1st 12:00;
-    ALL = shard_t. CHAMPION WEEK/MONTH = wins at/after that 12:00; ALL = all wins.
+    ALL = shard_t. Ties: 累计碎片, then 可用积分, then earlier registration.
+    CHAMPION WEEK/MONTH = wins at/after that 12:00; ALL = all wins.
     """
     dim = normalize_board_dim(dim)
     people = custs(sess)
@@ -2317,7 +2318,7 @@ def rank_rows(sess: Session, kind: str, dim: str, subject: str, since: datetime 
             rk = reg.get(x.id, 10**9 + x.id)
             if kind == "SHARD":
                 v = st if dim == "ALL" else sw
-                sort = (-st, -sw, -pm, rk) if dim == "ALL" else (-sw, -st, -pm, rk)
+                sort = (-st, -sw, -pav, rk) if dim == "ALL" else (-sw, -st, -pav, rk)
             elif kind == "POINT":
                 v = pav
                 sort = (-pav, -sw, -st, rk)
@@ -2339,7 +2340,7 @@ def rank_rows(sess: Session, kind: str, dim: str, subject: str, since: datetime 
             tid = int(t.id)
             if kind == "SHARD":
                 v = st if dim == "ALL" else sw
-                sort = (-st, -sw, -pm, tid) if dim == "ALL" else (-sw, -st, -pm, tid)
+                sort = (-st, -sw, -pav, tid) if dim == "ALL" else (-sw, -st, -pav, tid)
             elif kind == "POINT":
                 v = pav
                 sort = (-pav, -sw, -st, tid)

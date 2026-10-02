@@ -75,6 +75,21 @@ class PointRankInventoryTests(unittest.TestCase):
             total = L.rank_rows(sess, "SHARD", "ALL", "USER")
         self.assertEqual([(r["user"]["id"], r["v"]) for r in total], [(2, 100), (1, 10)])
 
+    def test_shard_week_ties_break_on_available_points(self):
+        u1 = SimpleNamespace(id=1, team_id=None, role="CUSTOMER", status="ACTIVE")
+        u2 = SimpleNamespace(id=2, team_id=None, role="CUSTOMER", status="ACTIVE")
+        wallets = {
+            1: SimpleNamespace(point_av=183000, point_wg=0, point_mg=3000, shard_w=15, shard_t=15),
+            2: SimpleNamespace(point_av=193000, point_wg=0, point_mg=3000, shard_w=15, shard_t=15),
+        }
+        sess = MagicMock()
+        with patch.object(L, "custs", return_value=[u1, u2]), \
+             patch.object(L, "wallet_of", side_effect=lambda _s, uid: wallets[uid]), \
+             patch.object(L, "_reg_keys", return_value={1: 1, 2: 2}), \
+             patch.object(L, "public_user", side_effect=lambda _s, u: {"id": u.id, "nick": f"u{u.id}"}):
+            rows = L.rank_rows(sess, "SHARD", "WEEK", "USER")
+        self.assertEqual([(r["user"]["id"], r["v"]) for r in rows], [(2, 15), (1, 15)])
+
 
 if __name__ == "__main__":
     unittest.main()
