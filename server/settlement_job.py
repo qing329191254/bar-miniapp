@@ -157,7 +157,10 @@ def settlement_plan(db: Session, *, closed: bool = False) -> list[dict]:
     cfg = L.normalize_settlement_cfg_refs(db, L.setting(db, "cfg") or {})
     dim = "MONTH" if cfg.get("rankDim") == "MONTH" else "WEEK"
     since = L.previous_period_start(dim) if closed else L.period_start(dim)
-    period_shards = L.shard_gains_since(db, since)
+    if dim == "MONTH":
+        period_shards = L.shard_gains_since(db, since)
+    else:
+        period_shards = {int(w.user_id): int(w.shard_w or 0) for w in db.query(Wallet).all()}
     rank_range = max(1, int(cfg.get("rankRange") or 3))
     prize_map = cfg.get("prizeMap") or {}
     rows: list[dict] = []

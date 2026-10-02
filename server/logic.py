@@ -355,10 +355,13 @@ def point_of(sess: Session, uid: int) -> dict:
 
 
 def shard_of(sess: Session, uid: int) -> dict:
-    """w = current shop period (week or month), t = all-time; dim says which period w is."""
+    """w = this week (wallet) or this month (flows); t = all-time. Same week number as 店员调整."""
     w = wallet_of(sess, uid)
     dim = rank_dim(sess)
-    period = shard_gains_since(sess, period_start(dim)).get(int(uid), 0)
+    if dim == "MONTH":
+        period = shard_gains_since(sess, period_start(dim)).get(int(uid), 0)
+    else:
+        period = int(w.shard_w or 0)
     return {"w": period, "t": int(w.shard_t or 0), "dim": dim}
 
 
@@ -2280,8 +2283,8 @@ def rank_rows(sess: Session, kind: str, dim: str, subject: str, since: datetime 
     """All boards: unique ranks (no ties). Primary metric per kind, then shared breakers.
 
     POINT board always uses live available inventory (point_av), ignoring week/month dim.
-    SHARD WEEK/MONTH = net shards since period start (Mon 12:00 / 1st 12:00); ALL = shard_t.
-    CHAMPION WEEK/MONTH = wins whose game time is at/after that 12:00; ALL = all wins.
+    SHARD WEEK = wallet 本周碎片 (same as 店员调整); MONTH = flows since the 1st 12:00;
+    ALL = shard_t. CHAMPION WEEK/MONTH = wins at/after that 12:00; ALL = all wins.
     """
     dim = normalize_board_dim(dim)
     people = custs(sess)
@@ -2289,7 +2292,7 @@ def rank_rows(sess: Session, kind: str, dim: str, subject: str, since: datetime 
     reg = _reg_keys(sess, [x.id for x in people])
     period_shards: dict[int, int] = {}
     champ_map: dict[int, int] = {}
-    if kind == "SHARD" and dim in ("WEEK", "MONTH"):
+    if kind == "SHARD" and dim == "MONTH":
         period_shards = shard_gains_since(sess, since or period_start(dim))
     if kind == "CHAMPION":
         if dim in ("WEEK", "MONTH"):
@@ -2301,7 +2304,7 @@ def rank_rows(sess: Session, kind: str, dim: str, subject: str, since: datetime 
     def metrics(x: User) -> tuple[int, int, int, int, int]:
         w = wallet_of(sess, x.id)
         st = int(w.shard_t or 0)
-        sw = int(period_shards.get(x.id, 0) if dim in ("WEEK", "MONTH") else (w.shard_w or 0))
+        sw = int(period_shards.get(x.id, 0) if dim == "MONTH" else (w.shard_w or 0))
         pav = int(w.point_av or 0)
         pm = int(w.point_mg or 0)
         cc = int(champ_map.get(x.id, 0))

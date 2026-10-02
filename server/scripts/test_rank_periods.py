@@ -84,11 +84,11 @@ class ShardBoardPeriodTests(unittest.TestCase):
             total = L.rank_rows(sess, "SHARD", "ALL", "USER")
             mine = L.shard_of(sess, 1)
 
-        # week starts Mon 2026-10-05 12:00; weekly reset rows are excluded
-        self.assertEqual([(r["user"]["id"], r["v"]) for r in week], [])
+        # WEEK 跟店员页一样看钱包本周；MONTH 才按本月流水
+        self.assertEqual([(r["user"]["id"], r["v"]) for r in week], [(1, 99), (2, 1)])
         self.assertEqual([(r["user"]["id"], r["v"]) for r in month], [(2, 20), (1, 3)])
         self.assertEqual([(r["user"]["id"], r["v"]) for r in total], [(1, 200), (2, 50)])
-        self.assertEqual(mine["w"], 0)
+        self.assertEqual(mine["w"], 99)
         self.assertEqual(mine["t"], 200)
         self.assertEqual(mine["dim"], "WEEK")
 
@@ -132,12 +132,16 @@ class MonthSettlementTests(unittest.TestCase):
         self.assertEqual(personal[0]["uid"], 2)
         self.assertEqual(personal[0]["sh"], 15)
 
-    def test_auto_settle_uses_closed_period(self):
+    def test_auto_settle_month_uses_closed_period(self):
         sess = make_session()
-        add_shard(sess, 1, "2026-09-29 15:00", 12, ref="last-week")
-        add_shard(sess, 2, "2026-10-05 13:00", 9, ref="this-week")
+        L.save_setting(sess, "cfg", {
+            "rankDim": "MONTH", "rankRange": 3, "teamReward": True, "teamCard": "8",
+            "stack": True, "reqShard": True, "settleCap": 20, "prizeMap": {"1": "5"},
+        })
+        add_shard(sess, 1, "2026-09-10 15:00", 12, ref="last-month")
+        add_shard(sess, 2, "2026-10-02 13:00", 9, ref="this-month")
         sess.flush()
-        with at(datetime(2026, 10, 5, 12, 5)):
+        with at(datetime(2026, 10, 1, 12, 5)):
             live = SJ.settlement_plan(sess, closed=False)
             closed = SJ.settlement_plan(sess, closed=True)
         live_p = [x for x in live if x["type"].startswith("PERSONAL")]
