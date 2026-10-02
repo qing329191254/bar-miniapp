@@ -1145,6 +1145,8 @@ def do_sign(sess: Session, uid: int) -> dict:
 
 
 def issue_card(sess: Session, uid: int, tm: CardTpl, src: str, src_desc: str, op: str = "") -> Card:
+    days = int(tm.days or 30)
+    now = business_now()
     card = Card(
         id=next_seq(sess, "card"),
         uid=uid,
@@ -1153,14 +1155,53 @@ def issue_card(sess: Session, uid: int, tm: CardTpl, src: str, src_desc: str, op
         src=src,
         src_desc=src_desc,
         status="UNUSED",
-        days_left=tm.days or 30,
-        expire="",
-        at=business_now().strftime("%Y-%m-%d %H:%M"),
+        days_left=days,
+        expire=(now.date() + timedelta(days=days - 1)).isoformat(),
+        at=now.strftime("%Y-%m-%d %H:%M"),
         op=str(op or "")[:64],
     )
     sess.add(card)
     flow_card_in(sess, card, tm.name)
     return card
+
+
+def card_expire_day(card: Card) -> date | None:
+    """Last valid day (inclusive); None when expire is not a full YYYY-MM-DD date."""
+    try:
+        return datetime.strptime(str(card.expire or "")[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def card_expired(card: Card, today: date | None = None) -> bool:
+    end = card_expire_day(card)
+    return end is not None and end < (today or business_today())
+
+
+def sweep_card_expiry(sess: Session, today: date | None = None) -> int:
+    """Recompute days_left for open cards and expire overdue UNUSED ones; returns how many expired.
+
+    Cards issued before expire was recorded get it backfilled from issue day + their original
+    days_left (never decremented before this sweep existed).
+    """
+    today = today or business_today()
+    tpl_days = {tid: int(d or 30) for tid, d in sess.query(CardTpl.id, CardTpl.days).all()}
+    expired = 0
+    for c in sess.query(Card).filter(Card.status.in_(("UNUSED", "LOCKED"))).with_for_update().all():
+        end = card_expire_day(c)
+        if end is None:
+            try:
+                start = datetime.strptime(str(c.at or "")[:10], "%Y-%m-%d").date()
+            except ValueError:
+                start = today
+            days = int(c.days_left or 0) or tpl_days.get(c.tpl, 30)
+            end = start + timedelta(days=days - 1)
+            c.expire = end.isoformat()
+        c.days_left = max(0, (end - today).days + 1)
+        if c.days_left == 0 and c.status == "UNUSED":
+            close_card(sess, c, "EXPIRED", "系统")
+            expired += 1
+    return expired
 
 
 def close_card(sess: Session, card: Card, status: str, op, void_reason: str | None = None) -> None:
@@ -1430,6 +1471,8 @@ def gen_verify(sess: Session, uid: int, card_ids: list[int]) -> dict:
         c = sess.get(Card, cid)
         if not c or c.uid != uid or c.status != "UNUSED" or (c.days_left or 0) <= 0:
             err("卡券状态已变化")
+        if card_expired(c):
+            err("卡券已过期")
         tm = tpl(sess, c.tpl)
         weekdays = (tm.rules or {}).get("weekdays") if tm else []
         allowed = {int(day) for day in weekdays or [] if str(day).isdigit() and 1 <= int(day) <= 7}
@@ -4632,6 +4675,8 @@ def staff_direct_verify(sess: Session, uid: int, card_id: int, tail: str, reason
     card = sess.get(Card, int(card_id or 0))
     if not card or card.uid != uid or card.status != "UNUSED":
         raise ValueError("卡券状态已变更，请返回重试")
+    if card_expired(card):
+        raise ValueError("卡券已过期，不可核销")
     tm = tpl(sess, card.tpl)
     close_card(sess, card, "USED", staff)
     sess.add(VerifyLog(

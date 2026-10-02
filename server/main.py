@@ -25,6 +25,7 @@ from seed_db import seed_all
 from settings import cloud_env_id, cos_public_base, host_for_log, in_cloud, is_loopback, mysql_url
 import settlement_job as SJ
 import point_clear_job as PCJ
+import card_expiry_job as CEJ
 import weixin
 import reminders
 
@@ -221,6 +222,7 @@ async def on_startup():
                     db.rollback()
                     print(f"[point-clear] bootstrap warning: {e}")
             PCJ.start_point_clear_scheduler()
+            CEJ.start_card_expiry_scheduler()
             reminders.start_listener()
             return
         except Exception as e:
