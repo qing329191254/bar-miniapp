@@ -141,26 +141,28 @@ const LEDGER_KIND_TEXT: Record<string, string> = { coin: "金币", point: "积�
 const LEDGER_VOID_ST = ["已作废", "已驳回", "已取消", "已关闭", "超时关闭", "已拒绝"];
 const ledgerKind = ref<LedgerKind>("all");
 const ledgerRows = ref<any[]>([]);
-const ledgerCursor = ref("");
-const ledgerMore = ref(false);
+const ledgerPage = ref(1);
+const ledgerPageSize = ref(10);
+const ledgerTotal = ref(0);
 const ledgerLoading = ref(false);
 const ledgerErr = ref("");
 let ledgerSeq = 0;
 
-async function loadLedger(reset = true) {
+async function loadLedger() {
   const id = uid.value;
   if (!id) return;
   const seq = ++ledgerSeq;
   ledgerLoading.value = true;
   ledgerErr.value = "";
   try {
-    const params = new URLSearchParams({ kind: ledgerKind.value, limit: "30" });
-    if (!reset && ledgerCursor.value) params.set("before", ledgerCursor.value);
+    const params = new URLSearchParams({
+      kind: ledgerKind.value, page: String(ledgerPage.value), pageSize: String(ledgerPageSize.value),
+    });
     const res = await api<any>(`/admin/members/${id}/ledger?${params}`);
     if (seq !== ledgerSeq) return;
-    ledgerRows.value = reset ? res.items || [] : [...ledgerRows.value, ...(res.items || [])];
-    ledgerCursor.value = res.cursor || "";
-    ledgerMore.value = !!res.hasMore;
+    ledgerRows.value = res.items || [];
+    ledgerTotal.value = res.total || 0;
+    if (res.page && res.page !== ledgerPage.value) ledgerPage.value = res.page;
   } catch (e: any) {
     if (seq === ledgerSeq) ledgerErr.value = e?.message || "资产流水加载失败";
   } finally {
@@ -171,8 +173,15 @@ async function loadLedger(reset = true) {
 function setLedgerKind(k: LedgerKind) {
   if (ledgerKind.value === k) return;
   ledgerKind.value = k;
-  loadLedger();
+  if (ledgerPage.value !== 1) ledgerPage.value = 1;
+  else loadLedger();
 }
+
+watch(ledgerPage, () => loadLedger());
+watch(ledgerPageSize, () => {
+  if (ledgerPage.value !== 1) ledgerPage.value = 1;
+  else loadLedger();
+});
 
 function ledgerVoid(r: any) {
   return r.struck !== undefined ? !!r.struck : LEDGER_VOID_ST.includes(r.status);
@@ -364,8 +373,8 @@ watch(uid, async (id) => {
   cardPage.value = wdrPage.value = champPage.value = 1;
   ledgerKind.value = "all";
   ledgerRows.value = [];
-  ledgerCursor.value = "";
-  ledgerMore.value = false;
+  ledgerTotal.value = 0;
+  ledgerPage.value = 1;
   if (id) await loadDetail(id);
   else {
     detail.value = null;
@@ -488,11 +497,15 @@ watch(kw, () => {
             </tr>
           </tbody>
         </table>
-        <div v-if="ledgerMore || (ledgerErr && ledgerRows.length)" class="ledger-more">
-          <button class="btn sm ghost" :disabled="ledgerLoading" @click="loadLedger(false)">
-            {{ ledgerLoading ? "加载中…" : ledgerErr ? "加载失败，重试" : "加载更多" }}
-          </button>
+        <div v-if="ledgerErr && ledgerRows.length" class="ledger-more">
+          <button class="btn sm ghost" :disabled="ledgerLoading" @click="loadLedger()">加载失败，重试</button>
         </div>
+        <AppPagination
+          v-model:page="ledgerPage"
+          v-model:page-size="ledgerPageSize"
+          :total="ledgerTotal"
+          :sizes="[10, 20, 50]"
+        />
       </div>
 
       <div class="card table-card">

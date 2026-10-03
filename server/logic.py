@@ -4801,15 +4801,18 @@ _MEMBER_LEDGER_ASSETS = {
 }
 
 
-def member_ledger_page(sess: Session, uid: int, kind: str = "all", before: str = "", limit: int = 30) -> dict:
+def member_ledger_page(sess: Session, uid: int, kind: str = "all", page: int = 1, page_size: int = 10) -> dict:
     """后台会员详情：金币 / 积分 / 卡券 / 碎片全部资产流水，按时间倒序分页。"""
     user = sess.get(User, uid)
     if not user or user.role != "CUSTOMER":
         raise ValueError("会员不存在")
     assets = _MEMBER_LEDGER_ASSETS.get((kind or "all").upper(), ("COIN", "POINT", "CARD", "SHARD"))
-    limit = max(1, min(int(limit or 30), 200))
+    page_size = max(1, min(int(page_size or 10), 200))
     _ensure_flow_history(sess, uid)
-    rows, more, cursor = _flow_page(sess, uid, assets, before, limit)
+    q = sess.query(AssetFlow).filter(AssetFlow.uid == uid, AssetFlow.asset.in_(assets))
+    total = q.count()
+    page = max(1, min(int(page or 1), max(1, math.ceil(total / page_size))))
+    rows = q.order_by(AssetFlow.sort_at.desc(), AssetFlow.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
     order_ids = [int(r.ref_id) for r in rows if r.typ == "order" and r.ref_id]
     orders = {o.id: o for o in sess.query(Order).filter(Order.id.in_(order_ids)).all()} if order_ids else {}
     items = []
@@ -4826,7 +4829,7 @@ def member_ledger_page(sess: Session, uid: int, kind: str = "all", before: str =
             })
         else:
             items.append(_flow_item(r, orders))
-    return {"items": items, "hasMore": more, "cursor": cursor}
+    return {"items": items, "total": total, "page": page, "pageSize": page_size}
 
 
 def shard_records_page(sess: Session, uid: int, before: str = "", limit: int = 30) -> dict:

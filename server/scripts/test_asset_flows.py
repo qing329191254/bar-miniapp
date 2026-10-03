@@ -208,7 +208,7 @@ class AssetFlowTests(unittest.TestCase):
         L.member_adjust_shard(sess, uid, 1, "补碎片", BOSS)
         sess.flush()
 
-        all_rows = L.member_ledger_page(sess, uid, "all", "", 200)["items"]
+        all_rows = L.member_ledger_page(sess, uid, "all", 1, 200)["items"]
         kinds = {r["kind"] for r in all_rows}
         self.assertEqual(kinds, {"coin", "point", "card", "shard"})
         shard = [r for r in all_rows if r["kind"] == "shard"]
@@ -218,17 +218,17 @@ class AssetFlowTests(unittest.TestCase):
         self.assertIn("补碎片", adj["content"])
         self.assertFalse(adj["content"].startswith("20"))
 
-        only_shard = L.member_ledger_page(sess, uid, "shard", "", 200)["items"]
+        only_shard = L.member_ledger_page(sess, uid, "shard", 1, 200)["items"]
         self.assertTrue(only_shard and all(r["kind"] == "shard" for r in only_shard))
-        first = L.member_ledger_page(sess, uid, "all", "", 2)
-        self.assertTrue(first["hasMore"])
-        second = L.member_ledger_page(sess, uid, "all", first["cursor"], 200)["items"]
-        self.assertFalse({r["id"] for r in first["items"]} & {r["id"] for r in second})
-        self.assertEqual(len(first["items"]) + len(second), len(all_rows))
+        last_page = (len(all_rows) + 1) // 2
+        pages = [L.member_ledger_page(sess, uid, "all", p, 2) for p in range(1, last_page + 1)]
+        self.assertTrue(all(pg["total"] == len(all_rows) for pg in pages))
+        self.assertEqual([r["id"] for pg in pages for r in pg["items"]], [r["id"] for r in all_rows])
+        self.assertEqual(L.member_ledger_page(sess, uid, "all", 999, 2)["page"], last_page)
         self.assertTrue(game)
 
         with self.assertRaises(ValueError):
-            L.member_ledger_page(sess, 7, "all", "", 10)
+            L.member_ledger_page(sess, 7, "all", 1, 10)
 
     def test_game_detail_lists_players_cards_and_void_info(self, _lock):
         sess = make_session()
