@@ -133,6 +133,64 @@ watch([() => detail.value?.withdrawals, wdrPageSize], () =>
 watch([() => detail.value?.champs, champPageSize], () =>
   clampPage(champPage, (detail.value?.champs || []).length, champPageSize.value));
 
+type LedgerKind = "all" | "coin" | "point" | "card" | "shard";
+const LEDGER_TABS: [LedgerKind, string][] = [
+  ["all", "全部"], ["coin", "金币"], ["point", "积分"], ["card", "卡券"], ["shard", "碎片"],
+];
+const LEDGER_KIND_TEXT: Record<string, string> = { coin: "金币", point: "积分", card: "卡券", shard: "碎片" };
+const LEDGER_VOID_ST = ["已作废", "已驳回", "已取消", "已关闭", "超时关闭", "已拒绝"];
+const ledgerKind = ref<LedgerKind>("all");
+const ledgerRows = ref<any[]>([]);
+const ledgerCursor = ref("");
+const ledgerMore = ref(false);
+const ledgerLoading = ref(false);
+const ledgerErr = ref("");
+let ledgerSeq = 0;
+
+async function loadLedger(reset = true) {
+  const id = uid.value;
+  if (!id) return;
+  const seq = ++ledgerSeq;
+  ledgerLoading.value = true;
+  ledgerErr.value = "";
+  try {
+    const params = new URLSearchParams({ kind: ledgerKind.value, limit: "30" });
+    if (!reset && ledgerCursor.value) params.set("before", ledgerCursor.value);
+    const res = await api<any>(`/admin/members/${id}/ledger?${params}`);
+    if (seq !== ledgerSeq) return;
+    ledgerRows.value = reset ? res.items || [] : [...ledgerRows.value, ...(res.items || [])];
+    ledgerCursor.value = res.cursor || "";
+    ledgerMore.value = !!res.hasMore;
+  } catch (e: any) {
+    if (seq === ledgerSeq) ledgerErr.value = e?.message || "资产流水加载失败";
+  } finally {
+    if (seq === ledgerSeq) ledgerLoading.value = false;
+  }
+}
+
+function setLedgerKind(k: LedgerKind) {
+  if (ledgerKind.value === k) return;
+  ledgerKind.value = k;
+  loadLedger();
+}
+
+function ledgerVoid(r: any) {
+  return r.struck !== undefined ? !!r.struck : LEDGER_VOID_ST.includes(r.status);
+}
+
+function ledgerAmountClass(r: any) {
+  if (ledgerVoid(r)) return "struck";
+  const a = String(r.amount || "");
+  if (a.startsWith("+")) return "plus";
+  if (a.startsWith("−") || a.startsWith("-")) return "minus";
+  return "";
+}
+
+function ledgerStatusClass(r: any) {
+  const tone = String(r.statusTone || "");
+  return ["green", "blue", "red", "gold"].includes(tone) ? `pill ${tone}` : "pill grey";
+}
+
 function cardDoneText(cd: any) {
   if (!cd.doneAt || cd.status === "UNUSED") return "";
   return [cd.doneAt, cd.doneOp].filter(Boolean).join(" · ");
@@ -184,6 +242,7 @@ async function loadDetail(id = uid.value) {
   err.value = "";
   try {
     detail.value = await api(`/admin/members/${id}`);
+    loadLedger();
   } catch (e: any) {
     err.value = e?.message || "加载会员详情失败";
     detail.value = null;
@@ -303,6 +362,10 @@ onMounted(async () => {
 watch(uid, async (id) => {
   cardFilter.value = "UNUSED";
   cardPage.value = wdrPage.value = champPage.value = 1;
+  ledgerKind.value = "all";
+  ledgerRows.value = [];
+  ledgerCursor.value = "";
+  ledgerMore.value = false;
   if (id) await loadDetail(id);
   else {
     detail.value = null;
@@ -394,6 +457,42 @@ watch(kw, () => {
           :total="(detail.champs || []).length"
           :sizes="[5, 10, 20]"
         />
+      </div>
+
+      <div class="card table-card">
+        <div class="st">资产流水 <em>金币、积分、卡券、碎片的每一笔变动，与顾客「我的订单」一致</em></div>
+        <div class="flt-chips card-flt">
+          <span
+            v-for="[k, label] in LEDGER_TABS"
+            :key="k"
+            class="chip"
+            :class="{ on: ledgerKind === k }"
+            @click="setLedgerKind(k)"
+          >{{ label }}</span>
+        </div>
+        <table class="tb2 member-detail-table">
+          <thead><tr><th>时间</th><th>资产</th><th>变动</th><th>备注</th><th>数量</th><th>余额 / 卡号</th><th>操作员</th><th>状态</th></tr></thead>
+          <tbody>
+            <tr v-for="r in ledgerRows" :key="r.kind + '-' + r.id">
+              <td class="tiny">{{ r.at || "—" }}</td>
+              <td class="tiny">{{ LEDGER_KIND_TEXT[r.kind] || r.kind }}</td>
+              <td><b>{{ r.title }}</b></td>
+              <td class="tiny mut">{{ r.content && r.content !== r.title ? r.content : "—" }}</td>
+              <td><b :class="ledgerAmountClass(r)">{{ r.amount || "—" }}</b></td>
+              <td class="tiny">{{ r.kind === "card" ? r.cardNo || "—" : r.process || "—" }}</td>
+              <td class="tiny">{{ r.operator || "—" }}</td>
+              <td><span v-if="r.status" :class="ledgerStatusClass(r)">{{ r.status }}</span><span v-else class="tiny mut">—</span></td>
+            </tr>
+            <tr v-if="!ledgerRows.length">
+              <td colspan="8" class="table-empty">{{ ledgerLoading ? "加载中…" : ledgerErr || "暂无变动记录" }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-if="ledgerMore || (ledgerErr && ledgerRows.length)" class="ledger-more">
+          <button class="btn sm ghost" :disabled="ledgerLoading" @click="loadLedger(false)">
+            {{ ledgerLoading ? "加载中…" : ledgerErr ? "加载失败，重试" : "加载更多" }}
+          </button>
+        </div>
       </div>
 
       <div class="card table-card">
@@ -635,6 +734,11 @@ watch(kw, () => {
 .pill.blue { background: #E6F1FB; color: var(--blue); }
 .pill.red { background: var(--redbg); color: var(--red); }
 .pill.gold { background: var(--goldbg); color: var(--gold); }
+.pill.grey { background: #F1EFE8; color: var(--ink3); }
+.plus { color: var(--green); }
+.minus { color: var(--red); }
+.struck { color: var(--ink3); text-decoration: line-through; }
+.ledger-more { display: flex; justify-content: center; padding: 10px 14px 14px; }
 .reject-note { margin: 7px 14px 14px; color: var(--ink3); }
 .adj-btns { gap: 8px; flex-wrap: wrap; }
 .mgr-note { margin-top: 7px; color: var(--ink3); line-height: 1.7; }

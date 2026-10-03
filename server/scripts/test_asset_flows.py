@@ -197,6 +197,39 @@ class AssetFlowTests(unittest.TestCase):
         L.customer_ledger(sess, 10)
         self.assertEqual(sess.query(AssetFlow).filter_by(uid=10).count(), count)
 
+    def test_member_ledger_covers_coin_point_card_and_shard(self, _lock):
+        sess = make_session()
+        uid = 9
+        L.do_sign(sess, uid)
+        rc = L.create_recharge(sess, uid, 1)
+        L.confirm_recharge(sess, rc["id"], STAFF)
+        game = L.submit_game(sess, STAFF, 1, 1, [{"uid": uid, "pts": 300, "sh": 2}], [], "")
+        L.member_grant_cards(sess, uid, 3, 1, "补发", MANAGER)
+        L.member_adjust_shard(sess, uid, 1, "补碎片", BOSS)
+        sess.flush()
+
+        all_rows = L.member_ledger_page(sess, uid, "all", "", 200)["items"]
+        kinds = {r["kind"] for r in all_rows}
+        self.assertEqual(kinds, {"coin", "point", "card", "shard"})
+        shard = [r for r in all_rows if r["kind"] == "shard"]
+        self.assertTrue(all(r["amount"] and r["operator"] and r["at"] for r in shard))
+        adj = next(r for r in shard if r["id"].startswith("adj-"))
+        self.assertEqual(adj["operator"], "张老板")
+        self.assertIn("补碎片", adj["content"])
+        self.assertFalse(adj["content"].startswith("20"))
+
+        only_shard = L.member_ledger_page(sess, uid, "shard", "", 200)["items"]
+        self.assertTrue(only_shard and all(r["kind"] == "shard" for r in only_shard))
+        first = L.member_ledger_page(sess, uid, "all", "", 2)
+        self.assertTrue(first["hasMore"])
+        second = L.member_ledger_page(sess, uid, "all", first["cursor"], 200)["items"]
+        self.assertFalse({r["id"] for r in first["items"]} & {r["id"] for r in second})
+        self.assertEqual(len(first["items"]) + len(second), len(all_rows))
+        self.assertTrue(game)
+
+        with self.assertRaises(ValueError):
+            L.member_ledger_page(sess, 7, "all", "", 10)
+
 
 if __name__ == "__main__":
     unittest.main()

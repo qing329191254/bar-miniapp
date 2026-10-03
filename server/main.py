@@ -2132,6 +2132,16 @@ def set_staff_login_phone(uid: int, body: PatchIn, admin: dict = Depends(admin_u
         fail(e)
 
 
+@app.get("/api/admin/members/{uid}/ledger")
+def member_ledger(uid: int, kind: str = "all", before: str = "",
+                  limit: int = Query(30, ge=1, le=200),
+                  admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    try:
+        return L.member_ledger_page(db, uid, kind=kind, before=before, limit=limit)
+    except ValueError as e:
+        fail(e)
+
+
 @app.get("/api/admin/members/{uid}")
 def member_detail(uid: int, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
     try:

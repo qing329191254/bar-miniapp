@@ -4734,6 +4734,39 @@ def customer_ledger(sess: Session, uid: int, kind: str = "all", limit: int = 80)
     return customer_ledger_page(sess, uid, kind, "", limit)["items"]
 
 
+_MEMBER_LEDGER_ASSETS = {
+    "COIN": ("COIN",), "POINT": ("POINT",), "CARD": ("CARD",), "SHARD": ("SHARD",),
+}
+
+
+def member_ledger_page(sess: Session, uid: int, kind: str = "all", before: str = "", limit: int = 30) -> dict:
+    """后台会员详情：金币 / 积分 / 卡券 / 碎片全部资产流水，按时间倒序分页。"""
+    user = sess.get(User, uid)
+    if not user or user.role != "CUSTOMER":
+        raise ValueError("会员不存在")
+    assets = _MEMBER_LEDGER_ASSETS.get((kind or "all").upper(), ("COIN", "POINT", "CARD", "SHARD"))
+    limit = max(1, min(int(limit or 30), 200))
+    _ensure_flow_history(sess, uid)
+    rows, more, cursor = _flow_page(sess, uid, assets, before, limit)
+    order_ids = [int(r.ref_id) for r in rows if r.typ == "order" and r.ref_id]
+    orders = {o.id: o for o in sess.query(Order).filter(Order.id.in_(order_ids)).all()} if order_ids else {}
+    items = []
+    for r in rows:
+        if r.asset == "SHARD":
+            remark = str(r.meta or "")
+            if r.at and remark.startswith(r.at):
+                remark = remark[len(r.at):].lstrip(" ·")
+            items.append({
+                "id": r.ref, "kind": "shard", "type": r.typ or "", "title": r.title or "",
+                "amount": r.amount or _signed(int(r.delta or 0)), "status": "已作废" if r.struck else "",
+                "statusTone": "grey" if r.struck else "", "at": _ledger_display_time(r.at or "") or (r.at or ""),
+                "content": remark, "process": "", "operator": r.op or "",
+            })
+        else:
+            items.append(_flow_item(r, orders))
+    return {"items": items, "hasMore": more, "cursor": cursor}
+
+
 def shard_records_page(sess: Session, uid: int, before: str = "", limit: int = 30) -> dict:
     """碎片记录：对局获得 / 对局作废扣回 / 店员调整 / 每周当周碎片清零，按时间倒序分页。"""
     _ensure_flow_history(sess, uid)
