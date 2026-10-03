@@ -2758,6 +2758,42 @@ def game_detail(sess: Session, gid: int) -> dict:
     return out
 
 
+def games_page(sess: Session, preset: str = "all", date_from: str = "", date_to: str = "", pid: int = 0,
+               kw: str = "", status: str = "", page: int = 1, page_size: int = 15) -> dict:
+    """后台对局记录：按日期、项目、会员、状态筛选后分页。"""
+    rows = sess.query(GameRecord).order_by(GameRecord.id.desc()).all()
+    total_all = len(rows)
+    kw = (kw or "").strip()
+    uids: set[int] = set()
+    if kw:
+        like = f"%{kw}%"
+        uids = {x.id for x in sess.query(User.id).filter(
+            User.role == "CUSTOMER", or_(User.nick.like(like), User.no.like(like), User.tail.like(like)),
+        ).all()}
+
+    def hit(g: GameRecord) -> bool:
+        if not in_range(g.time, preset, date_from, date_to):
+            return False
+        if pid and int(g.pid or 0) != pid:
+            return False
+        if status == "VOID" and g.status != "VOID":
+            return False
+        if status == "LIVE" and g.status == "VOID":
+            return False
+        if kw and not any(int(p.get("uid") or 0) in uids or kw in str(p.get("nick") or "")
+                          for p in g.players or []):
+            return False
+        return True
+
+    items = [g.to_dict() for g in rows if hit(g)]
+    pg = paginate(items, page, page_size)
+    pg["totalAll"] = total_all
+    pg["rangeLabel"] = range_label(preset, date_from, date_to)
+    pg["projects"] = [{"id": p.id, "name": p.name, "disabled": bool(p.disabled)}
+                      for p in sess.query(Project).order_by(Project.id).all()]
+    return pg
+
+
 def signed_days(sess: Session, uid: int) -> list[int]:
     return [r.day for r in sess.query(SignRecord).filter_by(uid=uid, month=current_month()).all()]
 

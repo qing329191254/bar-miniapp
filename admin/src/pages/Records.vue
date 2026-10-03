@@ -4,6 +4,8 @@ import { useRoute } from "vue-router";
 import { api, DEFAULT_PAGE_SIZE, pageQs } from "../api";
 import AppPagination from "../components/AppPagination.vue";
 import AppAsyncPage from "../components/AppAsyncPage.vue";
+import AppDateInput from "../components/AppDateInput.vue";
+import AppSelect from "../components/AppSelect.vue";
 import { showToast } from "../composables/useToast";
 
 const WD: Record<string, [string, string]> = {
@@ -36,29 +38,109 @@ const titles: Record<string, [string, string]> = {
   gameRecords: ["对局记录查询", "作废需店长以上"],
 };
 
+const PRESETS: [string, string][] = [
+  ["today", "今天"],
+  ["yday", "昨天"],
+  ["7d", "近 7 天"],
+  ["30d", "近 30 天"],
+  ["month", "本月"],
+  ["all", "全部"],
+  ["custom", "自定义"],
+];
+const GAME_STATUS_OPTS = [
+  { value: "", label: "全部状态" },
+  { value: "LIVE", label: "正常" },
+  { value: "VOID", label: "已作废" },
+];
+const gPreset = ref("all");
+const gFrom = ref("");
+const gTo = ref("");
+const gPid = ref(0);
+const gKw = ref("");
+const gStatus = ref("");
+const gProjects = ref<any[]>([]);
+const gTotalAll = ref(0);
+const gRangeLabel = ref("");
+let kwTimer: ReturnType<typeof setTimeout> | undefined;
+const projectOpts = computed(() => [
+  { value: 0, label: "全部项目" },
+  ...gProjects.value.map((p: any) => ({ value: p.id, label: p.disabled ? `${p.name}（已停用）` : p.name })),
+]);
+const gFiltered = computed(() =>
+  gPreset.value !== "all" || !!gPid.value || !!gKw.value.trim() || !!gStatus.value,
+);
+function setPreset(p: string) {
+  if (p !== "custom" && p === gPreset.value) return;
+  gPreset.value = p;
+  if (p !== "custom") {
+    gFrom.value = "";
+    gTo.value = "";
+    reloadFirst();
+  }
+}
+function onCustomDateChange() {
+  if (gPreset.value === "custom" && gFrom.value && gTo.value) reloadFirst();
+}
+function resetGameFilters() {
+  gPreset.value = "all";
+  gFrom.value = gTo.value = gKw.value = gStatus.value = "";
+  gPid.value = 0;
+  reloadFirst();
+}
+function reloadFirst() {
+  if (tablePage.value !== 1) tablePage.value = 1;
+  else load();
+}
+
 onMounted(load);
 watch(() => route.fullPath, () => { status.value = ""; tablePage.value = 1; load(); });
 watch([tablePage, tablePageSize], () => load());
 watch(status, () => { tablePage.value = 1; load(); });
+watch([gPid, gStatus], () => reloadFirst());
+watch(gKw, () => {
+  clearTimeout(kwTimer);
+  kwTimer = setTimeout(reloadFirst, 350);
+});
 
+let loadSeq = 0;
 async function load() {
+  const seq = ++loadSeq;
   loading.value = true;
   err.value = "";
   try {
     const c = coll.value;
     const params = new URLSearchParams(pageQs(tablePage.value, tablePageSize.value));
-    if (status.value) params.set("status", status.value);
-    const res = await api<any>(`/admin/${c}?${params}`);
+    let res: any;
+    if (c === "gameRecords") {
+      params.set("preset", gPreset.value);
+      if (gPreset.value === "custom") {
+        if (gFrom.value) params.set("from", gFrom.value);
+        if (gTo.value) params.set("to", gTo.value);
+      }
+      if (gPid.value) params.set("pid", String(gPid.value));
+      if (gKw.value.trim()) params.set("kw", gKw.value.trim());
+      if (gStatus.value) params.set("status", gStatus.value);
+      res = await api<any>(`/admin/games-page?${params}`);
+      if (seq !== loadSeq) return;
+      gProjects.value = res.projects || [];
+      gTotalAll.value = res.totalAll ?? 0;
+      gRangeLabel.value = res.rangeLabel || "";
+    } else {
+      if (status.value) params.set("status", status.value);
+      res = await api<any>(`/admin/${c}?${params}`);
+      if (seq !== loadSeq) return;
+    }
     rows.value = res.items || [];
     rowTotal.value = res.total ?? rows.value.length;
     pendingItems.value = res.pendingItems || [];
     if (!members.value.length) members.value = await api("/admin/members?pageSize=0");
     loaded.value = true;
   } catch (e: any) {
+    if (seq !== loadSeq) return;
     err.value = e?.message || "记录加载失败";
     if (loaded.value) showToast(err.value, true);
   } finally {
-    loading.value = false;
+    if (seq === loadSeq) loading.value = false;
   }
 }
 function nick(uid: number) {
@@ -140,6 +222,32 @@ const pendingWdr = computed(() =>
   <AppAsyncPage :loading="loading" :data="loaded" :err="err" :skeleton="{ showFilter: false, tableCols: coll === 'gameRecords' ? 9 : 6 }" @retry="load">
   <div>
     <div class="hdr records-hdr">{{ titles[coll]?.[0] || coll }} <em>{{ titles[coll]?.[1] }}{{ coll === 'gameRecords' ? ' · 先预览影响' : '' }}</em></div>
+    <div v-if="coll === 'gameRecords'" class="card flt-card">
+      <div class="st">筛选 <em>当前范围：{{ gRangeLabel || "全部时间" }} · 共 {{ gTotalAll }} 局，筛出 {{ rowTotal }} 局</em><button v-if="gFiltered" class="btn sm ghost flt-reset" @click="resetGameFilters">清空筛选</button></div>
+      <div class="flt-chips">
+        <span v-for="[p, label] in PRESETS" :key="p" class="chip" :class="{ on: gPreset === p }" @click="setPreset(p)">{{ label }}</span>
+      </div>
+      <div v-if="gPreset === 'custom'" class="flt-custom">
+        <span class="tiny">起</span>
+        <AppDateInput v-model="gFrom" @change="onCustomDateChange" />
+        <span class="tiny">止</span>
+        <AppDateInput v-model="gTo" @change="onCustomDateChange" />
+      </div>
+      <div class="flt-extra">
+        <label class="flt-field">
+          <span class="fld">会员</span>
+          <input v-model="gKw" class="inp flt-kw" placeholder="昵称 / 会员号 / 手机尾号" />
+        </label>
+        <label class="flt-field">
+          <span class="fld">对局项目</span>
+          <AppSelect v-model="gPid" :options="projectOpts" no-margin class="flt-select" />
+        </label>
+        <label class="flt-field">
+          <span class="fld">状态</span>
+          <AppSelect v-model="gStatus" :options="GAME_STATUS_OPTS" no-margin class="flt-select" />
+        </label>
+      </div>
+    </div>
     <div class="note rd" v-if="coll==='withdrawals'">本页仅供查询，不支持确认发放。请由店员在商家移动端「待办」中核对顾客信息，并当面完成兑付。</div>
     <div class="card" v-if="pendingWdr.length" style="background:#FAEEDA;border-color:#BA7517">
       <div class="st" style="color:#BA7517">待确认提分单 {{ pendingWdr.length }} 张 · 发放在商家移动端完成</div>
@@ -181,7 +289,7 @@ const pendingWdr = computed(() =>
           <td><span class="pill" :class="r.status === 'VOID' ? 'records-status-void' : 'records-status-live'">{{ r.status === "VOID" ? "已作废" : "正常" }}</span></td>
           <td class="col-op"><div class="records-ops"><button class="btn sm ghost" @click="openDetail(r)">详情</button><button v-if="r.status !== 'VOID'" class="btn sm records-void-btn" @click="openVoid(r)">作废</button></div></td>
         </tr>
-        <tr v-if="!shown.length"><td colspan="9" class="table-empty">当前筛选条件下无对局记录</td></tr>
+        <tr v-if="!shown.length"><td colspan="9" class="table-empty">{{ gFiltered ? "当前筛选条件下无对局记录" : "暂无对局记录" }}</td></tr>
         </tbody>
       </table>
       <AppPagination v-model:page="tablePage" v-model:page-size="tablePageSize" :total="rowTotal" />
@@ -277,6 +385,16 @@ const pendingWdr = computed(() =>
 .records-status-void{background:var(--redbg);color:var(--red)}
 .records-void-btn{border:1px solid #E9C4C4;background:#fff;color:var(--red)}
 .records-ops{display:flex;justify-content:center;gap:6px}.records-ops .btn{margin:0}
+.flt-card .st{display:flex;align-items:center;gap:8px}
+.flt-card .st em{font-weight:normal;color:var(--ink2)}
+.flt-reset{margin:0 0 0 auto}
+.flt-chips{display:flex;flex-wrap:wrap;gap:6px}
+.flt-custom{display:flex;align-items:center;gap:6px;margin-top:10px;flex-wrap:wrap}
+.flt-extra{display:flex;gap:10px;margin-top:9px;flex-wrap:wrap}
+.flt-field{display:block}
+.flt-field .fld{display:block;color:var(--ink2);font-size:12px;margin-bottom:4px}
+.flt-field :deep(.flt-select){width:170px;max-width:170px}
+.flt-kw{width:220px;margin:0}
 .void-dialog.game-detail-dialog{width:min(760px,100%);max-height:min(90vh,760px)}
 .game-detail-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .game-detail-loading{padding:24px 0;text-align:center}

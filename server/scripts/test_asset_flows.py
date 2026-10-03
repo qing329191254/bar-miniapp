@@ -262,6 +262,33 @@ class AssetFlowTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             L.game_detail(sess, 99999)
 
+    def test_games_page_filters_by_member_project_date_and_status(self, _lock):
+        sess = make_session()
+        sess.add(Project(id=2, name="狼人杀"))
+        sess.flush()
+        g1 = L.submit_game(sess, STAFF, 1, 1, [{"uid": 9, "pts": 10}], [], "", "", "2026-09-20 20:00")["id"]
+        g2 = L.submit_game(sess, STAFF, 2, 1, [{"uid": 10, "pts": 10}], [], "", "", "2026-09-25 20:00")["id"]
+        g3 = L.submit_game(sess, STAFF, 1, 1, [{"uid": 9, "pts": 0}, {"uid": 10, "pts": 0}], [], "", "",
+                           "2026-09-26 21:00")["id"]
+        L.void_game(sess, g3, "录错了", False, BOSS)
+        sess.flush()
+
+        def ids(**kw):
+            return [g["id"] for g in L.games_page(sess, page_size=50, **kw)["items"]]
+
+        self.assertEqual(ids(), [g3, g2, g1])
+        self.assertEqual(ids(kw="天才"), [g3, g1])
+        self.assertEqual(ids(kw="000010"), [g3, g2])
+        self.assertEqual(ids(kw="1234"), [g3, g2])
+        self.assertEqual(ids(pid=2), [g2])
+        self.assertEqual(ids(status="VOID"), [g3])
+        self.assertEqual(ids(status="LIVE"), [g2, g1])
+        self.assertEqual(ids(preset="custom", date_from="2026-09-25", date_to="2026-09-26"), [g3, g2])
+        self.assertEqual(ids(kw="天才", pid=1, status="LIVE"), [g1])
+        page = L.games_page(sess, kw="天才", page=1, page_size=1)
+        self.assertEqual((page["total"], page["totalAll"], len(page["items"])), (2, 3, 1))
+        self.assertEqual({p["name"] for p in page["projects"]}, {"德州扑克", "狼人杀"})
+
 
 if __name__ == "__main__":
     unittest.main()

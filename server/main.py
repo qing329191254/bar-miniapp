@@ -1108,6 +1108,22 @@ def admin_alert_points(
     return L.point_alert_detail(db, page, page_size)
 
 
+@app.get("/api/admin/games-page")
+def admin_games_page(
+    preset: str = "all",
+    date_from: str = Query("", alias="from"),
+    date_to: str = Query("", alias="to"),
+    pid: int = 0,
+    kw: str = "",
+    status: str = "",
+    page: int = Query(1, ge=1),
+    page_size: int = Query(15, ge=1, le=200, alias="pageSize"),
+    admin: dict = Depends(admin_user),
+    db: Session = Depends(get_db),
+):
+    return L.games_page(db, preset, date_from, date_to, pid, kw, status, page, page_size)
+
+
 @app.get("/api/admin/games/{gid}/detail")
 def admin_game_detail(gid: int, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
     try:
