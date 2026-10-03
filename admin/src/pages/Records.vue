@@ -277,7 +277,7 @@ const pendingWdr = computed(() =>
 .records-status-void{background:var(--redbg);color:var(--red)}
 .records-void-btn{border:1px solid #E9C4C4;background:#fff;color:var(--red)}
 .records-ops{display:flex;justify-content:center;gap:6px}.records-ops .btn{margin:0}
-.game-detail-dialog{width:min(760px,100%);max-height:min(90vh,760px)}
+.void-dialog.game-detail-dialog{width:min(760px,100%);max-height:min(90vh,760px)}
 .game-detail-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .game-detail-loading{padding:24px 0;text-align:center}
 .game-detail-meta{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0 8px}
