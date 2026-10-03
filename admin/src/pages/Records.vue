@@ -387,7 +387,8 @@ const pendingWdr = computed(() =>
 .records-ops{display:flex;justify-content:center;gap:6px}.records-ops .btn{margin:0}
 .flt-card .st{display:flex;align-items:center;gap:8px}
 .flt-card .st em{font-weight:normal;color:var(--ink2)}
-.flt-reset{margin:0 0 0 auto}
+.flt-card .st em{margin-left:auto}
+.flt-reset{margin:0}
 .flt-chips{display:flex;flex-wrap:wrap;gap:6px}
 .flt-custom{display:flex;align-items:center;gap:6px;margin-top:10px;flex-wrap:wrap}
 .flt-extra{display:flex;gap:10px;margin-top:9px;flex-wrap:wrap}
