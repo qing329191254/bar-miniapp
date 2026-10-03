@@ -2696,6 +2696,68 @@ def void_game(sess: Session, gid: int, reason: str, void_cards: bool, admin: dic
     return g.to_dict()
 
 
+_GAME_CARD_ST = {"UNUSED": "未使用", "LOCKED": "核销中", "USED": "已核销", "VOID": "已作废", "EXPIRED": "已过期"}
+
+
+def _game_void_info(sess: Session, g: GameRecord) -> dict | None:
+    players = g.players or []
+    prefix = f"{g.pname} · {len(players)} 人 · 积分 {sum(int(p.get('pts') or 0) for p in players)}"
+    uid0 = int(players[0]["uid"]) if players and players[0].get("uid") else None
+    q = sess.query(OpLog).filter(OpLog.action == "GAME_VOID", OpLog.detail.like(f"{prefix}%"))
+    if uid0:
+        q = q.filter(OpLog.uid == uid0)
+    row = q.order_by(OpLog.id.desc()).first()
+    if not row:
+        return None
+    reason = re.sub(r"^( · (回滚赠卡|撤销冠军) \d+)*( · )?", "", (row.detail or "")[len(prefix):])
+    return {"at": row.t or "", "op": row.op or "", "role": row.role or "", "reason": reason}
+
+
+def game_detail(sess: Session, gid: int) -> dict:
+    """后台对局详情：每位玩家的输赢、积分、碎片、赠卡及卡券当前状态。"""
+    g = sess.get(GameRecord, gid)
+    if not g:
+        err("对局不存在")
+    players = g.players or []
+    uids = [int(p.get("uid") or 0) for p in players if p.get("uid")]
+    users = {u.id: u for u in sess.query(User).filter(User.id.in_(uids)).all()} if uids else {}
+    card_ids = [int(c) for p in players for c in (p.get("cardIds") or []) if c]
+    cards = {c.id: c for c in sess.query(Card).filter(Card.id.in_(card_ids)).all()} if card_ids else {}
+    tpl_names = {t.id: t.name for t in sess.query(CardTpl).all()} if cards else {}
+    rows = []
+    for p in players:
+        uid = int(p.get("uid") or 0)
+        u = users.get(uid)
+        gifts = []
+        for cid in p.get("cardIds") or []:
+            c = cards.get(int(cid))
+            if not c:
+                gifts.append({"id": int(cid), "no": "", "name": "卡券已删除", "status": "", "statusText": "已删除"})
+                continue
+            gifts.append({
+                "id": c.id, "no": c.no or "", "name": tpl_names.get(c.tpl, ""),
+                "status": c.status, "statusText": _GAME_CARD_ST.get(c.status, c.status or ""),
+                "doneAt": c.done_at or "", "doneOp": c.done_op or "", "voidReason": c.void_reason or "",
+            })
+        if not gifts:
+            gifts = [{"id": 0, "no": "", "name": f"{x.get('name') or '卡券'} ×{int(x.get('qty') or 1)}",
+                      "status": "", "statusText": ""} for x in (p.get("cards") or [])]
+        rows.append({
+            "uid": uid, "nick": p.get("nick") or (u.nick if u else "—"),
+            "no": (u.no if u else "") or "", "win": bool(p.get("win")), "event": p.get("event") or "",
+            "pts": int(p.get("pts") or 0), "sh": int(p.get("sh") or 0), "cards": gifts,
+        })
+    out = {
+        "id": g.id, "pname": g.pname, "table": g.table or "", "round": g.round or "", "time": g.time or "",
+        "op": g.op or "", "status": g.status or "", "players": rows,
+        "totalPts": sum(r["pts"] for r in rows), "totalSh": sum(r["sh"] for r in rows),
+        "totalCards": sum(len(r["cards"]) for r in rows), "winners": sum(1 for r in rows if r["win"]),
+    }
+    if g.status == "VOID":
+        out["void"] = _game_void_info(sess, g)
+    return out
+
+
 def signed_days(sess: Session, uid: int) -> list[int]:
     return [r.day for r in sess.query(SignRecord).filter_by(uid=uid, month=current_month()).all()]
 

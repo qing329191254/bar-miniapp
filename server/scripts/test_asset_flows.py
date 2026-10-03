@@ -230,6 +230,38 @@ class AssetFlowTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             L.member_ledger_page(sess, 7, "all", "", 10)
 
+    def test_game_detail_lists_players_cards_and_void_info(self, _lock):
+        sess = make_session()
+        game = L.submit_game(
+            sess, STAFF, 1, 1,
+            [{"uid": 9, "pts": 300, "sh": 2, "cards": [{"tpl": 3, "qty": 2}]}, {"uid": 10, "pts": 100, "sh": 1}],
+            [9], "周赛", "第3局",
+        )
+        gid = game["id"]
+        sess.flush()
+
+        d = L.game_detail(sess, gid)
+        self.assertEqual((d["pname"], d["table"], d["round"], d["op"]), ("德州扑克", "A1", "第3局", "店员小李"))
+        self.assertEqual((d["totalPts"], d["totalSh"], d["totalCards"], d["winners"]), (400, 3, 2, 1))
+        p9, p10 = d["players"]
+        self.assertEqual((p9["nick"], p9["no"], p9["win"], p9["event"]), ("天才儿童", "000009", True, "周赛"))
+        self.assertEqual([c["statusText"] for c in p9["cards"]], ["未使用", "未使用"])
+        self.assertTrue(all(c["no"] and c["name"] == "桌游卡" for c in p9["cards"]))
+        self.assertFalse(p10["win"])
+        self.assertEqual(p10["cards"], [])
+        self.assertNotIn("void", d)
+
+        L.void_game(sess, gid, "玩家身份录错", False, BOSS)
+        sess.flush()
+        d = L.game_detail(sess, gid)
+        self.assertEqual(d["status"], "VOID")
+        self.assertEqual(d["void"]["op"], "张老板")
+        self.assertEqual(d["void"]["reason"], "玩家身份录错")
+        self.assertEqual([c["statusText"] for c in d["players"][0]["cards"]], ["已作废", "已作废"])
+
+        with self.assertRaises(ValueError):
+            L.game_detail(sess, 99999)
+
 
 if __name__ == "__main__":
     unittest.main()

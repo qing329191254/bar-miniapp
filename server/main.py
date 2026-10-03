@@ -1108,6 +1108,14 @@ def admin_alert_points(
     return L.point_alert_detail(db, page, page_size)
 
 
+@app.get("/api/admin/games/{gid}/detail")
+def admin_game_detail(gid: int, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    try:
+        return L.game_detail(db, gid)
+    except ValueError as e:
+        fail(e)
+
+
 @app.get("/api/admin/games/{gid}/void-preview")
 def admin_void_game_preview(gid: int, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
     try:

@@ -107,6 +107,29 @@ async function submitVoid() {
     voiding.value = false;
   }
 }
+const gameDetail = ref<any>(null);
+const gameDetailLoading = ref(false);
+async function openDetail(game: any) {
+  gameDetail.value = { id: game.id, pname: game.pname, players: [], _loading: true };
+  gameDetailLoading.value = true;
+  try {
+    gameDetail.value = await api(`/admin/games/${game.id}/detail`);
+  } catch (e: any) {
+    showToast(e?.message || "加载详情失败", true);
+    gameDetail.value = null;
+  } finally {
+    gameDetailLoading.value = false;
+  }
+}
+function closeDetail() {
+  gameDetail.value = null;
+}
+function giftCardClass(status: string) {
+  if (status === "UNUSED") return "pill green";
+  if (status === "LOCKED") return "pill gold";
+  if (status === "USED") return "pill blue";
+  return "pill grey";
+}
 const shown = computed(() => rows.value || []);
 const pendingWdr = computed(() =>
   coll.value === "withdrawals" ? pendingItems.value : [],
@@ -156,7 +179,7 @@ const pendingWdr = computed(() =>
           <td>{{ fmt((r.players || []).reduce((s: number, p: any) => s + (p.sh || 0), 0)) }}</td>
           <td class="tiny">{{ r.op }}</td>
           <td><span class="pill" :class="r.status === 'VOID' ? 'records-status-void' : 'records-status-live'">{{ r.status === "VOID" ? "已作废" : "正常" }}</span></td>
-          <td class="col-op"><button v-if="r.status !== 'VOID'" class="btn sm records-void-btn" @click="openVoid(r)">作废</button><span v-else class="tiny">—</span></td>
+          <td class="col-op"><div class="records-ops"><button class="btn sm ghost" @click="openDetail(r)">详情</button><button v-if="r.status !== 'VOID'" class="btn sm records-void-btn" @click="openVoid(r)">作废</button></div></td>
         </tr>
         <tr v-if="!shown.length"><td colspan="9" class="table-empty">当前筛选条件下无对局记录</td></tr>
         </tbody>
@@ -166,6 +189,55 @@ const pendingWdr = computed(() =>
     <div v-if="coll === 'gameRecords'" class="note rd records-note"><b>作废规则：</b>余额充足时将直接扣减；余额不足会记为负数，并在顾客端显示「待抵扣」；已兑换但未核销的卡券将优先作废。本局赠送且未使用的卡券一并作废回滚；已核销的赠卡不回滚。跨月记录因积分已清零，不再重复扣减。作废原因必填并记入操作日志。</div>
 
     <Teleport to="body">
+    <div v-if="gameDetail" class="void-mask" @click.self="closeDetail">
+      <div class="void-dialog game-detail-dialog">
+        <div class="st game-detail-head">
+          <span>对局详情 <em>{{ gameDetail.pname }}{{ gameDetail.round ? ` · ${gameDetail.round}` : "" }}</em></span>
+          <span v-if="!gameDetailLoading" class="pill" :class="gameDetail.status === 'VOID' ? 'records-status-void' : 'records-status-live'">{{ gameDetail.status === "VOID" ? "已作废" : "正常" }}</span>
+        </div>
+        <div v-if="gameDetailLoading" class="tiny game-detail-loading">加载中…</div>
+        <template v-else>
+          <div class="game-detail-meta">
+            <div><span class="tiny">对局时间</span><b>{{ gameDetail.time || "—" }}</b></div>
+            <div><span class="tiny">桌台</span><b>{{ gameDetail.table || "未指定桌台" }}</b></div>
+            <div><span class="tiny">录入人</span><b>{{ gameDetail.op || "—" }}</b></div>
+            <div><span class="tiny">记录编号</span><b>#{{ gameDetail.id }}</b></div>
+          </div>
+          <div class="game-detail-sum tiny">共 {{ gameDetail.players.length }} 人 · 获胜 {{ gameDetail.winners }} 人 · 积分 {{ fmt(gameDetail.totalPts) }} · 碎片 {{ fmt(gameDetail.totalSh) }} · 赠卡 {{ gameDetail.totalCards }} 张</div>
+          <div v-if="gameDetail.status === 'VOID'" class="note rd game-detail-void">
+            <b>已作废</b>
+            <template v-if="gameDetail.void">
+              · {{ gameDetail.void.at }} · {{ gameDetail.void.op }}{{ gameDetail.void.role && gameDetail.void.role !== "—" ? `（${gameDetail.void.role}）` : "" }}
+              <div v-if="gameDetail.void.reason">原因：{{ gameDetail.void.reason }}</div>
+            </template>
+          </div>
+          <table class="tb2 game-detail-table" data-cols="lcccl">
+            <thead><tr><th>玩家</th><th>结果</th><th>积分</th><th>碎片</th><th>赠送卡券</th></tr></thead>
+            <tbody>
+              <tr v-for="p in gameDetail.players" :key="p.uid">
+                <td><b>{{ p.nick }}</b><div v-if="p.no" class="tiny">{{ p.no }}</div></td>
+                <td>
+                  <span v-if="p.win" class="pill gold">获胜</span><span v-else class="tiny">—</span>
+                  <div v-if="p.win && p.event" class="tiny">{{ p.event }}</div>
+                </td>
+                <td>{{ p.pts ? `+${fmt(p.pts)}` : "—" }}</td>
+                <td>{{ p.sh ? `+${fmt(p.sh)}` : "—" }}</td>
+                <td>
+                  <span v-if="!p.cards.length" class="tiny">—</span>
+                  <div v-for="c in p.cards" :key="c.id || c.name" class="game-detail-card">
+                    <span>{{ c.name }}</span>
+                    <span v-if="c.no" class="tiny">{{ c.no }}</span>
+                    <span v-if="c.statusText" :class="giftCardClass(c.status)">{{ c.statusText }}</span>
+                  </div>
+                </td>
+              </tr>
+              <tr v-if="!gameDetail.players.length"><td colspan="5" class="table-empty">本局无玩家记录</td></tr>
+            </tbody>
+          </table>
+        </template>
+        <div class="void-actions"><button class="btn ghost" @click="closeDetail">关闭</button></div>
+      </div>
+    </div>
     <div v-if="voidPreview" class="void-mask" @click.self="closeVoid">
       <div class="void-dialog">
         <div class="st">作废影响预览 <em>{{ voidPreview.pname }}</em></div>
@@ -204,6 +276,22 @@ const pendingWdr = computed(() =>
 .records-status-live{background:var(--greenbg);color:var(--green)}
 .records-status-void{background:var(--redbg);color:var(--red)}
 .records-void-btn{border:1px solid #E9C4C4;background:#fff;color:var(--red)}
+.records-ops{display:flex;justify-content:center;gap:6px}.records-ops .btn{margin:0}
+.game-detail-dialog{width:min(760px,100%);max-height:min(90vh,760px)}
+.game-detail-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.game-detail-loading{padding:24px 0;text-align:center}
+.game-detail-meta{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0 8px}
+.game-detail-meta>div{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:8px;background:#F7F6F2}
+.game-detail-sum{margin-bottom:8px}
+.game-detail-void{margin:0 0 10px;line-height:1.6}
+.game-detail-table td{vertical-align:top}
+.game-detail-table :is(th,td):first-child,.game-detail-table :is(th,td):last-child{text-align:left}
+.game-detail-card{display:flex;flex-wrap:wrap;align-items:center;gap:6px;line-height:1.6}
+.game-detail-card+.game-detail-card{margin-top:4px}
+.pill.green{background:var(--greenbg);color:var(--green)}
+.pill.blue{background:#E6F1FB;color:var(--blue)}
+.pill.gold{background:var(--goldbg);color:var(--gold)}
+.pill.grey{background:#F1EFE8;color:var(--ink3)}
 .records-note{margin-top:12px}
 .void-dialog{width:min(560px,100%);max-height:min(90vh,640px);overflow:auto;padding:18px;border-radius:14px;background:#fff;box-shadow:0 18px 48px rgba(28,27,25,.24)}
 .void-table td{vertical-align:top}.void-pill-warn{background:var(--redbg);color:var(--red)}.void-pill-ok{background:var(--greenbg);color:var(--green)}
