@@ -190,17 +190,16 @@ async function submitVoid() {
   }
 }
 const gameDetail = ref<any>(null);
-const gameDetailLoading = ref(false);
+const detailLoadingId = ref(0);
 async function openDetail(game: any) {
-  gameDetail.value = { id: game.id, pname: game.pname, players: [], _loading: true };
-  gameDetailLoading.value = true;
+  if (detailLoadingId.value) return;
+  detailLoadingId.value = game.id;
   try {
     gameDetail.value = await api(`/admin/games/${game.id}/detail`);
   } catch (e: any) {
     showToast(e?.message || "加载详情失败", true);
-    gameDetail.value = null;
   } finally {
-    gameDetailLoading.value = false;
+    detailLoadingId.value = 0;
   }
 }
 function closeDetail() {
@@ -287,7 +286,7 @@ const pendingWdr = computed(() =>
           <td>{{ fmt((r.players || []).reduce((s: number, p: any) => s + (p.sh || 0), 0)) }}</td>
           <td class="tiny">{{ r.op }}</td>
           <td><span class="pill" :class="r.status === 'VOID' ? 'records-status-void' : 'records-status-live'">{{ r.status === "VOID" ? "已作废" : "正常" }}</span></td>
-          <td class="col-op"><div class="records-ops"><button class="btn sm ghost" @click="openDetail(r)">详情</button><button v-if="r.status !== 'VOID'" class="btn sm records-void-btn" @click="openVoid(r)">作废</button></div></td>
+          <td class="col-op"><div class="records-ops"><button class="btn sm ghost" :class="{ 'is-loading': detailLoadingId === r.id }" :disabled="!!detailLoadingId" @click="openDetail(r)">详情</button><button v-if="r.status !== 'VOID'" class="btn sm records-void-btn" @click="openVoid(r)">作废</button><span v-else class="btn sm records-void-btn records-op-ph" aria-hidden="true">作废</span></div></td>
         </tr>
         <tr v-if="!shown.length"><td colspan="9" class="table-empty">{{ gFiltered ? "当前筛选条件下无对局记录" : "暂无对局记录" }}</td></tr>
         </tbody>
@@ -301,10 +300,8 @@ const pendingWdr = computed(() =>
       <div class="void-dialog game-detail-dialog">
         <div class="st game-detail-head">
           <span>对局详情 <em>{{ gameDetail.pname }}{{ gameDetail.round ? ` · ${gameDetail.round}` : "" }}</em></span>
-          <span v-if="!gameDetailLoading" class="pill" :class="gameDetail.status === 'VOID' ? 'records-status-void' : 'records-status-live'">{{ gameDetail.status === "VOID" ? "已作废" : "正常" }}</span>
+          <span class="pill" :class="gameDetail.status === 'VOID' ? 'records-status-void' : 'records-status-live'">{{ gameDetail.status === "VOID" ? "已作废" : "正常" }}</span>
         </div>
-        <div v-if="gameDetailLoading" class="tiny game-detail-loading">加载中…</div>
-        <template v-else>
           <div class="game-detail-meta">
             <div><span class="tiny">对局时间</span><b>{{ gameDetail.time || "—" }}</b></div>
             <div><span class="tiny">桌台</span><b>{{ gameDetail.table || "未指定桌台" }}</b></div>
@@ -342,7 +339,6 @@ const pendingWdr = computed(() =>
               <tr v-if="!gameDetail.players.length"><td colspan="5" class="table-empty">本局无玩家记录</td></tr>
             </tbody>
           </table>
-        </template>
         <div class="void-actions"><button class="btn ghost" @click="closeDetail">关闭</button></div>
       </div>
     </div>
@@ -398,7 +394,8 @@ const pendingWdr = computed(() =>
 .flt-kw{width:220px;margin:0}
 .void-dialog.game-detail-dialog{width:min(760px,100%);max-height:min(90vh,760px)}
 .game-detail-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.game-detail-loading{padding:24px 0;text-align:center}
+.records-op-ph{visibility:hidden;pointer-events:none}
+.records-ops .btn.is-loading{opacity:.55;cursor:progress}
 .game-detail-meta{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0 8px}
 .game-detail-meta>div{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:8px;background:#F7F6F2}
 .game-detail-sum{margin-bottom:8px}
