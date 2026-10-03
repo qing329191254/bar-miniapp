@@ -223,6 +223,50 @@ class AutoWindowTests(unittest.TestCase):
         self.assertEqual(sess.get(SettleLog, 9).status, "REVOKED")
         self.assertIsNone(sess.get(SettleLog, 9).card_id)
 
+    def test_purge_friday_settle_traces_keeps_balances_and_real_logs(self):
+        sess = make_session()
+        for sid, week in ((1, "2026-09"), (2, "09-21~09-27")):
+            sess.add(SettleLog(id=sid, uid=1, week=week, type="PERSONAL_RANK1", sub="5",
+                               target="个人榜", nick="甲", sh=10, status="REVOKED"))
+        sess.add(SettleLog(id=3, uid=1, week="09-14~09-20", type="PERSONAL_RANK1", sub="5",
+                           target="个人榜", nick="甲", sh=10, status="GRANTED"))
+        L.save_setting(sess, "settleMeta", {"2026-09": {"granted": 10}, "09-14~09-20": {"granted": 1}})
+        L.save_setting(sess, SJ.GHOST_CARD_DELETE_KEY, {"done": True})
+        sys_op = {"role": "BOSS", "nick": "系统"}
+        auto_op = {"role": "BOSS", "nick": "系统自动"}
+        L.log(sess, "SETTLE_RUN", "执行 2026-09 · 发放 10 张 · auto", None, auto_op)
+        L.log(sess, "SETTLE_RUN", "执行 09-21~09-27 · 发放 10 张 · auto", None, auto_op)
+        L.log(sess, "SETTLE_RUN", "执行 09-14~09-20 · 发放 1 张 · auto", None, auto_op)
+        L.log(sess, "SETTLE_RERUN", "重跑 2026-09 · 幂等跳过，未重复发放", None, sys_op)
+        L.log(sess, "SETTLE_REVOKE", "删除周五误发奖励卡 20 张 · 已核销保留 0 张", None, sys_op)
+        L.log(sess, "SHARD_ADJUST", "补回 乙 本周碎片 0→15 · 累计不变", 2, sys_op)
+        L.log(sess, "SHARD_ADJUST", "店员调整 乙 碎片 +1", 2, {"role": "STAFF", "nick": "小龙"})
+        L.log(sess, "SETTLE_CONFIG_UPDATE", "更新榜单与奖励规则", None, {"role": "BOSS", "nick": "张老板"})
+        add_shard(sess, 2, "2026-10-02 09:13", -15, typ="weekly", ref="shardw-2026-10-02")
+        add_shard(sess, 2, "2026-10-02 16:15", 15, typ="adjust", ref="wkfix1002-2")
+        add_shard(sess, 2, "2026-10-02 18:00", 1, typ="game", ref="game-1")
+        sess.flush()
+        before = (sess.get(Wallet, 2).shard_w, sess.get(Wallet, 2).shard_t)
+
+        first = SJ.purge_false_friday_settle_traces(sess)
+        second = SJ.purge_false_friday_settle_traces(sess)
+        self.assertEqual((first["settleRows"], first["logs"], first["shardFlows"]), (2, 5, 2))
+        self.assertTrue(second["skipped"])
+        self.assertEqual([r.id for r in sess.query(SettleLog).all()], [3])
+        self.assertEqual(list(L.setting(sess, "settleMeta")), ["09-14~09-20"])
+        kept = sorted(r.detail for r in sess.query(L.OpLog).all())
+        self.assertEqual(kept, sorted(["执行 09-14~09-20 · 发放 1 张 · auto", "店员调整 乙 碎片 +1", "更新榜单与奖励规则"]))
+        self.assertEqual([r.ref for r in sess.query(AssetFlow).filter_by(uid=2).all()], ["game-1"])
+        self.assertEqual((sess.get(Wallet, 2).shard_w, sess.get(Wallet, 2).shard_t), before)
+
+    def test_purge_waits_for_ghost_card_delete(self):
+        sess = make_session()
+        sess.add(SettleLog(id=1, uid=1, week="2026-09", type="PERSONAL_RANK1", sub="5",
+                           target="个人榜", nick="甲", sh=10, status="GRANTED", card_id=50))
+        sess.flush()
+        self.assertFalse(SJ.purge_false_friday_settle_traces(sess)["ok"])
+        self.assertEqual(sess.query(SettleLog).count(), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

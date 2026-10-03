@@ -11,12 +11,13 @@ import threading
 import time
 from datetime import date, datetime, timedelta
 
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 import logic as L
 import cache
 from database import session_scope
-from models import AssetFlow, Card, CardTpl, SettleLog, Team, User, Wallet
+from models import AssetFlow, Card, CardTpl, OpLog, SettleLog, Team, User, Wallet
 
 
 def week_period(d: date) -> dict:
@@ -430,11 +431,61 @@ def delete_false_friday_reward_cards(db: Session) -> dict:
     return {"ok": True, "skipped": False, **payload}
 
 
+GHOST_SETTLE_PURGE_KEY = "ghostSettlePurge1002"
+
+
+def purge_false_friday_settle_traces(db: Session) -> dict:
+    """Drop every trace of the 2026-10-02 mis-settle once its cards are gone and shards restored.
+
+    Shard flows are only removed in -N/+N pairs that net to zero, so balances never change.
+    """
+    prev = L.setting(db, GHOST_SETTLE_PURGE_KEY) or {}
+    if prev.get("done"):
+        return {"ok": True, "skipped": True, **{k: v for k, v in prev.items() if k != "done"}}
+    if not (L.setting(db, GHOST_CARD_DELETE_KEY) or {}).get("done"):
+        return {"ok": False, "skipped": True, "message": "奖励卡尚未删除"}
+
+    settle_rows = db.query(SettleLog).filter(SettleLog.week.in_(GHOST_SETTLE_WEEKS))
+    if settle_rows.filter(SettleLog.card_id.isnot(None)).count():
+        return {"ok": False, "skipped": True, "message": "仍有关联奖励卡"}
+    settle_n = settle_rows.delete(synchronize_session=False)
+
+    meta = dict(L.setting(db, "settleMeta") or {})
+    if any(meta.pop(w, None) is not None for w in list(GHOST_SETTLE_WEEKS)):
+        L.save_setting(db, "settleMeta", meta)
+
+    log_q = db.query(OpLog).filter(or_(
+        *[and_(OpLog.action == "SETTLE_RUN", OpLog.detail.like(f"执行 {w} · %")) for w in GHOST_SETTLE_WEEKS],
+        *[and_(OpLog.action == "SETTLE_RERUN", OpLog.detail.like(f"重跑 {w} · %")) for w in GHOST_SETTLE_WEEKS],
+        and_(OpLog.action == "SETTLE_REVOKE", OpLog.detail.like("删除周五误发奖励卡%")),
+        and_(OpLog.action == "SHARD_ADJUST", OpLog.op == "系统",
+             OpLog.detail.like("补回 % 本周碎片 %→% · 累计不变")),
+    ))
+    log_n = log_q.delete(synchronize_session=False)
+
+    wiped_ref = f"shardw-{WEEK_SHARD_RESTORE_DAY}"
+    flow_n = 0
+    wiped = db.query(AssetFlow).filter(AssetFlow.asset == "SHARD", AssetFlow.ref == wiped_ref).all()
+    for row in wiped:
+        back = db.query(AssetFlow).filter_by(uid=row.uid, asset="SHARD", ref=f"wkfix1002-{row.uid}").first()
+        if not back or int(back.delta or 0) + int(row.delta or 0) != 0:
+            continue
+        db.delete(back)
+        db.delete(row)
+        flow_n += 2
+
+    payload = {"done": True, "settleRows": settle_n, "logs": log_n, "shardFlows": flow_n}
+    L.save_setting(db, GHOST_SETTLE_PURGE_KEY, payload)
+    db.flush()
+    return {"ok": True, "skipped": False, **{k: v for k, v in payload.items() if k != "done"}}
+
+
 def bootstrap_settlement(db: Session):
     sync_demo_settle_settings(db)
     tick_settlement(db)
     restore_false_friday_week_shards(db)
     delete_false_friday_reward_cards(db)
+    purge_false_friday_settle_traces(db)
 
 
 def sync_demo_settle_settings(db: Session):
