@@ -213,6 +213,12 @@ async def on_startup():
                 except Exception as e:
                     db.rollback()
                     print(f"[settlement] bootstrap warning: {e}")
+                try:
+                    L.reclassify_manual_coin_to_bonus(db)
+                    db.commit()
+                except Exception as e:
+                    db.rollback()
+                    print(f"[coin] reclassify warning: {e}")
             SJ.start_settlement_scheduler()
             with SessionLocal() as db:
                 try:

@@ -262,6 +262,44 @@ class AssetFlowTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             L.game_detail(sess, 99999)
 
+    def test_manual_coin_adjust_is_bonus_and_deducts_bonus_first(self, _lock):
+        sess = make_session()
+        w = sess.get(Wallet, 9)
+        L.member_adjust_coin(sess, 9, 100, "活动奖励", BOSS)
+        self.assertEqual((w.coin_p, w.coin_b), (500, 100))
+        L.member_adjust_coin(sess, 9, -150, "加错了", BOSS)
+        self.assertEqual((w.coin_p, w.coin_b), (450, 0))
+        with self.assertRaises(ValueError):
+            L.member_adjust_coin(sess, 9, -451, "超额", BOSS)
+
+        L.member_adjust_coin(sess, 9, 30, "申请加币", MANAGER)
+        L.member_adjust_coin(sess, 9, -40, "申请扣币", MANAGER)
+        adjusts = sorted(sess.query(L.CoinAdjust).all(), key=lambda a: a.id)
+        self.assertEqual([a.type for a in adjusts], ["BONUS", "BONUS"])
+        L.approve_coin_adjust(sess, adjusts[0].id, "approve", BOSS)
+        self.assertEqual((w.coin_p, w.coin_b), (450, 30))
+        L.approve_coin_adjust(sess, adjusts[1].id, "approve", BOSS)
+        self.assertEqual((w.coin_p, w.coin_b), (440, 0))
+
+    def test_reclassify_manual_coin_moves_net_manual_adds_to_bonus_once(self, _lock):
+        sess = make_session()
+        w9, w10 = sess.get(Wallet, 9), sess.get(Wallet, 10)
+        w9.coin_p, w9.coin_b = 1501, 220
+        for ref, delta in (("cdir-1", 222), ("cdir-2", 666)):
+            sess.add(AssetFlow(uid=9, asset="COIN", ref=ref, typ="adjust", title="店员调整金币",
+                               amount=f"+{delta}", delta=delta, at="2026-10-04 18:16", sort_at="2026-10-04 18:16"))
+        sess.add(AssetFlow(uid=10, asset="COIN", ref="cdir-3", typ="adjust", title="店员调整金币",
+                           amount="−452", delta=-452, at="2026-10-01 21:23", sort_at="2026-10-01 21:23"))
+        sess.flush()
+
+        first = L.reclassify_manual_coin_to_bonus(sess)
+        second = L.reclassify_manual_coin_to_bonus(sess)
+        self.assertEqual((w9.coin_p, w9.coin_b), (613, 1108))
+        self.assertEqual((w10.coin_p, w10.coin_b), (300, 0))
+        self.assertEqual([(m["uid"], m["amount"]) for m in first["moved"]], [(9, 888)])
+        self.assertTrue(second["skipped"])
+        self.assertEqual((w9.coin_p, w9.coin_b), (613, 1108))
+
     def test_games_page_filters_by_member_project_date_and_status(self, _lock):
         sess = make_session()
         sess.add(Project(id=2, name="狼人杀"))

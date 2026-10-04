@@ -3744,6 +3744,17 @@ def member_detail(sess: Session, uid: int) -> dict:
     }
 
 
+def _apply_manual_coin(w: Wallet, delta: int) -> None:
+    """Manual coin adjustments are gift coins: add to bonus; deduct bonus first, then principal."""
+    if delta >= 0:
+        w.coin_b = int(w.coin_b or 0) + delta
+        return
+    need = min(-delta, int(w.coin_p or 0) + int(w.coin_b or 0))
+    db = min(int(w.coin_b or 0), need)
+    w.coin_b = int(w.coin_b or 0) - db
+    w.coin_p = int(w.coin_p or 0) - (need - db)
+
+
 def member_adjust_coin(sess: Session, uid: int, delta: int, reason: str, admin: dict) -> dict:
     reason = (reason or "").strip()
     if len(reason) < 2:
@@ -3763,7 +3774,7 @@ def member_adjust_coin(sess: Session, uid: int, delta: int, reason: str, admin: 
             id=new_id(sess, CoinAdjust),
             uid=uid,
             delta=delta,
-            type="PRINCIPAL",
+            type="BONUS",
             reason=reason,
             adjust_by=admin["id"],
             at=f"{today_str()} {clock()}",
@@ -3773,19 +3784,13 @@ def member_adjust_coin(sess: Session, uid: int, delta: int, reason: str, admin: 
         sess.flush()
         flow_coin_adjust(sess, adj, _op_name(admin))
         log(sess, "COIN_ADJUST_APPLY",
-            f"店长发起金币调整申请 · {user.nick} {'+' if delta > 0 else ''}{delta} 本金 · 原因：{reason} · 待老板审批",
+            f"店长发起金币调整申请 · {user.nick} {'+' if delta > 0 else ''}{delta} 赠送 · 原因：{reason} · 待老板审批",
             uid, admin)
         sess.flush()
         return {"ok": True, "pending": True}
-    if delta > 0:
-        w.coin_p += delta
-    else:
-        need = -delta
-        if need > before:
-            raise ValueError(f"扣减失败，超出余额（当前 {before}，本金 {w.coin_p}）")
-        dp = min(w.coin_p, need)
-        w.coin_p -= dp
-        w.coin_b -= need - dp
+    if delta < 0 and -delta > before:
+        raise ValueError(f"扣减失败，超出余额（当前 {before}，赠送 {w.coin_b}）")
+    _apply_manual_coin(w, delta)
     after = w.coin_p + w.coin_b
     flow_put(
         sess, uid, "COIN", _new_ref("cdir"), stamp=True,
@@ -3794,10 +3799,45 @@ def member_adjust_coin(sess: Session, uid: int, delta: int, reason: str, admin: 
         bal_before=before, bal_after=after, op=_op_name(admin),
     )
     log(sess, "COIN_ADJUST",
-        f"调整 {user.nick} 金币 {'+' if delta > 0 else ''}{delta} · 余额 {before}→{after} · 原因：{reason}",
+        f"调整 {user.nick} 金币 {'+' if delta > 0 else ''}{delta} 赠送 · 余额 {before}→{after} · 原因：{reason}",
         uid, admin)
     sess.flush()
     return {"ok": True, "balance": after}
+
+
+MANUAL_COIN_BONUS_KEY = "manualCoinBonus1004"
+
+
+def reclassify_manual_coin_to_bonus(sess: Session) -> dict:
+    """One-off: coins added by hand before the 赠送 rule were booked as principal; move them to bonus.
+
+    Per member, moves net manual additions (capped by current principal). Totals never change.
+    """
+    prev = setting(sess, MANUAL_COIN_BONUS_KEY) or {}
+    if prev.get("done"):
+        return {"ok": True, "skipped": True, "moved": prev.get("moved") or []}
+    net: dict[int, int] = {}
+    for f in sess.query(AssetFlow).filter(AssetFlow.asset == "COIN", AssetFlow.ref.like("cdir-%")).all():
+        net[int(f.uid)] = net.get(int(f.uid), 0) + int(f.delta or 0)
+    for a in sess.query(CoinAdjust).filter_by(status="APPROVED", type="PRINCIPAL").all():
+        net[int(a.uid)] = net.get(int(a.uid), 0) + int(a.delta or 0)
+    moved = []
+    for uid, amount in sorted(net.items()):
+        w = sess.query(Wallet).filter_by(user_id=uid).first()
+        n = min(amount, int(w.coin_p or 0)) if w else 0
+        if n <= 0:
+            continue
+        p0, b0 = int(w.coin_p), int(w.coin_b or 0)
+        w.coin_p, w.coin_b = p0 - n, b0 + n
+        user = sess.get(User, uid)
+        nick = user.nick if user else str(uid)
+        log(sess, "COIN_ADJUST",
+            f"{nick} 手动调整的金币 {n} 由本金改记为赠送 · 本金 {p0}→{w.coin_p} · 赠送 {b0}→{w.coin_b} · 余额不变",
+            uid, {"role": "BOSS", "nick": "系统"})
+        moved.append({"uid": uid, "nick": nick, "amount": n, "p": [p0, w.coin_p], "b": [b0, w.coin_b]})
+    save_setting(sess, MANUAL_COIN_BONUS_KEY, {"done": True, "moved": moved})
+    sess.flush()
+    return {"ok": True, "skipped": False, "moved": moved}
 
 
 def _adj_reason(reason: str, *, required: bool) -> str:
@@ -5076,13 +5116,11 @@ def approve_coin_adjust(sess: Session, aid: int, action: str, admin: dict, reaso
         before = w.coin_p + w.coin_b
         if a.type == "PRINCIPAL":
             w.coin_p += a.delta
+            if w.coin_p < 0:
+                w.coin_b = max(0, w.coin_b + w.coin_p)
+                w.coin_p = 0
         else:
-            w.coin_b += a.delta
-        if w.coin_p < 0:
-            w.coin_b += w.coin_p
-            w.coin_p = 0
-        if w.coin_b < 0:
-            w.coin_b = 0
+            _apply_manual_coin(w, int(a.delta or 0))
         after = w.coin_p + w.coin_b
         a.status = "APPROVED"
         a.audit_by = admin["id"]
