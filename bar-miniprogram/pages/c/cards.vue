@@ -12,6 +12,7 @@ const TABS = [
   { k: "VOID", n: "已失效", color: "#9C9A93" },
 ];
 const VOID_ST = ["USED", "EXPIRED", "VOID"];
+const LIVE_ST = ["UNUSED", "LOCKED"];
 
 const list = ref([]);
 const tab = ref("GAME");
@@ -28,11 +29,11 @@ function catOf(c) {
 }
 function count(k) {
   if (k === "VOID") return list.value.filter((c) => VOID_ST.includes(c.status)).length;
-  return list.value.filter((c) => c.status === "UNUSED" && catOf(c) === k).length;
+  return list.value.filter((c) => LIVE_ST.includes(c.status) && catOf(c) === k).length;
 }
 const shown = computed(() => {
   if (tab.value === "VOID") return list.value.filter((c) => VOID_ST.includes(c.status));
-  return list.value.filter((c) => c.status === "UNUSED" && catOf(c) === tab.value);
+  return list.value.filter((c) => LIVE_ST.includes(c.status) && catOf(c) === tab.value);
 });
 const voidable = computed(() => tab.value !== "VOID");
 function selected(id) {
@@ -43,6 +44,10 @@ function switchTab(k) {
   sel.value = [];
 }
 function toggle(c) {
+  if (c.status === "LOCKED") {
+    if (c.verifyCode) uni.navigateTo({ url: `/pages/c/verify-code?code=${encodeURIComponent(c.verifyCode)}` });
+    return;
+  }
   if (!voidable.value || c.status !== "UNUSED") return;
   sel.value = selected(c.id) ? sel.value.filter((x) => x !== c.id) : [...sel.value, c.id];
 }
@@ -104,7 +109,11 @@ async function gen() {
           </view>
           <view v-for="(rule, ri) in c.tplInfo?.ruleText || []" :key="ri" class="tiny gold" style="margin-top:2px">{{ rule }}</view>
         </view>
-        <view v-if="voidable" class="pick">
+        <view v-if="c.status === 'LOCKED'" class="pick">
+          <text class="pill locked-pill">核销中</text>
+          <view class="tiny" style="margin-top:3px">{{ c.verifyCode ? "查看核销码" : "稍后自动解锁" }}</view>
+        </view>
+        <view v-else-if="voidable" class="pick">
           <view class="box" :class="{ on: selected(c.id) }">{{ selected(c.id) ? "✓" : "" }}</view>
           <view class="tiny">{{ selected(c.id) ? "已选" : "选择" }}</view>
         </view>
@@ -148,6 +157,7 @@ async function gen() {
   font-size: 11px; color: #fff;
 }
 .box.on { background: #1C1B19; border-color: #1C1B19; }
+.locked-pill { color: #BA7517; background: #FAEEDA; }
 .pack-bar {
   position: fixed;
   left: 0; right: 0; bottom: 0;

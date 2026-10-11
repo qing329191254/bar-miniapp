@@ -1839,8 +1839,29 @@ def verify_preview(sess: Session, code: str) -> dict:
     return {"code": vc.code, "uid": vc.uid, "user": public_user(sess, u(sess, vc.uid)), "cards": cards}
 
 
+def lock_verify(sess: Session, vc: VerifyCode | None) -> VerifyCode | None:
+    if not vc:
+        return None
+    return sess.query(VerifyCode).filter_by(code=vc.code).with_for_update().populate_existing().first()
+
+
+def cancel_verify(sess: Session, uid: int, code: str) -> dict:
+    vc = lock_verify(sess, sess.get(VerifyCode, (code or "").strip()))
+    if not vc or vc.uid != uid:
+        err("核销码不存在")
+    if vc.status == "USED":
+        err("卡券已核销，无法取消")
+    if vc.status == "VALID":
+        vc.status = "CANCELLED"
+        for cid in vc.card_ids or []:
+            c = sess.get(Card, cid)
+            if c and c.status == "LOCKED":
+                c.status = "UNUSED"
+    return verify_code_dict(vc)
+
+
 def verify_confirm(sess: Session, code: str, staff: dict) -> dict:
-    vc = find_verify(sess, code)
+    vc = lock_verify(sess, find_verify(sess, code))
     if not vc or vc.status != "VALID" or vc.expire_at <= now_ms():
         err("核销码已失效")
     for cid in vc.card_ids or []:

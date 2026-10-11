@@ -155,6 +155,37 @@ function backToCards() {
   });
 }
 
+function cancelCode() {
+  if (!codeKey || leaving) return;
+  uni.showModal({
+    title: "取消核销码",
+    content: "取消后此码立即失效，卡券回到卡包可重新使用",
+    confirmText: "确认取消",
+    cancelText: "再想想",
+    confirmColor: "#A32D2D",
+    success: async ({ confirm }) => {
+      if (!confirm || leaving) return;
+      try {
+        const next = await api(`/cards/verify-code/${encodeURIComponent(codeKey)}/cancel`, { method: "POST" });
+        if (next?.status === "USED") {
+          finishVerified(data.value?.cards?.length || 0);
+          return;
+        }
+        leaving = true;
+        data.value = { ...data.value, ...next };
+        hideFullCode();
+        stopPoll();
+        toastText("核销码已取消，卡券已退回卡包", 1500);
+        if (backTimer) clearTimeout(backTimer);
+        backTimer = setTimeout(backToCards, 800);
+      } catch (e) {
+        toastText(e.message || "取消失败");
+        load(codeKey);
+      }
+    },
+  });
+}
+
 onLoad((options) => {
   if (guest) return;
   const code = options?.code;
@@ -198,6 +229,12 @@ onUnmounted(() => {
       <view class="tiny">已核销 {{ data.cards?.length || 0 }} 张卡券，即将返回</view>
     </view>
 
+    <view v-else-if="data?.status === 'CANCELLED'" class="state-card">
+      <view class="state-title">核销码已取消</view>
+      <view class="tiny">卡券已退回卡包，可重新生成</view>
+      <button class="btn block gold" @tap="backToCards">返回卡包</button>
+    </view>
+
     <view v-else-if="data?.status === 'EXPIRED' || expired" class="state-card">
       <view class="state-title expired-title">核销码已过期</view>
       <view class="tiny">卡券已自动解锁，可重新生成</view>
@@ -231,6 +268,7 @@ onUnmounted(() => {
         </view>
       </view>
       <button class="btn ghost return-btn" @tap="backToCards">返回卡包</button>
+      <view class="cancel-link" @tap="cancelCode">不用了，取消核销码</view>
     </template>
   </view>
 </template>
@@ -283,6 +321,7 @@ onUnmounted(() => {
 .card-name { font-size: 16px; font-weight: 600; margin-bottom: 7px; }
 .rule-text { color: #BA7517; margin-top: 4px; }
 .return-btn { margin-top: 18px; }
+.cancel-link { margin-top: 16px; color: #A32D2D; font-size: 13px; }
 .state-card { margin-top: 48px; padding: 28px 18px; background: #fff; border: 1px solid rgba(28,27,25,.12); border-radius: 18px; }
 .state-title { font-size: 19px; font-weight: 700; margin-bottom: 10px; }
 .expired-title { color: #A32D2D; }

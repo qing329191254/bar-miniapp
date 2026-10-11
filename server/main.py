@@ -19,7 +19,7 @@ from database import SessionLocal, get_db
 from models import (
     AgreeLog, Card, CardTpl, Category, Champ, CoinAdjust, DailyBiz, Deactivation,
     GameRecord, OpLog, Order, Product, Project, Recharge, SettleLog, SignRule,
-    SmsCode, TableSeat, Team, Tier, User, VerifyLog, Wallet, Withdrawal,
+    SmsCode, TableSeat, Team, Tier, User, VerifyCode, VerifyLog, Wallet, Withdrawal,
 )
 from seed_db import seed_all
 from settings import cloud_env_id, cos_public_base, host_for_log, in_cloud, is_loopback, mysql_url
@@ -597,10 +597,19 @@ def exchange(body: ExchangeIn, user: dict = Depends(current_user), db: Session =
 
 @app.get("/api/cards")
 def cards(user: dict = Depends(current_user), db: Session = Depends(get_db)):
+    live = {}
+    for vc in db.query(VerifyCode).filter(
+        VerifyCode.uid == user["id"], VerifyCode.status == "VALID", VerifyCode.expire_at > L.now_ms(),
+    ).all():
+        for cid in vc.card_ids or []:
+            live[int(cid)] = vc.code
     lst = []
     for c in db.query(Card).filter_by(uid=user["id"]).all():
         tm = L.tpl(db, c.tpl)
-        lst.append({**c.to_dict(), "tplInfo": tm.to_dict() if tm else None})
+        row = {**c.to_dict(), "tplInfo": tm.to_dict() if tm else None}
+        if c.status == "LOCKED":
+            row["verifyCode"] = live.get(c.id)
+        lst.append(row)
     return lst
 
 
@@ -624,6 +633,14 @@ def get_code(code: str, user: dict = Depends(current_user), db: Session = Depend
         c = db.get(Card, cid)
         cards.append({**c.to_dict(), "tplInfo": L.tpl(db, c.tpl).to_dict()} if c else None)
     return {**L.verify_code_dict(vc), "cards": cards, "remain": L.remain(vc.expire_at)}
+
+
+@app.post("/api/cards/verify-code/{code}/cancel")
+def cancel_code(code: str, user: dict = Depends(current_user), db: Session = Depends(get_db)):
+    try:
+        return L.cancel_verify(db, user["id"], code)
+    except ValueError as e:
+        fail(e)
 
 
 @app.get("/api/rank")
