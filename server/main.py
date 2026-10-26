@@ -692,12 +692,13 @@ def team_detail(tid: int, db: Session = Depends(get_db)):
     if not t:
         raise HTTPException(404, "战队不存在")
     users = [x for x in L.custs(db) if x.team_id == tid]
+    week_shards = L.period_shard_gains(db, L.rank_dim(db))
     members = []
     for x in users:
         wallet = L.wallet_of(db, x.id)
         members.append({
             **L.public_user(db, x), "champions": L.champ_count(db, x.id),
-            "shardWeek": int(wallet.shard_w or 0), "shardTotal": int(wallet.shard_t or 0),
+            "shardWeek": int(week_shards.get(x.id, 0)), "shardTotal": int(wallet.shard_t or 0),
         })
     members.sort(key=lambda x: -x["shardWeek"])
     champ_total = sum(x["champions"] for x in members)
@@ -1397,16 +1398,16 @@ async def admin_upload(admin: dict = Depends(admin_user), file: UploadFile = Fil
 
 @app.get("/api/admin/team-management")
 def team_management(admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    period_shards = L.period_shard_gains(db, L.rank_dim(db))
     teams = []
     for team in db.query(Team).order_by(Team.id).all():
         members = []
         for user in db.query(User).filter(
             User.role == "CUSTOMER", User.status == "ACTIVE", User.team_id == team.id,
         ).order_by(User.id).all():
-            wallet = L.wallet_of(db, user.id)
             members.append({
                 "id": user.id, "nick": user.nick, "no": user.no,
-                "champions": L.champ_count(db, user.id), "shard": int(wallet.shard_w or 0),
+                "champions": L.champ_count(db, user.id), "shard": int(period_shards.get(user.id, 0)),
             })
         teams.append({
             "id": team.id, "name": team.name, "logo": team.logo or team.name[:1],
@@ -1420,10 +1421,9 @@ def team_management(admin: dict = Depends(admin_user), db: Session = Depends(get
         User.status == "ACTIVE",
         User.team_id.is_(None),
     ).order_by(User.id).all():
-        wallet = L.wallet_of(db, user.id)
         unassigned.append({
             "id": user.id, "nick": user.nick, "no": user.no,
-            "champions": L.champ_count(db, user.id), "shard": int(wallet.shard_w or 0),
+            "champions": L.champ_count(db, user.id), "shard": int(period_shards.get(user.id, 0)),
         })
     return {"teams": teams, "unassigned": unassigned}
 

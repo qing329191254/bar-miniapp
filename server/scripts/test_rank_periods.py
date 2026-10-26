@@ -76,6 +76,7 @@ class ShardBoardPeriodTests(unittest.TestCase):
         add_shard(sess, 1, "2026-10-02 15:00", 3, ref="month-1")
         add_shard(sess, 2, "2026-10-02 15:00", 20, ref="month-2")
         add_shard(sess, 1, "2026-10-05 13:00", -10, typ="weekly", ref="reset-1")
+        add_shard(sess, 2, "2026-10-06 14:00", 7, ref="this-week-2")
         sess.flush()
 
         with at(datetime(2026, 10, 6, 15, 0)):
@@ -84,13 +85,26 @@ class ShardBoardPeriodTests(unittest.TestCase):
             total = L.rank_rows(sess, "SHARD", "ALL", "USER")
             mine = L.shard_of(sess, 1)
 
-        # WEEK 跟店员页一样看钱包本周；MONTH 才按本月流水
-        self.assertEqual([(r["user"]["id"], r["v"]) for r in week], [(1, 99), (2, 1)])
-        self.assertEqual([(r["user"]["id"], r["v"]) for r in month], [(2, 20), (1, 3)])
+        # WEEK follows flows since Monday 12:00, not the stale wallet counter.
+        self.assertEqual([(r["user"]["id"], r["v"]) for r in week], [(2, 7)])
+        self.assertEqual([(r["user"]["id"], r["v"]) for r in month], [(2, 27), (1, 3)])
         self.assertEqual([(r["user"]["id"], r["v"]) for r in total], [(1, 200), (2, 50)])
-        self.assertEqual(mine["w"], 99)
+        self.assertEqual(mine["w"], 0)
         self.assertEqual(mine["t"], 200)
         self.assertEqual(mine["dim"], "WEEK")
+
+    def test_stale_wallet_does_not_keep_last_week_on_shard_board(self):
+        sess = make_session()
+        add_shard(sess, 1, "2026-10-20 15:00", 40, ref="last-week")
+        add_shard(sess, 1, "2026-10-26 11:00", 8, ref="before-noon")
+        add_shard(sess, 2, "2026-10-26 12:00", 6, ref="after-noon")
+        sess.flush()
+        with at(datetime(2026, 10, 27, 0, 10)):
+            week = L.rank_rows(sess, "SHARD", "WEEK", "USER")
+            champs = L.rank_rows(sess, "CHAMPION", "WEEK", "USER")
+        self.assertEqual([(r["user"]["id"], r["v"]) for r in week], [(2, 6)])
+        self.assertEqual(champs, [])
+        self.assertEqual(sess.get(Wallet, 1).shard_w, 99)
 
     def test_customer_rank_month_stays_historical(self):
         sess = make_session()

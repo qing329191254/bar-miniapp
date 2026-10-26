@@ -156,10 +156,9 @@ def settlement_plan(db: Session, *, closed: bool = False) -> list[dict]:
     cfg = L.normalize_settlement_cfg_refs(db, L.setting(db, "cfg") or {})
     dim = "MONTH" if cfg.get("rankDim") == "MONTH" else "WEEK"
     since = L.previous_period_start(dim) if closed else L.period_start(dim)
-    if dim == "MONTH":
-        period_shards = L.shard_gains_since(db, since)
-    else:
-        period_shards = {int(w.user_id): int(w.shard_w or 0) for w in db.query(Wallet).all()}
+    # Same 12:00 window as the customer board. Closed runs stop at the new boundary
+    # so a late Monday (or later) settlement still ranks the week that just ended.
+    period_shards = L.period_shard_gains(db, dim, since)
     rank_range = max(1, int(cfg.get("rankRange") or 3))
     prize_map = cfg.get("prizeMap") or {}
     rows: list[dict] = []

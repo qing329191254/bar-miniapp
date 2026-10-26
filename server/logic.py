@@ -355,13 +355,15 @@ def point_of(sess: Session, uid: int) -> dict:
 
 
 def shard_of(sess: Session, uid: int) -> dict:
-    """w = this week (wallet) or this month (flows); t = all-time. Same week number as 店员调整."""
+    """w = shards gained since this period's 12:00; t = all-time.
+
+    Week and month both follow the clock (Monday 12:00 / the 1st 12:00), same as the
+    champion board. wallet.shard_w is only cleared when weekly settlement finishes,
+    so it must not be the number customers see.
+    """
     w = wallet_of(sess, uid)
     dim = rank_dim(sess)
-    if dim == "MONTH":
-        period = shard_gains_since(sess, period_start(dim)).get(int(uid), 0)
-    else:
-        period = int(w.shard_w or 0)
+    period = int(period_shard_gains(sess, dim).get(int(uid), 0))
     return {"w": period, "t": int(w.shard_t or 0), "dim": dim}
 
 
@@ -426,20 +428,60 @@ def period_label(dim: str, now: datetime | None = None, *, closed: bool = False)
     return f"{start.strftime('%m-%d')} 12:00 ~ {end.strftime('%m-%d')} 12:00"
 
 
-def shard_gains_since(sess: Session, since: datetime) -> dict[int, int]:
-    """Net shards gained in [since, now], excluding weekly-counter reset rows."""
+def shard_gains_since(sess: Session, since: datetime, until: datetime | None = None) -> dict[int, int]:
+    """Net shards in [since, until), excluding weekly-counter reset rows. until=None means open-ended."""
     since_s = since.strftime("%Y-%m-%d %H:%M")
-    rows = (
-        sess.query(AssetFlow.uid, func.coalesce(func.sum(AssetFlow.delta), 0))
-        .filter(
-            AssetFlow.asset == "SHARD",
-            AssetFlow.typ != "weekly",
-            AssetFlow.at >= since_s,
-        )
-        .group_by(AssetFlow.uid)
-        .all()
+    q = sess.query(AssetFlow.uid, func.coalesce(func.sum(AssetFlow.delta), 0)).filter(
+        AssetFlow.asset == "SHARD",
+        AssetFlow.typ != "weekly",
+        AssetFlow.at >= since_s,
     )
+    if until is not None:
+        q = q.filter(AssetFlow.at < until.strftime("%Y-%m-%d %H:%M"))
+    rows = q.group_by(AssetFlow.uid).all()
     return {int(uid): int(total) for uid, total in rows}
+
+
+def shard_window(dim: str, since: datetime | None = None) -> tuple[datetime, datetime | None]:
+    """Live period, or a closed one when `since` is the previous boundary.
+
+    Customer boards pass since=None and get [this Monday/1st 12:00, now].
+    Settlement of the period that just ended passes the previous boundary, and the
+    window stops at the current boundary so a late run does not mix in the new period.
+    """
+    live = period_start(dim)
+    start = since or live
+    end = live if start < live else None
+    return start, end
+
+
+def _period_shard_cache_key(dim: str, start: datetime, end: datetime | None) -> tuple:
+    return (
+        "period_shards", dim,
+        start.strftime("%Y-%m-%d %H:%M"),
+        end.strftime("%Y-%m-%d %H:%M") if end else "",
+    )
+
+
+def clear_period_shard_cache(sess: Session) -> None:
+    info = getattr(sess, "info", None)
+    if not isinstance(info, dict):
+        return
+    for key in list(info):
+        if isinstance(key, tuple) and key and key[0] == "period_shards":
+            info.pop(key, None)
+
+
+def period_shard_gains(sess: Session, dim: str, since: datetime | None = None) -> dict[int, int]:
+    start, end = shard_window(dim, since)
+    info = getattr(sess, "info", None)
+    key = _period_shard_cache_key(dim, start, end)
+    if isinstance(info, dict) and key in info:
+        return info[key]
+    gains = shard_gains_since(sess, start, end)
+    if isinstance(info, dict):
+        info[key] = gains
+    return gains
 
 
 def custs(sess: Session) -> list[User]:
@@ -463,7 +505,9 @@ def public_user(sess: Session, user: User | dict | None) -> dict | None:
             return None
     tm = team(sess, user.team_id)
     d = user.to_public(user.wallet, tm.name if tm else None)
-    d["shard"]["dim"] = rank_dim(sess)
+    dim = rank_dim(sess)
+    d["shard"]["w"] = int(period_shard_gains(sess, dim).get(int(user.id), 0))
+    d["shard"]["dim"] = dim
     return d
 
 
@@ -679,6 +723,7 @@ def flow_card_out(sess: Session, card: Card) -> None:
 
 def flow_shard(sess: Session, uid: int, ref: str, *, typ: str, title: str, delta: int, op: str,
                remark: str = "", history: bool = True) -> AssetFlow:
+    clear_period_shard_cache(sess)
     at = business_now().strftime("%Y-%m-%d %H:%M")
     meta = " · ".join(p for p in (at, f"操作员 {op}" if op else "", remark) if p)
     return flow_put(
@@ -2304,7 +2349,8 @@ def rank_rows(sess: Session, kind: str, dim: str, subject: str, since: datetime 
     """All boards: unique ranks (no ties). Primary metric per kind, then shared breakers.
 
     POINT board always uses live available inventory (point_av), ignoring week/month dim.
-    SHARD WEEK = wallet 本周碎片 (same as 店员调整); MONTH = flows since the 1st 12:00;
+    SHARD WEEK/MONTH = flows since that period's 12:00 (not wallet.shard_w, which
+    stays on the previous week until Monday settlement actually resets it);
     ALL = shard_t. Ties: 累计碎片, then 可用积分, then earlier registration.
     CHAMPION WEEK/MONTH = wins at/after that 12:00; ALL = all wins.
     Champion ties: 本周碎片, 累计碎片, 可用积分, then earlier registration.
@@ -2315,8 +2361,9 @@ def rank_rows(sess: Session, kind: str, dim: str, subject: str, since: datetime 
     reg = _reg_keys(sess, [x.id for x in people])
     period_shards: dict[int, int] = {}
     champ_map: dict[int, int] = {}
-    if kind == "SHARD" and dim == "MONTH":
-        period_shards = shard_gains_since(sess, since or period_start(dim))
+    use_period_shards = kind == "SHARD" and dim in ("WEEK", "MONTH")
+    if use_period_shards:
+        period_shards = period_shard_gains(sess, dim, since)
     if kind == "CHAMPION":
         if dim in ("WEEK", "MONTH"):
             start = since or period_start(dim)
@@ -2327,7 +2374,7 @@ def rank_rows(sess: Session, kind: str, dim: str, subject: str, since: datetime 
     def metrics(x: User) -> tuple[int, int, int, int, int]:
         w = wallet_of(sess, x.id)
         st = int(w.shard_t or 0)
-        sw = int(period_shards.get(x.id, 0) if dim == "MONTH" else (w.shard_w or 0))
+        sw = int(period_shards.get(x.id, 0) if use_period_shards or dim == "MONTH" else (w.shard_w or 0))
         pav = int(w.point_av or 0)
         pm = int(w.point_mg or 0)
         cc = int(champ_map.get(x.id, 0))
@@ -3915,15 +3962,16 @@ def member_adjust_shard(sess: Session, uid: int, delta: int, reason: str, admin:
     if not user or user.role != "CUSTOMER" or user.status != "ACTIVE":
         raise ValueError("会员不存在")
     w = wallet_of(sess, uid)
-    if delta < 0 and -delta > w.shard_w:
-        raise ValueError(f"扣减失败，超出本周碎片（当前 {w.shard_w}）")
-    bw, bt = w.shard_w, w.shard_t
-    w.shard_w += delta
-    w.shard_t = max(w.shard_w, w.shard_t + delta)
+    shown = int(shard_of(sess, uid)["w"])
+    if delta < 0 and -delta > shown:
+        raise ValueError(f"扣减失败，超出本周碎片（当前 {shown}）")
+    bw, bt = shown, w.shard_t
+    w.shard_w = max(0, int(w.shard_w or 0) + delta)
+    w.shard_t = max(int(w.shard_w), int(w.shard_t or 0) + delta)
     flow_shard(sess, uid, _new_ref("adj"), typ="adjust", title="店员调整碎片",
                delta=delta, op=_op_name(admin), remark=reason)
     log(sess, "SHARD_ADJUST",
-        f"快速调整 {user.nick} 碎片 {'+' if delta > 0 else ''}{delta} · 本周 {bw}→{w.shard_w} · 累计 {bt}→{w.shard_t}{_reason_tail(reason)}",
+        f"快速调整 {user.nick} 碎片 {'+' if delta > 0 else ''}{delta} · 本周 {bw}→{shown + delta} · 累计 {bt}→{w.shard_t}{_reason_tail(reason)}",
         uid, admin)
     sess.flush()
     return {"ok": True}
