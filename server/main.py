@@ -1517,8 +1517,9 @@ def _settlement_payload(db: Session, week: str) -> dict:
 
 @app.get("/api/admin/settlement/current")
 def settlement_current(page: int = Query(1, ge=1), page_size: int = Query(15, ge=1, le=50, alias="pageSize"), admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
-    week = SJ.resolve_display_week(db)
+    week = SJ.settlement_table_week(db)
     payload = _settlement_payload(db, week)
+    payload["currentWeek"] = SJ.settlement_week(db)
     query = db.query(SettleLog).filter(SettleLog.week == week).order_by(SettleLog.id)
     rows = query.offset((page - 1) * page_size).limit(page_size).all()
     return {
@@ -1548,7 +1549,9 @@ def settlement_preview(admin: dict = Depends(admin_user), db: Session = Depends(
     rank_range = max(1, int(cfg.get("rankRange") or 3))
     mapped = {int(k) for k, v in (cfg.get("prizeMap") or {}).items() if str(k).isdigit() and v}
     missing = sorted({int(x.get("rank") or 0) for x in L.rank_rows(db, "SHARD", dim, "USER") if int(x.get("rank") or 0) <= rank_range and int(x.get("rank") or 0) not in mapped})
-    return {"week": SJ.settlement_week(db), "rows": rows, "count": len(eligible),
+    week = SJ.settlement_week(db)
+    executed = bool(week) and db.query(SettleLog).filter(SettleLog.week == week).count() > 0
+    return {"week": week, "executed": executed, "rows": rows, "count": len(eligible),
             "cap": int(cfg.get("settleCap") or 20), "blocked": len(eligible) > int(cfg.get("settleCap") or 20),
             "cfg": {"rankDim": dim, "rankRange": rank_range, "teamReward": bool(cfg.get("teamReward")),
                     "stack": bool(cfg.get("stack", True)), "reqShard": bool(cfg.get("reqShard"))}, "missingRanks": missing}
@@ -1583,22 +1586,10 @@ def settlement_force(body: PatchIn, admin: dict = Depends(admin_user), db: Sessi
     reason = str((body.data or {}).get("reason") or "").strip()
     if len(reason) < 2:
         raise HTTPException(400, "强制发放原因至少 2 个字")
-    week = SJ.settlement_week(db)
-    blocked = db.query(SettleLog).filter(SettleLog.week == week, SettleLog.status == "BLOCKED").order_by(SettleLog.id).all()
-    if not blocked:
-        raise HTTPException(400, "本周期没有待处理的被拦截奖励")
-    granted = 0
-    for row in blocked:
-        tm = L.resolve_reward_card_tpl(db, row.sub)
-        user = db.get(User, row.uid) if row.uid else None
-        if not tm or not user or user.role != "CUSTOMER" or user.status != "ACTIVE":
-            continue
-        card = L.issue_card(db, user.id, tm, "SETTLE_REWARD", f"{week} · 强制发放：{reason}", op=admin.get("nick") or "")
-        row.card_id, row.status, row.force_reason = card.id, "GRANTED", reason[:128]
-        row.sub = L.reward_tpl_ref(tm)
-        granted += 1
-    L.log(db, "SETTLE_FORCE", f"{week} · 强制发放 {granted} 张 · 原因：{reason}", None, admin)
-    return {"ok": True, "message": f"已强制发放 {granted} 张奖励卡券"}
+    result = SJ.force_blocked_rewards(db, str((body.data or {}).get("week") or ""), reason, admin)
+    if not result.get("ok"):
+        raise HTTPException(400, result.get("message") or "没有待处理的被拦截奖励")
+    return result
 
 
 @app.post("/api/admin/settlement/manual")

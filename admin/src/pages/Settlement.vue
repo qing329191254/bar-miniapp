@@ -22,6 +22,10 @@ const router = useRouter();
 const boss = savedUser()?.role === "BOSS";
 const labels: Record<string, string> = { TEAM_CHAMPION: "战队夺冠", PERSONAL_RANK1: "个人第 1", PERSONAL_RANK2: "个人第 2", PERSONAL_RANK3: "个人第 3", MANUAL: "手动补发" };
 const displayWeek = computed(() => (data.value.week || preview.value.week || "暂无结算周期").replace("~", " ~ "));
+const currentWeekKey = computed(() => preview.value.week || data.value.currentWeek || "");
+const currentWeekLabel = computed(() => (currentWeekKey.value || "暂无结算周期").replace("~", " ~ "));
+const weeksDiffer = computed(() => !!(data.value.week && currentWeekKey.value && data.value.week !== currentWeekKey.value));
+const currentExecuted = computed(() => preview.value.executed === true);
 const ruleText = computed(() => `名次占位制 · ${data.value.cfg?.stack === false ? "不可叠加" : "可叠加"}`);
 const blockedCount = computed(() => Number(data.value.summary?.blocked || 0));
 const previewPersonal = computed(() => (preview.value.rows || []).filter((r: any) => r.eligible && String(r.type).startsWith("PERSONAL")).sort((a: any,b: any) => Number(a.rank||0)-Number(b.rank||0)));
@@ -40,7 +44,7 @@ const executeDate = computed(() => {
   const tag = data.value.trigger === "auto" ? " · 自动" : data.value.trigger === "manual" ? " · 手动" : "";
   return `已执行 · ${at}${tag}`;
 });
-const canExecute = computed(() => !data.value.executed && !preview.value.blocked && !busy.value);
+const canExecute = computed(() => !currentExecuted.value && !preview.value.blocked && !busy.value);
 const memberOpts = computed(() => [
   { value: "", label: "请选择会员" },
   ...members.value.map((m: any) => ({ value: m.id, label: `${m.nick} · ${m.no}` })),
@@ -83,7 +87,7 @@ async function forceGrant() {
   if (busy.value) return;
   if (forceReason.value.trim().length < 2) { showToast("强制发放原因至少 2 个字", true); return; }
   busy.value = true;
-  try { const res = await api<any>("/admin/settlement/force", { method: "POST", body: { data: { reason: forceReason.value.trim() } } }); showToast(res.message || "强制发放完成"); forceOpen.value = false; await refreshAll(); }
+  try { const res = await api<any>("/admin/settlement/force", { method: "POST", body: { data: { reason: forceReason.value.trim(), week: data.value.week || "" } } }); showToast(res.message || "强制发放完成"); forceOpen.value = false; await refreshAll(); }
   catch (e: any) { showToast(e.message || "强制发放失败", true); } finally { busy.value = false; }
 }
 async function openSnapshot() { try { snapshot.value = await api(`/admin/settlement/snapshot?week=${encodeURIComponent(data.value.week || "")}`); } catch (e: any) { showToast(e.message, true); } }
@@ -112,11 +116,11 @@ onMounted(loadPage);
 <template>
   <AppAsyncPage :loading="loading" :data="loaded" :err="err" :skeleton="{ showFilter: false, metrics: 0, tableCols: 6, showExtraCard: true, showNote: true }" @retry="loadPage">
   <div class="settlement-page">
-    <div class="hdr settlement-hdr"><span>榜单与周结算</span><em>{{ displayWeek }} · {{ ruleText }}</em></div>
+    <div class="hdr settlement-hdr"><span>榜单与周结算</span><em v-if="weeksDiffer">{{ displayWeek }} 的结算记录 · 当前周期 {{ currentWeekLabel }}</em><em v-else>{{ displayWeek }} · {{ ruleText }}</em></div>
     <section class="card settlement-card">
       <div class="settle-head">
-        <div class="settle-summary"><span class="pill executed">{{ data.executed ? executeDate : "待执行" }}</span><span class="summary-copy" v-if="blockedCount">快照已冻结 · {{ blockedCount }} 张奖励被整批拦截，一张未发</span><span class="summary-copy" v-else-if="data.executed">快照已冻结 · 发放 {{ data.summary?.granted || 0 }} 张宝箱卡（战队 {{ data.summary?.team || 0 }} + 个人 {{ data.summary?.personal || 0 }}）</span><span class="summary-copy" v-else>尚未结算 · 请先查看下方预览，确认无误后点击「执行结算」</span></div>
-        <div class="ops"><button class="btn ghost" :disabled="busy" @click="openRerun">{{ data.executed ? "重新跑" : "执行结算" }}</button><button class="btn ghost" :disabled="!data.executed" @click="openSnapshot">查看快照</button></div>
+        <div class="settle-summary"><span class="pill executed">{{ data.executed ? executeDate : "待执行" }}</span><span class="summary-copy" v-if="blockedCount">{{ displayWeek }} 已冻结 · {{ blockedCount }} 张被拦截，一张未发</span><span class="summary-copy" v-else-if="data.executed">快照已冻结 · 发放 {{ data.summary?.granted || 0 }} 张宝箱卡（战队 {{ data.summary?.team || 0 }} + 个人 {{ data.summary?.personal || 0 }}）</span><span class="summary-copy" v-else>尚未结算 · 请先查看下方预览，确认无误后点击「执行结算」</span></div>
+        <div class="ops"><button v-if="!weeksDiffer" class="btn ghost" :disabled="busy" @click="openRerun">{{ currentExecuted ? "重新跑" : "执行结算" }}</button><button class="btn ghost" :disabled="!data.executed" @click="openSnapshot">查看快照</button></div>
       </div>
       <div class="table-wrap"><table class="tb2 settlement-table"><thead><tr><th>获奖对象</th><th>类型</th><th>奖励</th><th>碎片校验</th><th>状态</th><th class="col-op">操作</th></tr></thead><tbody>
         <tr v-for="r in data.rows" :key="r.id" :class="{blocked:r.status==='BLOCKED'}"><td><b>{{ r.target }}</b><div class="tiny">{{ r.nick }}</div></td><td><span class="pill type-pill" :class="typeClass(r)">{{ labels[r.type] || r.type }}</span></td><td>{{ settleRewardText(r) }}<div v-if="r.forceReason" class="tiny force-reason">强制发放：{{ r.forceReason }}</div></td><td class="shard">{{ Number(r.sh || 0).toLocaleString("en-US") }}</td><td><span class="pill status-pill" :class="`status-${String(r.status).toLowerCase()}`">{{ statusText(r.status) }}</span></td><td class="col-op"><button v-if="['GRANTED','BLOCKED'].includes(r.status)" class="btn ghost revoke-btn" @click="openRevoke(r)">撤销</button><span v-else-if="r.status==='SKIPPED'" class="tiny skip-reason">{{ settleSkipOpText(r) }}</span><span v-else class="tiny">—</span></td></tr>
@@ -132,7 +136,7 @@ onMounted(loadPage);
       </div>
     </div>
 
-    <section v-if="blockedCount" class="card blocked-card"><div class="st">本周期发放被拦截 <em>{{ blockedCount }} 张 · 超过单次上限 {{ preview.cap||data.cfg?.settleCap||20 }} 张</em></div><p>本批奖励已整批拦截，一张都没有发放。请先检查名次范围、战队奖励和并列情况；确认属于正常的大型活动后，可由老板强制发放。</p><button v-if="boss" class="btn dan" @click="openForce">强制发放 {{ blockedCount }} 张</button><span v-else class="tiny">仅老板可强制发放，请联系老板处理。</span></section>
+    <section v-if="blockedCount" class="card blocked-card"><div class="st">{{ displayWeek }} 发放被拦截 <em>{{ blockedCount }} 张 · 一张未发</em></div><p>这批奖励仍是被拦截状态，还没有发到会员卡包。确认属于正常的大型活动后，可由老板一次性强制发放。</p><button v-if="boss" class="btn dan" @click="openForce">强制发放 {{ blockedCount }} 张</button><span v-else class="tiny">仅老板可强制发放，请联系老板处理。</span></section>
 
     <section class="card preview-card">
       <div class="st preview-st">
@@ -150,24 +154,26 @@ onMounted(loadPage);
         <p><b>战队奖</b> {{ teamPreviewText }}</p>
         <p v-if="preview.missingRanks?.length" class="preview-missing">第 {{ preview.missingRanks.join("、") }} 名未配置卡型，结算时将跳过。</p>
       </div>
-      <div v-if="!data.executed" class="preview-action">
+      <div v-if="!currentExecuted" class="preview-action">
         <template v-if="preview.blocked">
-          <p class="preview-action-tip warn">预计发放超过单次上限，请先前往「榜单与奖励规则」调整，或联系老板处理。</p>
+          <p class="preview-action-tip warn">当前周期 {{ currentWeekLabel }} 预计发放超过单次上限，请先前往「榜单与奖励规则」调整，或联系老板处理。</p>
           <button class="btn ghost" @click="router.push('/settlecfg')">去调整规则</button>
         </template>
         <template v-else>
-          <p class="preview-action-tip">下方奖励根据实时榜单自动计算，仅供核对人数与奖励。确认无误后，点击右侧按钮正式结算并保存本周期结果。</p>
+          <p v-if="weeksDiffer" class="preview-action-tip">将结算当前周期 <b>{{ currentWeekLabel }}</b>，预计发放 {{ preview.count || 0 }} 张。上方表格是 {{ displayWeek }} 的记录，这次不会改动。</p>
+          <p v-else class="preview-action-tip">下方奖励根据实时榜单自动计算，仅供核对人数与奖励。确认无误后，点击右侧按钮正式结算并保存本周期结果。</p>
           <button class="btn pri preview-go" :disabled="!canExecute" @click="openRerun">执行结算（预计 {{ preview.count || 0 }} 张）</button>
         </template>
       </div>
       <div v-else class="preview-action done">
-        <p class="preview-action-tip">本周期结果已保存在上方表格。此处仍会根据当前榜单重新计算，仅供对照；再次点击「重新跑」不会重复发放卡券。</p>
-        <button class="btn ghost preview-go" :disabled="busy" @click="openSnapshot">查看已冻结快照</button>
+        <p v-if="weeksDiffer" class="preview-action-tip">当前周期 {{ currentWeekLabel }} 已结算。上方表格是 {{ displayWeek }} 的记录。</p>
+        <p v-else class="preview-action-tip">本周期结果已保存在上方表格。此处仍会根据当前榜单重新计算，仅供对照；再次点击「重新跑」不会重复发放卡券。</p>
+        <button class="btn ghost preview-go" :disabled="busy || weeksDiffer" @click="openSnapshot">查看已冻结快照</button>
       </div>
     </section>
 
-    <Teleport to="body"><div v-if="rerunOpen" class="settle-modal-mask" @click.self="!busy&&(rerunOpen=false)"><section class="settle-modal settle-rerun-modal"><div class="settle-modal-title">{{ data.executed?'确认重新跑结算':'确认执行结算' }}<button class="settle-modal-close" :disabled="busy" @click="rerunOpen=false">×</button></div><div class="rerun-summary"><div class="rerun-icon">!</div><div><b>{{ displayWeek }}</b><span v-if="data.executed">该周期已有结算记录，系统会自动跳过已发放的奖励，不会新增重复卡券。</span><span v-else>将按当前规则发放 {{ preview.count||0 }} 张奖励卡券，确认后将保存本周期结算结果。</span></div></div><div class="rerun-metrics"><span>预计奖励 <b>{{ preview.count||0 }} 张</b></span><span>单次上限 <b>{{ preview.cap||data.cfg?.settleCap||20 }} 张</b></span></div><div v-if="preview.blocked" class="settle-danger-tip">预计发放数量已超过单次上限，请先调整榜单与奖励规则后再执行。</div><div v-else class="settle-info-tip">{{ data.executed?'重新跑不会撤销、补发或重复生成已有奖励。':'系统将依据当前榜单数据生成并保存本周期结算结果。' }}</div><div class="settle-modal-actions"><button class="btn ghost" :disabled="busy" @click="rerunOpen=false">取消</button><button class="btn pri" :disabled="busy||preview.blocked" @click="rerun">{{ busy?'处理中…':data.executed?'确认重新跑':'确认执行结算' }}</button></div></section></div></Teleport>
-    <Teleport to="body"><div v-if="forceOpen" class="settle-modal-mask" @click.self="!busy&&(forceOpen=false)"><section class="settle-modal settle-force-modal"><div class="settle-modal-title">强制发放超限奖励<button class="settle-modal-close" :disabled="busy" @click="forceOpen=false">×</button></div><div class="settle-danger-tip">本周期 {{ blockedCount }} 张奖励因超过上限被整批拦截。强制发放会一次性全部发出，请确认当前规则配置符合业务预期。</div><label class="settle-field-label force-label">强制发放原因 <i>*必填</i></label><textarea v-model="forceReason" class="inp settle-reason-input" maxlength="100" placeholder="例如：大型赛事周，确认全员并列奖励"></textarea><div class="settle-modal-actions"><button class="btn ghost" :disabled="busy" @click="forceOpen=false">取消</button><button class="btn dan" :disabled="busy||forceReason.trim().length<2" @click="forceGrant">{{ busy?'处理中…':`确认强制发放 ${blockedCount} 张` }}</button></div></section></div></Teleport>
+    <Teleport to="body"><div v-if="rerunOpen" class="settle-modal-mask" @click.self="!busy&&(rerunOpen=false)"><section class="settle-modal settle-rerun-modal"><div class="settle-modal-title">{{ currentExecuted?'确认重新跑结算':'确认执行结算' }}<button class="settle-modal-close" :disabled="busy" @click="rerunOpen=false">×</button></div><div class="rerun-summary"><div class="rerun-icon">!</div><div><b>{{ currentWeekLabel }}</b><span v-if="currentExecuted">该周期已有结算记录，系统会自动跳过已发放的奖励，不会新增重复卡券。</span><span v-else>将按当前规则发放 {{ preview.count||0 }} 张奖励卡券，确认后将保存本周期结算结果。</span></div></div><div class="rerun-metrics"><span>预计奖励 <b>{{ preview.count||0 }} 张</b></span><span>单次上限 <b>{{ preview.cap||data.cfg?.settleCap||20 }} 张</b></span></div><div v-if="preview.blocked" class="settle-danger-tip">预计发放数量已超过单次上限，请先调整榜单与奖励规则后再执行。</div><div v-else class="settle-info-tip">{{ currentExecuted?'重新跑不会撤销、补发或重复生成已有奖励。':'系统将依据当前榜单数据生成并保存本周期结算结果。' }}</div><div class="settle-modal-actions"><button class="btn ghost" :disabled="busy" @click="rerunOpen=false">取消</button><button class="btn pri" :disabled="busy||preview.blocked" @click="rerun">{{ busy?'处理中…':currentExecuted?'确认重新跑':'确认执行结算' }}</button></div></section></div></Teleport>
+    <Teleport to="body"><div v-if="forceOpen" class="settle-modal-mask" @click.self="!busy&&(forceOpen=false)"><section class="settle-modal settle-force-modal"><div class="settle-modal-title">强制发放超限奖励<button class="settle-modal-close" :disabled="busy" @click="forceOpen=false">×</button></div><div class="settle-danger-tip">{{ displayWeek }} 有 {{ blockedCount }} 张奖励仍是被拦截状态，还没有发出。强制发放会把这一周的拦截记录一次性全部发出。</div><label class="settle-field-label force-label">强制发放原因 <i>*必填</i></label><textarea v-model="forceReason" class="inp settle-reason-input" maxlength="100" placeholder="例如：大型赛事周，确认全员并列奖励"></textarea><div class="settle-modal-actions"><button class="btn ghost" :disabled="busy" @click="forceOpen=false">取消</button><button class="btn dan" :disabled="busy||forceReason.trim().length<2" @click="forceGrant">{{ busy?'处理中…':`确认强制发放 ${blockedCount} 张` }}</button></div></section></div></Teleport>
     <Teleport to="body"><div v-if="revokeRow" class="settle-modal-mask" @click.self="revokeRow=null"><section class="settle-modal settle-revoke-modal"><div class="settle-modal-title">撤销奖励<button class="settle-modal-close" @click="revokeRow=null">×</button></div><div class="settle-target-summary"><b>{{ revokeRow.nick }}</b><span>{{ revokeRow.target }} · {{ settleRewardText(revokeRow) }}</span></div><label class="settle-field-label">撤销原因 <i>*必填</i></label><textarea v-model="revokeReason" class="inp settle-reason-input" maxlength="100" placeholder="请输入撤销原因，例如：奖励对象录入错误"></textarea><div class="settle-danger-tip">确认后将同步作废对应的未核销卡券；已经核销的卡券不会追回。</div><div class="settle-modal-actions"><button class="btn ghost" :disabled="busy" @click="revokeRow=null">取消</button><button class="btn dan" :disabled="busy || revokeReason.trim().length<2" @click="revoke">{{ busy ? "处理中…" : "确认撤销" }}</button></div></section></div></Teleport>
     <Teleport to="body"><div v-if="manualOpen" class="settle-modal-mask" @click.self="manualOpen=false"><section class="settle-modal settle-manual-modal"><div class="settle-modal-title">手动补发<button class="settle-modal-close" @click="manualOpen=false">×</button></div><div class="settle-manual-grid"><label><span class="settle-field-label">会员 <i>*必填</i></span><AppSelect v-model="manual.uid" :options="memberOpts" no-margin class="settle-select" /></label><label><span class="settle-field-label">奖励 <i>*必填</i></span><AppSelect v-model="manual.tplId" :options="templateOpts" no-margin class="settle-select" /></label></div><label class="settle-field-label">补发原因 <i>*必填</i></label><textarea v-model="manual.reason" class="inp settle-reason-input" maxlength="100" placeholder="例如：结算漏发补偿"></textarea><div class="settle-info-tip">手动补发不受单次自动结算上限约束，操作人和原因会写入日志。</div><div class="settle-modal-actions"><button class="btn ghost" :disabled="busy" @click="manualOpen=false">取消</button><button class="btn pri" :disabled="busy" @click="grantManual">{{busy?'处理中…':'确认补发'}}</button></div></section></div></Teleport>
     <Teleport to="body"><div v-if="snapshot" class="settle-modal-mask" @click.self="snapshot=null"><section class="settle-modal settle-snapshot-modal"><div class="settle-modal-title">结算快照<button class="settle-modal-close" @click="snapshot=null">×</button></div><div class="tiny settle-snapshot-sub">{{ snapshot.week?.replace('~',' ~ ') }} · 共 {{snapshot.total}} 条记录<span v-if="snapshot.executedAt"> · 执行于 {{ snapshot.executedAt }}<template v-if="snapshot.trigger==='auto'">（自动）</template><template v-else-if="snapshot.trigger==='manual'">（手动）</template></span> · 规则修改不会回溯本快照</div><div class="settle-snapshot-list"><div v-for="r in snapshot.rows" :key="r.id" class="settle-snapshot-row"><span><b>{{r.nick}}</b><small>{{r.target}}</small></span><span>{{ settleRewardText(r) }}</span><span class="shard-tag">{{ Number(r.sh||0).toLocaleString('en-US') }} 碎片</span><span class="pill status-pill" :class="`status-${String(r.status).toLowerCase()}`">{{statusText(r.status)}}</span></div></div><div class="settle-modal-actions"><button class="btn ghost" @click="snapshot=null">关闭</button></div></section></div></Teleport>

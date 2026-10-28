@@ -282,5 +282,51 @@ class AutoWindowTests(unittest.TestCase):
         self.assertEqual(sess.query(SettleLog).count(), 1)
 
 
+class BlockedWeekForceTests(unittest.TestCase):
+    def _blocked_last_week(self):
+        sess = make_session()
+        L.save_setting(sess, "settleWeek", {"start": "10-26", "end": "11-01"})
+        sess.add(SettleLog(
+            id=1, uid=1, week="10-19~10-25", type="PERSONAL_RANK1", sub="5",
+            target="个人榜", nick="甲", sh=10, status="BLOCKED",
+        ))
+        sess.add(SettleLog(
+            id=2, uid=2, week="10-19~10-25", type="TEAM_CHAMPION", sub="8",
+            target="飞行家", nick="乙", sh=1, status="SKIPPED", desc="无碎片",
+        ))
+        sess.flush()
+        return sess
+
+    def test_table_stays_on_blocked_week_after_calendar_rolls(self):
+        sess = self._blocked_last_week()
+        self.assertEqual(SJ.settlement_week(sess), "10-26~11-01")
+        self.assertEqual(SJ.pending_blocked_week(sess), "10-19~10-25")
+        self.assertEqual(SJ.settlement_table_week(sess), "10-19~10-25")
+
+    def test_force_without_week_grants_the_blocked_batch(self):
+        sess = self._blocked_last_week()
+        with at(datetime(2026, 10, 28, 20, 0)):
+            result = SJ.force_blocked_rewards(sess, "", "大型赛事周", {"nick": "秋阳", "role": "BOSS"})
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["week"], "10-19~10-25")
+        self.assertEqual(result["granted"], 1)
+        row = sess.get(SettleLog, 1)
+        self.assertEqual(row.status, "GRANTED")
+        self.assertEqual(row.force_reason, "大型赛事周")
+        self.assertIsNotNone(row.card_id)
+        self.assertEqual(sess.get(Card, row.card_id).uid, 1)
+        self.assertEqual(sess.get(SettleLog, 2).status, "SKIPPED")
+        self.assertEqual(sess.query(SettleLog).filter(SettleLog.week == "10-26~11-01").count(), 0)
+        self.assertEqual(SJ.pending_blocked_week(sess), "")
+
+    def test_explicit_current_week_does_not_grant_last_week(self):
+        sess = self._blocked_last_week()
+        result = SJ.force_blocked_rewards(sess, "10-26~11-01", "大型赛事周", {"nick": "秋阳", "role": "BOSS"})
+        self.assertFalse(result["ok"])
+        self.assertIn("10-26~11-01", result["message"])
+        self.assertEqual(sess.get(SettleLog, 1).status, "BLOCKED")
+        self.assertEqual(sess.query(Card).count(), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

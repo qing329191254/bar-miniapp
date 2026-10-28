@@ -58,15 +58,61 @@ def settlement_week(db: Session) -> str:
     return week_key(period)
 
 
+def _week_sort_key(week: str) -> tuple[int, int, int]:
+    start = str(week or "").split("~", 1)[0]
+    parts = [int(p) for p in start.split("-") if p.isdigit()]
+    if len(parts) == 3:
+        return (parts[0], parts[1], parts[2])
+    if len(parts) == 2:
+        return (2000, parts[0], parts[1])
+    return (0, 0, 0)
+
+
 def resolve_display_week(db: Session) -> str:
     """Prefer configured week when it has records; otherwise show the latest settled week."""
     configured = settlement_week(db)
     if configured and db.query(SettleLog).filter(SettleLog.week == configured).count():
         return configured
-    weeks = sorted({x.week for x in db.query(SettleLog).all() if x.week}, reverse=True)
+    weeks = sorted({x.week for x in db.query(SettleLog).all() if x.week}, key=_week_sort_key)
     if weeks:
-        return weeks[0]
+        return weeks[-1]
     return configured or ""
+
+
+def pending_blocked_week(db: Session) -> str:
+    """Latest week that still has rewards waiting to be force-granted."""
+    weeks = {
+        week for (week,) in db.query(SettleLog.week).filter(SettleLog.status == "BLOCKED").distinct() if week
+    }
+    if not weeks:
+        return ""
+    return max(weeks, key=_week_sort_key)
+
+
+def settlement_table_week(db: Session) -> str:
+    """Rows on the settlement page. A leftover blocked batch stays visible after the calendar rolls."""
+    return pending_blocked_week(db) or resolve_display_week(db)
+
+
+def force_blocked_rewards(db: Session, week: str, reason: str, admin: dict) -> dict:
+    """Grant BLOCKED rows for one week. An omitted week means the pending blocked batch, not the empty current period."""
+    requested = str(week or "").strip()
+    target = requested or pending_blocked_week(db) or settlement_week(db)
+    blocked = db.query(SettleLog).filter(SettleLog.week == target, SettleLog.status == "BLOCKED").order_by(SettleLog.id).all()
+    if not blocked:
+        return {"ok": False, "week": target, "message": f"{target} 没有待处理的被拦截奖励"}
+    granted = 0
+    for row in blocked:
+        tm = L.resolve_reward_card_tpl(db, row.sub)
+        user = db.get(User, row.uid) if row.uid else None
+        if not tm or not user or user.role != "CUSTOMER" or user.status != "ACTIVE":
+            continue
+        card = L.issue_card(db, user.id, tm, "SETTLE_REWARD", f"{target} · 强制发放：{reason}", op=admin.get("nick") or "")
+        row.card_id, row.status, row.force_reason = card.id, "GRANTED", reason[:128]
+        row.sub = L.reward_tpl_ref(tm)
+        granted += 1
+    L.log(db, "SETTLE_FORCE", f"{target} · 强制发放 {granted} 张 · 原因：{reason}", None, admin)
+    return {"ok": True, "week": target, "granted": granted, "message": f"已强制发放 {granted} 张奖励卡券"}
 
 
 def settlement_meta(db: Session, week: str) -> dict:
