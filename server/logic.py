@@ -559,6 +559,9 @@ def _ensure_flow_history(sess: Session, uid: int) -> None:
         return
     w = sess.get(Wallet, uid)
     if w is not None and not w.flow_ready:
+        # Flush first: populate_existing would otherwise reload the DB row and wipe
+        # uncommitted wallet mutations from the same request (e.g. first game points).
+        sess.flush()
         w = sess.query(Wallet).filter_by(user_id=uid).populate_existing().with_for_update().first()
     done.add(uid)
     if w is None or w.flow_ready:

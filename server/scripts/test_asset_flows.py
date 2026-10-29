@@ -327,6 +327,35 @@ class AssetFlowTests(unittest.TestCase):
         self.assertEqual((page["total"], page["totalAll"], len(page["items"])), (2, 3, 1))
         self.assertEqual({p["name"] for p in page["projects"]}, {"德州扑克", "狼人杀"})
 
+    def test_first_game_keeps_points_when_flow_history_bootstraps(self, _lock):
+        """New member: first asset flow must not wipe uncommitted game points.
+
+        Production sessions use autoflush=False; without an explicit flush before
+        populate_existing, the first flow_put reloads the old wallet and drops points.
+        """
+        engine = create_engine("sqlite://")
+        Base.metadata.create_all(engine)
+        sess = sessionmaker(bind=engine, autoflush=False)()
+        sess.add_all([
+            User(id=7, no="S7", nick="店员小李", role="STAFF"),
+            User(id=11, no="000011", nick="新客", role="CUSTOMER", status="ACTIVE", tail="6275"),
+            Wallet(user_id=11, point_av=0, point_wg=0, point_mg=0, shard_w=0, shard_t=0, flow_ready=False),
+            Project(id=1, name="德州扑克"),
+            TableSeat(id=1, name="A1"),
+        ])
+        sess.flush()
+
+        L.submit_game(sess, STAFF, 1, 1, [{"uid": 11, "pts": 259000, "sh": 5}], [11], "积分赛")
+        sess.flush()
+        w = sess.get(Wallet, 11)
+        self.assertEqual(int(w.point_av or 0), 259000)
+        self.assertEqual(int(w.point_wg or 0), 259000)
+        self.assertEqual(int(w.point_mg or 0), 259000)
+        self.assertEqual((int(w.shard_w or 0), int(w.shard_t or 0)), (5, 5))
+        self.assertTrue(w.flow_ready)
+        flow = sess.query(AssetFlow).filter_by(uid=11, asset="POINT", typ="game").one()
+        self.assertEqual((flow.bal_before, flow.bal_after, flow.status), (0, 259000, "已到账"))
+
 
 if __name__ == "__main__":
     unittest.main()
