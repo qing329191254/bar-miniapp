@@ -382,8 +382,9 @@ async function doSign() {
           :disabled="signedToday || signing"
           @tap="doSign"
         >{{ signedToday ? "今日已签到" : data.user ? "签到" : "登录后签到" }}</button>
-        <view class="note sign-note">
-          签到积分立即到账，同样受<text style="font-weight:600">每月 1 日 13:00 清零</text>约束。漏签不可补签，<text style="font-weight:600">断签后连续天数从 1 重新累计</text>。
+        <view class="note sign-note sign-note-warn">
+          <view class="sign-warn">积分月底自动清零！请及时关注！</view>
+          <view>漏签不可补签，<text class="sign-warn">断签后连续天数从 1 重新累计</text>。</view>
         </view>
         <view class="err" v-if="msg">{{ msg }}</view>
       </scroll-view>
@@ -564,6 +565,8 @@ async function doSign() {
 .tiny.todo { color: #9C9A93; }
 .btn.off { background: #EDEBE4; color: #9C9A93; }
 .sign-note { margin-top: 11px; margin-bottom: 4px; }
+.sign-note-warn { color: #c62828; }
+.sign-warn { color: #c62828; font-weight: 700; }
 
 .play-sheet { max-height: 72%; }
 .play-body { max-height: 58vh; }

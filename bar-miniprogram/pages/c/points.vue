@@ -37,7 +37,7 @@ onShow(() => {
         <text class="pill pt-pill-gold">冻结中 {{ fmt(data.point.fz) }} 分 · 使用单待店员确认</text>
       </view>
       <view class="row pt-foot">
-        <text class="pill pt-pill-warn">{{ clearLabel }}</text>
+        <text class="pill pt-pill-clear">{{ clearLabel }}</text>
         <text class="tiny pt-month">本月已获 {{ fmt(data.point.mg) }}</text>
       </view>
     </view>
@@ -69,7 +69,7 @@ onShow(() => {
       </view>
     </view>
 
-    <view class="note">兑换即时生效；到店使用需店员当面确认，确认前积分处于冻结状态，不可再用于兑换。积分仅限本店会员权益使用，不可兑换现金、不可转让。</view>
+    <view class="note note-warn">兑换即时生效；到店使用需店员当面确认，确认前积分处于冻结状态，不可再用于兑换。积分仅限本店会员权益使用，不可兑换现金、不可转让。</view>
   </view>
 </template>
 
@@ -87,9 +87,15 @@ onShow(() => {
 .pt-num { font-size: 32px; margin-top: 2px; }
 .pt-num.neg { color: #ffc9c9; }
 .pt-pill-warn { background: rgba(255, 255, 255, 0.18); color: #ffd9d9; }
+.pt-pill-clear {
+  background: rgba(255, 255, 255, 0.92);
+  color: #c62828;
+  font-weight: 700;
+}
 .pt-pill-gold { background: rgba(255, 255, 255, 0.18); color: #ffe9b8; }
 .pt-foot { margin-top: 8px; justify-content: space-between; }
 .pt-month { margin-left: auto; color: rgba(255, 255, 255, 0.8); }
+.note-warn { color: #c62828; font-weight: 700; }
 .menu { padding: 11px 12px; }
 .menu-li { cursor: pointer; padding: 11px 0; }
 .ph {
