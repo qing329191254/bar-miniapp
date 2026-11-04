@@ -70,6 +70,31 @@ class CardShardBalanceFlowTests(unittest.TestCase):
         records = L.shard_records_page(sess, 9, limit=5)
         self.assertEqual(records["items"][0]["process"], "10→15")
 
+    def test_batch_grant_increments_balance_each_card(self):
+        sess = make_session()
+        # Seed 9 held cards first.
+        for _ in range(9):
+            L.issue_card(sess, 9, sess.get(CardTpl, 1), "MANUAL_GRANT", "底数", op="系统")
+        sess.flush()
+        L.member_grant_cards(
+            sess, 9, 1, 4, "快速调整",
+            {"role": "BOSS", "nick": "秋阳", "id": 1},
+            require_reason=False,
+        )
+        sess.flush()
+        rows = (
+            sess.query(AssetFlow)
+            .filter_by(uid=9, asset="CARD", typ="card_in")
+            .order_by(AssetFlow.id.asc())
+            .all()
+        )
+        batch = [r for r in rows if "快速调整" in (r.content or "")]
+        self.assertEqual(len(batch), 4)
+        self.assertEqual(
+            [(r.bal_before, r.bal_after) for r in batch],
+            [(9, 10), (10, 11), (11, 12), (12, 13)],
+        )
+
     def test_backfill_restores_missing_card_balances(self):
         sess = make_session()
         c1 = L.issue_card(sess, 9, sess.get(CardTpl, 1), "SIGN_IN_REWARD", "连签奖励", op="系统")

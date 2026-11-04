@@ -703,10 +703,9 @@ def _held_card_count(sess: Session, uid: int) -> int:
 
 def flow_card_in(sess: Session, card: Card, name: str) -> None:
     form, remark = _card_form_and_remark(card)
-    # New card is usually still pending in the session; SQL count won't include it yet.
-    after_db = _held_card_count(sess, card.uid)
-    pending = 1 if inspect(card).pending and card.status in ("UNUSED", "LOCKED") else 0
-    after = after_db + pending
+    # Flush so earlier cards in the same batch are visible to the count (否则批量发卡会全显示同一余额).
+    sess.flush()
+    after = _held_card_count(sess, card.uid)
     before = max(0, after - 1)
     flow_put(
         sess, card.uid, "CARD", f"card-in-{card.id}", stamp=True,
@@ -732,7 +731,8 @@ def flow_card_out(sess: Session, card: Card) -> None:
         remark = "到店核销使用"
     else:
         remark = "超过有效期"
-    # Status already left UNUSED/LOCKED; held count is the after balance.
+    # Flush status change so batch void/verify counts step down one by one.
+    sess.flush()
     after = _held_card_count(sess, card.uid)
     before = after + 1
     flow_put(
