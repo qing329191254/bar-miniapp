@@ -51,12 +51,12 @@ class CardShardBalanceFlowTests(unittest.TestCase):
 
         page = L.member_ledger_page(sess, 9, kind="card", page=1, page_size=10)
         by_id = {x["id"]: x for x in page["items"]}
-        self.assertEqual(by_id[f"card-in-{c1.id}"]["process"], "0→1")
-        self.assertEqual(by_id[f"card-out-{c1.id}"]["process"], "2→1")
+        self.assertEqual(by_id[f"card-in-{c1.id}"]["process"], "游戏卡 0→1")
+        self.assertEqual(by_id[f"card-out-{c1.id}"]["process"], "游戏卡 2→1")
         cust = L.customer_ledger_page(sess, 9, kind="card", limit=10)
         self.assertEqual(
             next(x for x in cust["items"] if x["id"] == f"card-out-{c1.id}")["process"],
-            "2→1",
+            "游戏卡 2→1",
         )
 
     def test_shard_adjust_writes_cumulative_balance(self):
@@ -112,6 +112,22 @@ class CardShardBalanceFlowTests(unittest.TestCase):
         self.assertEqual((by_ref[f"card-in-{c1.id}"].bal_before, by_ref[f"card-in-{c1.id}"].bal_after), (0, 1))
         self.assertEqual((by_ref[f"card-in-{c2.id}"].bal_before, by_ref[f"card-in-{c2.id}"].bal_after), (1, 2))
         self.assertEqual((by_ref[f"card-out-{c1.id}"].bal_before, by_ref[f"card-out-{c1.id}"].bal_after), (2, 1))
+
+    def test_balance_is_per_card_type(self):
+        sess = make_session()
+        sess.add(CardTpl(id=2, name="钢琴点歌卡", cat="SERVICE", days=30, cost=0, use="", rules=""))
+        sess.flush()
+        game = L.issue_card(sess, 9, sess.get(CardTpl, 1), "MANUAL_GRANT", "补发游戏卡", op="秋阳")
+        piano = L.issue_card(sess, 9, sess.get(CardTpl, 2), "MANUAL_GRANT", "补发点歌卡", op="秋阳")
+        sess.flush()
+        by_ref = {r.ref: r for r in sess.query(AssetFlow).filter_by(uid=9, asset="CARD")}
+        # Each type starts its own counter — not a shared pack total.
+        self.assertEqual((by_ref[f"card-in-{game.id}"].bal_before, by_ref[f"card-in-{game.id}"].bal_after), (0, 1))
+        self.assertEqual((by_ref[f"card-in-{piano.id}"].bal_before, by_ref[f"card-in-{piano.id}"].bal_after), (0, 1))
+        page = L.member_ledger_page(sess, 9, kind="card", page=1, page_size=10)
+        by_id = {x["id"]: x for x in page["items"]}
+        self.assertEqual(by_id[f"card-in-{game.id}"]["process"], "游戏卡 0→1")
+        self.assertEqual(by_id[f"card-in-{piano.id}"]["process"], "钢琴点歌卡 0→1")
 
 
 if __name__ == "__main__":

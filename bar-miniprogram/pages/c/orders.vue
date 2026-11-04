@@ -192,7 +192,7 @@ function reorder(order) {
       >{{ item.label }}</view>
     </view>
 
-    <view class="order-hint">{{ tab === 'point' ? '积分变更明细：备注、数量、时间、余额变化与操作员' : tab === 'coin' ? '金币变更明细：备注、数量、时间、余额变化与操作员' : tab === 'card' ? '卡券变更明细：余额变化、备注、数量、时间、卡券号与操作员' : '以下为资产变更明细，含下单、充值、到店使用、兑换、签到、活动与店员调整' }}</view>
+    <view class="order-hint">{{ tab === 'point' ? '积分变更明细：备注、数量、时间、余额变化与操作员' : tab === 'coin' ? '金币变更明细：备注、数量、时间、余额变化与操作员' : tab === 'card' ? '卡券变更明细：该卡种可用张数、备注、数量、时间、卡券号与操作员' : '以下为资产变更明细，含下单、充值、到店使用、兑换、签到、活动与店员调整' }}</view>
 
     <view v-if="loading && !items.length" class="empty">加载中…</view>
     <view v-else-if="msg && !items.length" class="card empty-box">
@@ -207,7 +207,7 @@ function reorder(order) {
         <text class="order-status" :class="'status-' + (row.statusTone || 'grey')">{{ row.status }}</text>
       </view>
 
-      <!-- 卡包订单：优先展示可用张数余额变化，便于对账 -->
+      <!-- 卡包订单：余额为该卡种可用张数（含卡类型名），避免不同卡种数字对不上 -->
       <view v-if="row.kind === 'card'" class="point-grid">
         <view class="point-row">
           <text class="point-k">余额</text>

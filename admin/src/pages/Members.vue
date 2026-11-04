@@ -195,6 +195,12 @@ function ledgerAmountClass(r: any) {
   return "";
 }
 
+function ledgerBalanceText(r: any) {
+  const p = String(r.process || "");
+  if (!p) return "";
+  return r.kind === "card" ? `${p} 张` : p;
+}
+
 function ledgerStatusClass(r: any) {
   const tone = String(r.statusTone || "");
   return ["green", "blue", "red", "gold"].includes(tone) ? `pill ${tone}` : "pill grey";
@@ -489,7 +495,7 @@ watch(kw, () => {
               <td class="tiny mut">{{ r.content && r.content !== r.title ? r.content : "—" }}</td>
               <td><b :class="ledgerAmountClass(r)">{{ r.amount || "—" }}</b></td>
               <td class="tiny">
-                <div v-if="r.process" class="ledger-bal">{{ r.process }}{{ r.kind === "card" ? " 张" : "" }}</div>
+                <div v-if="r.process" class="ledger-bal">{{ ledgerBalanceText(r) }}</div>
                 <div v-if="r.kind === 'card' && r.cardNo" class="tiny mut">{{ r.cardNo }}</div>
                 <span v-if="!r.process && !(r.kind === 'card' && r.cardNo)" class="mut">—</span>
               </td>

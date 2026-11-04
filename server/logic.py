@@ -692,20 +692,52 @@ def _card_flow_name(sess: Session, card: Card) -> str:
     return tm.name if tm else "卡券"
 
 
-def _held_card_count(sess: Session, uid: int) -> int:
-    """Cards still in the member's pack (可用 + 核销中); used as 卡券余额 for ledger对账."""
-    return (
-        sess.query(Card)
+def _held_card_count(sess: Session, uid: int, tpl_id: int | None = None) -> int:
+    """Cards still in the member's pack (可用 + 核销中).
+
+    When tpl_id is set, count only that card type — ledger 余额按卡种展示，避免客户把
+    「白银宝箱」行上的数字和「钢琴点歌卡」行上的数字当成同一口径却对不上。
+    """
+    q = sess.query(Card).filter(Card.uid == int(uid), Card.status.in_(("UNUSED", "LOCKED")))
+    if tpl_id is not None:
+        q = q.filter(Card.tpl == int(tpl_id))
+    return q.count()
+
+
+def _held_card_counts_by_tpl(sess: Session, uid: int) -> dict[int, int]:
+    rows = (
+        sess.query(Card.tpl, Card.id)
         .filter(Card.uid == int(uid), Card.status.in_(("UNUSED", "LOCKED")))
-        .count()
+        .all()
     )
+    out: dict[int, int] = {}
+    for tpl_id, _ in rows:
+        tid = int(tpl_id)
+        out[tid] = out.get(tid, 0) + 1
+    return out
+
+
+def _flow_card_tpl_id(sess: Session, row: AssetFlow) -> int | None:
+    ref = str(row.ref or "")
+    for prefix in ("card-in-", "card-out-"):
+        if ref.startswith(prefix):
+            try:
+                cid = int(ref[len(prefix):])
+            except ValueError:
+                break
+            card = sess.get(Card, cid)
+            return int(card.tpl) if card else None
+    if row.card_no:
+        card = sess.query(Card).filter_by(no=row.card_no).first()
+        return int(card.tpl) if card else None
+    return None
 
 
 def flow_card_in(sess: Session, card: Card, name: str) -> None:
     form, remark = _card_form_and_remark(card)
     # Flush so earlier cards in the same batch are visible to the count (否则批量发卡会全显示同一余额).
     sess.flush()
-    after = _held_card_count(sess, card.uid)
+    after = _held_card_count(sess, card.uid, card.tpl)
     before = max(0, after - 1)
     flow_put(
         sess, card.uid, "CARD", f"card-in-{card.id}", stamp=True,
@@ -733,7 +765,7 @@ def flow_card_out(sess: Session, card: Card) -> None:
         remark = "超过有效期"
     # Flush status change so batch void/verify counts step down one by one.
     sess.flush()
-    after = _held_card_count(sess, card.uid)
+    after = _held_card_count(sess, card.uid, card.tpl)
     before = after + 1
     flow_put(
         sess, card.uid, "CARD", f"card-out-{card.id}", stamp=True,
@@ -771,16 +803,19 @@ def backfill_member_flow_balances(sess: Session, uid: int) -> dict:
         .order_by(AssetFlow.sort_at.asc(), AssetFlow.id.asc())
         .all()
     )
-    held = _held_card_count(sess, uid)
-    live_held = held
+    held_by_tpl = _held_card_counts_by_tpl(sess, uid)
+    live_held = sum(held_by_tpl.values())
     for row in reversed(card_rows):
         d = _flow_delta(row)
-        after = held
+        tpl_id = _flow_card_tpl_id(sess, row)
+        key = int(tpl_id) if tpl_id is not None else 0
+        after = held_by_tpl.get(key, 0)
         before = max(0, after - d)
         row.bal_before, row.bal_after = before, after
         if row.note == NO_BALANCE_CHANGE:
             row.note = ""
-        held = before
+        held_by_tpl[key] = before
+    held = sum(held_by_tpl.values())
 
     shard_rows = (
         sess.query(AssetFlow)
@@ -5001,9 +5036,21 @@ def _backfill_flow_history(sess: Session, uid: int) -> None:
     sess.flush()
 
 
+def _card_type_from_title(title: str) -> str:
+    t = str(title or "")
+    if " · " in t:
+        return t.split(" · ", 1)[1].strip()
+    return ""
+
+
 def _flow_balance_text(row: AssetFlow) -> str:
     if row.bal_before is not None and row.bal_after is not None:
-        return f"{int(row.bal_before):,}→{int(row.bal_after):,}"
+        base = f"{int(row.bal_before):,}→{int(row.bal_after):,}"
+        if (row.asset or "") == "CARD":
+            name = _card_type_from_title(row.title or "")
+            if name:
+                return f"{name} {base}"
+        return base
     return row.note or ""
 
 
