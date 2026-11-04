@@ -102,6 +102,7 @@ onReachBottom(() => loadMore());
       <view v-for="g in data.records" :key="g.key || g.id" class="record-row">
         <view class="record-copy">
           <view class="record-name">{{ g.title }}</view>
+          <view v-if="g.process" class="record-bal">余额 {{ g.process }}</view>
           <view class="record-meta">{{ g.meta }}</view>
         </view>
         <text class="record-value" :class="{ minus: g.delta < 0, void: g.void }">{{ g.delta > 0 ? "+" : "" }}{{ fmt(g.delta) }}</text>
@@ -135,6 +136,7 @@ onReachBottom(() => loadMore());
 .record-row:last-child { border-bottom:none; }
 .record-copy { flex:1;min-width:0;padding:11px 10px 11px 0; }
 .record-name { color:#1c1b19;font-size:14px;line-height:1.45; }
+.record-bal { margin-top:3px;color:#26215c;font-size:12px;font-weight:600;line-height:1.45; }
 .record-meta { margin-top:3px;color:#6b6a65;font-size:12px;line-height:1.45; }
 .record-value { flex:none;color:#534ab7;font-size:15px; }
 .record-value.minus { color:#a32d2d; }

@@ -480,7 +480,7 @@ watch(kw, () => {
           >{{ label }}</span>
         </div>
         <table class="tb2 member-detail-table">
-          <thead><tr><th>时间</th><th>资产</th><th>变动</th><th>备注</th><th>数量</th><th>余额 / 卡号</th><th>操作员</th><th>状态</th></tr></thead>
+          <thead><tr><th>时间</th><th>资产</th><th>变动</th><th>备注</th><th>数量</th><th>余额变化</th><th>操作员</th><th>状态</th></tr></thead>
           <tbody>
             <tr v-for="r in ledgerRows" :key="r.kind + '-' + r.id">
               <td class="tiny">{{ r.at || "—" }}</td>
@@ -488,7 +488,11 @@ watch(kw, () => {
               <td><b>{{ r.title }}</b></td>
               <td class="tiny mut">{{ r.content && r.content !== r.title ? r.content : "—" }}</td>
               <td><b :class="ledgerAmountClass(r)">{{ r.amount || "—" }}</b></td>
-              <td class="tiny">{{ r.kind === "card" ? r.cardNo || "—" : r.process || "—" }}</td>
+              <td class="tiny">
+                <div v-if="r.process" class="ledger-bal">{{ r.process }}{{ r.kind === "card" ? " 张" : "" }}</div>
+                <div v-if="r.kind === 'card' && r.cardNo" class="tiny mut">{{ r.cardNo }}</div>
+                <span v-if="!r.process && !(r.kind === 'card' && r.cardNo)" class="mut">—</span>
+              </td>
               <td class="tiny">{{ r.operator || "—" }}</td>
               <td><span v-if="r.status" :class="ledgerStatusClass(r)">{{ r.status }}</span><span v-else class="tiny mut">—</span></td>
             </tr>
@@ -751,6 +755,7 @@ watch(kw, () => {
 .plus { color: var(--green); }
 .minus { color: var(--red); }
 .struck { color: var(--ink3); text-decoration: line-through; }
+.ledger-bal { font-variant-numeric: tabular-nums; color: var(--ink); font-weight: 600; }
 .ledger-more { display: flex; justify-content: center; padding: 10px 14px 14px; }
 .reject-note { margin: 7px 14px 14px; color: var(--ink3); }
 .adj-btns { gap: 8px; flex-wrap: wrap; }

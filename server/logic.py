@@ -692,13 +692,28 @@ def _card_flow_name(sess: Session, card: Card) -> str:
     return tm.name if tm else "卡券"
 
 
+def _held_card_count(sess: Session, uid: int) -> int:
+    """Cards still in the member's pack (可用 + 核销中); used as 卡券余额 for ledger对账."""
+    return (
+        sess.query(Card)
+        .filter(Card.uid == int(uid), Card.status.in_(("UNUSED", "LOCKED")))
+        .count()
+    )
+
+
 def flow_card_in(sess: Session, card: Card, name: str) -> None:
     form, remark = _card_form_and_remark(card)
+    # New card is usually still pending in the session; SQL count won't include it yet.
+    after_db = _held_card_count(sess, card.uid)
+    pending = 1 if inspect(card).pending and card.status in ("UNUSED", "LOCKED") else 0
+    after = after_db + pending
+    before = max(0, after - 1)
     flow_put(
         sess, card.uid, "CARD", f"card-in-{card.id}", stamp=True,
         typ="card_in", title=f"卡券新增 · {name}", amount="+1 张", delta=1,
         status="已发放", tone="blue", content=" · ".join(p for p in (form, remark) if p),
         card_no=card.no or "", op=card.op or "",
+        bal_before=before, bal_after=after,
     )
 
 
@@ -717,21 +732,30 @@ def flow_card_out(sess: Session, card: Card) -> None:
         remark = "到店核销使用"
     else:
         remark = "超过有效期"
+    # Status already left UNUSED/LOCKED; held count is the after balance.
+    after = _held_card_count(sess, card.uid)
+    before = after + 1
     flow_put(
         sess, card.uid, "CARD", f"card-out-{card.id}", stamp=True,
         typ="card_out", title=f"{title} · {_card_flow_name(sess, card)}", amount="−1 张", delta=-1,
         status=st, tone=tone, content=remark, card_no=card.no or "", op=card.done_op or "",
+        bal_before=before, bal_after=after,
     )
 
 
 def flow_shard(sess: Session, uid: int, ref: str, *, typ: str, title: str, delta: int, op: str,
-               remark: str = "", history: bool = True) -> AssetFlow:
+               remark: str = "", history: bool = True,
+               bal: tuple[int, int] | None = None) -> AssetFlow:
     clear_period_shard_cache(sess)
     at = business_now().strftime("%Y-%m-%d %H:%M")
     meta = " · ".join(p for p in (at, f"操作员 {op}" if op else "", remark) if p)
-    return flow_put(
-        sess, uid, "SHARD", ref, stamp=True, history=history,
+    fields = dict(
         typ=typ, title=title, amount=_signed(delta), delta=int(delta), meta=meta, op=op,
+    )
+    if bal is not None:
+        fields["bal_before"], fields["bal_after"] = int(bal[0]), int(bal[1])
+    return flow_put(
+        sess, uid, "SHARD", ref, stamp=True, history=history, **fields,
     )
 
 
@@ -2043,6 +2067,7 @@ def submit_game(sess: Session, staff: dict, pid: int, table_id, players: list, w
                     bal_before=av_before, bal_after=int(wlt.point_av), op=staff["nick"],
                 )
         if row["sh"]:
+            sh_before = int(wlt.shard_t or 0)
             wlt.shard_w += row["sh"]
             wlt.shard_t += row["sh"]
             if row["sh"] > 0:
@@ -2050,6 +2075,7 @@ def submit_game(sess: Session, staff: dict, pid: int, table_id, players: list, w
                     sess, row["uid"], f"game-{rec.id}", typ="game",
                     title=" · ".join(x for x in (pname, rec.table or "未指定桌台", rec.round) if x),
                     delta=row["sh"], op=staff["nick"],
+                    bal=(sh_before, int(wlt.shard_t or 0)),
                 )
         card_ids = _grant_game_gift_cards(
             sess, row["uid"], row["gifts"], pname=pname or "对局", game_id=rec.id, op=staff["nick"],
@@ -2723,6 +2749,7 @@ def void_game(sess: Session, gid: int, reason: str, void_cards: bool, admin: dic
             flow_shard(
                 sess, uid, f"void-{g.id}", typ="void", title=f"对局作废扣回 · {g.pname or '对局'}",
                 delta=int(w.shard_t) - sh_before, op=_op_name(admin), remark=reason,
+                bal=(sh_before, int(w.shard_t or 0)),
             )
         # Rollback unused cards gifted in this game; already used/locked ones stay.
         for cid in p.get("cardIds") or []:
@@ -3084,7 +3111,8 @@ def exec_deactivation(sess: Session, did: int, action: str, reason: str, admin: 
             )
         if shard_t:
             flow_shard(sess, d.uid, f"deact-{d.id}", typ="deactivate", title="账号注销清零",
-                       delta=-shard_t, op=op_name, remark="碎片清零")
+                       delta=-shard_t, op=op_name, remark="碎片清零",
+                       bal=(int(shard_t), 0))
         for card in sess.query(Card).filter_by(uid=d.uid, status="UNUSED"):
             close_card(sess, card, "VOID", admin, "账号注销作废")
             void_n += 1
@@ -3968,11 +3996,12 @@ def member_adjust_shard(sess: Session, uid: int, delta: int, reason: str, admin:
     shown = int(shard_of(sess, uid)["w"])
     if delta < 0 and -delta > shown:
         raise ValueError(f"扣减失败，超出本周碎片（当前 {shown}）")
-    bw, bt = shown, w.shard_t
+    bw, bt = shown, int(w.shard_t or 0)
     w.shard_w = max(0, int(w.shard_w or 0) + delta)
     w.shard_t = max(int(w.shard_w), int(w.shard_t or 0) + delta)
     flow_shard(sess, uid, _new_ref("adj"), typ="adjust", title="店员调整碎片",
-               delta=delta, op=_op_name(admin), remark=reason)
+               delta=delta, op=_op_name(admin), remark=reason,
+               bal=(bt, int(w.shard_t or 0)))
     log(sess, "SHARD_ADJUST",
         f"快速调整 {user.nick} 碎片 {'+' if delta > 0 else ''}{delta} · 本周 {bw}→{shown + delta} · 累计 {bt}→{w.shard_t}{_reason_tail(reason)}",
         uid, admin)
@@ -4344,13 +4373,13 @@ def _ledger_item(
     }
     if order is not None:
         item["order"] = order
-    if kind in ("point", "card", "coin"):
-        # 金币/积分/卡包订单统一字段：显示内容 / 数量 / 时间 / 变更过程 / 操作员
+    if kind in ("point", "card", "coin", "shard"):
+        # 金币/积分/卡包/碎片统一字段：优先带上余额变化，便于店员与顾客对账
         item["content"] = content or title
         item["process"] = process or ""
         item["operator"] = operator or ""
         item["at"] = _ledger_display_time(at) or item["at"]
-        # Rebuild meta for older clients / 全部变更兜底
+        # Rebuild meta for older clients / 全部变更兜底；余额放在备注后、操作员前
         meta_parts = [
             item["at"],
             item.get("content") or "",
@@ -4890,20 +4919,37 @@ def _backfill_flow_history(sess: Session, uid: int) -> None:
     sess.flush()
 
 
+def _flow_balance_text(row: AssetFlow) -> str:
+    if row.bal_before is not None and row.bal_after is not None:
+        return f"{int(row.bal_before):,}→{int(row.bal_after):,}"
+    return row.note or ""
+
+
 def _flow_item(row: AssetFlow, orders: dict[int, Order]) -> dict:
     kind = str(row.asset or "").lower()
-    if row.bal_before is not None and row.bal_after is not None:
-        process = f"{int(row.bal_before):,}→{int(row.bal_after):,}"
-    else:
-        process = row.note or ""
+    process = _flow_balance_text(row)
+    content = row.content or ""
+    if kind == "shard" and not content:
+        # Shard rows historically stuffed remark into meta; peel time/operator prefixes.
+        remark = str(row.meta or "")
+        if row.at and remark.startswith(row.at):
+            remark = remark[len(row.at):].lstrip(" ·")
+        if remark.startswith("操作员 "):
+            _, _, remark = remark.partition(" · ")
+        content = remark
     item = _ledger_item(
         key=row.ref, kind=kind, typ=row.typ or "", title=row.title or "", amount=row.amount or "",
         status=row.status or "", tone=row.tone or "", meta="", at=row.at or "",
-        content=row.content or "", process="" if kind == "card" else process, operator=row.op or "",
+        content=content, process=process, operator=row.op or "",
     )
     item.pop("_sort", None)
     if kind == "card":
         item["cardNo"] = row.card_no or ""
+    if kind == "shard":
+        item["amount"] = row.amount or _signed(int(row.delta or 0))
+        if row.struck:
+            item["status"] = "已作废"
+            item["statusTone"] = "grey"
     if row.struck is not None:
         item["struck"] = bool(row.struck)
     if row.typ == "order" and row.ref_id in orders:
@@ -4963,20 +5009,7 @@ def member_ledger_page(sess: Session, uid: int, kind: str = "all", page: int = 1
     rows = q.order_by(AssetFlow.sort_at.desc(), AssetFlow.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
     order_ids = [int(r.ref_id) for r in rows if r.typ == "order" and r.ref_id]
     orders = {o.id: o for o in sess.query(Order).filter(Order.id.in_(order_ids)).all()} if order_ids else {}
-    items = []
-    for r in rows:
-        if r.asset == "SHARD":
-            remark = str(r.meta or "")
-            if r.at and remark.startswith(r.at):
-                remark = remark[len(r.at):].lstrip(" ·")
-            items.append({
-                "id": r.ref, "kind": "shard", "type": r.typ or "", "title": r.title or "",
-                "amount": r.amount or _signed(int(r.delta or 0)), "status": "已作废" if r.struck else "",
-                "statusTone": "grey" if r.struck else "", "at": _ledger_display_time(r.at or "") or (r.at or ""),
-                "content": remark, "process": "", "operator": r.op or "",
-            })
-        else:
-            items.append(_flow_item(r, orders))
+    items = [_flow_item(r, orders) for r in rows]
     return {"items": items, "total": total, "page": page, "pageSize": page_size}
 
 
@@ -4984,14 +5017,15 @@ def shard_records_page(sess: Session, uid: int, before: str = "", limit: int = 3
     """碎片记录：对局获得 / 对局作废扣回 / 店员调整 / 每周当周碎片清零，按时间倒序分页。"""
     _ensure_flow_history(sess, uid)
     rows, more, cursor = _flow_page(sess, uid, ("SHARD",), before, max(1, min(int(limit or 30), 200)))
-    items = [
-        {
+    items = []
+    for r in rows:
+        process = _flow_balance_text(r)
+        items.append({
             "id": r.ref, "key": r.ref, "pname": r.title or "", "table": "", "round": "",
             "time": r.at or "", "op": r.op or "", "my": {"sh": int(r.delta or 0)},
-            "title": r.title or "", "meta": r.meta or "", "delta": int(r.delta or 0), "void": bool(r.struck),
-        }
-        for r in rows
-    ]
+            "title": r.title or "", "meta": r.meta or "", "process": process,
+            "delta": int(r.delta or 0), "void": bool(r.struck),
+        })
     return {"items": items, "hasMore": more, "cursor": cursor}
 
 

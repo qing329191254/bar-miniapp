@@ -134,10 +134,12 @@ def reset_weekly_rank_counters(db: Session) -> None:
     """Zero week shard/point counters after settlement so 本周榜 starts fresh."""
     day = L.business_today().isoformat()
     for w in db.query(Wallet).all():
-        if int(w.shard_w or 0) > 0:
+        week_before = int(w.shard_w or 0)
+        if week_before > 0:
             L.flow_shard(
                 db, w.user_id, f"shardw-{day}", typ="weekly", title="周榜结算 · 当周碎片清零",
-                delta=-int(w.shard_w), op="系统", remark="历史累计不变", history=False,
+                delta=-week_before, op="系统", remark="历史累计不变", history=False,
+                bal=(week_before, 0),
             )
         w.shard_w = 0
         w.point_wg = 0
@@ -415,6 +417,7 @@ def restore_false_friday_week_shards(db: Session) -> dict:
         L.flow_shard(
             db, uid, ref, typ="adjust", title="补回本周碎片",
             delta=amount, op="系统", remark="周五误清算，累计不变", history=False,
+            bal=(before, int(wallet.shard_w or 0)),
         )
         L.log(
             db, "SHARD_ADJUST",
