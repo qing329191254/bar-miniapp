@@ -743,6 +743,88 @@ def flow_card_out(sess: Session, card: Card) -> None:
     )
 
 
+def _flow_delta(row: AssetFlow, *, default_in: int = 1) -> int:
+    d = int(row.delta or 0)
+    if d:
+        return d
+    amount = str(row.amount or "")
+    if amount.startswith("+") or (row.typ or "").endswith("_in") or (row.typ or "") == "card_in":
+        return default_in
+    if amount.startswith("−") or amount.startswith("-") or (row.typ or "").endswith("_out") or (row.typ or "") == "card_out":
+        return -default_in
+    return 0
+
+
+def backfill_member_flow_balances(sess: Session, uid: int) -> dict:
+    """Replay one member's CARD/SHARD flows and write bal_before/bal_after for对账.
+
+    Cards walk backward from the live held pack so the latest rows match today's张数.
+    Shards walk forward; weekly clears use the当周 counter, other rows use历史累计.
+    """
+    user = sess.get(User, uid)
+    if not user or user.role != "CUSTOMER":
+        raise ValueError("会员不存在")
+
+    card_rows = (
+        sess.query(AssetFlow)
+        .filter_by(uid=uid, asset="CARD")
+        .order_by(AssetFlow.sort_at.asc(), AssetFlow.id.asc())
+        .all()
+    )
+    held = _held_card_count(sess, uid)
+    live_held = held
+    for row in reversed(card_rows):
+        d = _flow_delta(row)
+        after = held
+        before = max(0, after - d)
+        row.bal_before, row.bal_after = before, after
+        if row.note == NO_BALANCE_CHANGE:
+            row.note = ""
+        held = before
+
+    shard_rows = (
+        sess.query(AssetFlow)
+        .filter_by(uid=uid, asset="SHARD")
+        .order_by(AssetFlow.sort_at.asc(), AssetFlow.id.asc())
+        .all()
+    )
+    cumul = 0
+    for row in shard_rows:
+        d = _flow_delta(row)
+        if (row.typ or "") == "weekly":
+            before = -d if d < 0 else max(0, d)
+            after = 0 if d <= 0 else before + d
+            row.bal_before, row.bal_after = before, after
+        else:
+            before = cumul
+            after = max(0, cumul + d)
+            row.bal_before, row.bal_after = before, after
+            cumul = after
+        if row.note == NO_BALANCE_CHANGE:
+            row.note = ""
+
+    w = wallet_of(sess, uid)
+    live_total = int(w.shard_t or 0)
+    sess.flush()
+    return {
+        "uid": int(uid),
+        "nick": user.nick,
+        "no": user.no,
+        "cards": {
+            "rows": len(card_rows),
+            "liveHeld": live_held,
+            "replayStart": held,
+            "ok": held == 0,
+        },
+        "shards": {
+            "rows": len(shard_rows),
+            "liveTotal": live_total,
+            "replayTotal": cumul,
+            "ok": cumul == live_total,
+        },
+    }
+
+
 def flow_shard(sess: Session, uid: int, ref: str, *, typ: str, title: str, delta: int, op: str,
                remark: str = "", history: bool = True,
                bal: tuple[int, int] | None = None) -> AssetFlow:

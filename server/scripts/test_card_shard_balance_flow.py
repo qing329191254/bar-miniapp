@@ -70,6 +70,24 @@ class CardShardBalanceFlowTests(unittest.TestCase):
         records = L.shard_records_page(sess, 9, limit=5)
         self.assertEqual(records["items"][0]["process"], "10→15")
 
+    def test_backfill_restores_missing_card_balances(self):
+        sess = make_session()
+        c1 = L.issue_card(sess, 9, sess.get(CardTpl, 1), "SIGN_IN_REWARD", "连签奖励", op="系统")
+        c2 = L.issue_card(sess, 9, sess.get(CardTpl, 1), "MANUAL_GRANT", "补发", op="小马")
+        L.close_card(sess, c1, "VOID", {"nick": "小马"}, "积分赛上桌")
+        sess.flush()
+        for row in sess.query(AssetFlow).filter_by(uid=9, asset="CARD"):
+            row.bal_before = None
+            row.bal_after = None
+        sess.flush()
+
+        result = L.backfill_member_flow_balances(sess, 9)
+        self.assertTrue(result["cards"]["ok"])
+        by_ref = {r.ref: r for r in sess.query(AssetFlow).filter_by(uid=9, asset="CARD")}
+        self.assertEqual((by_ref[f"card-in-{c1.id}"].bal_before, by_ref[f"card-in-{c1.id}"].bal_after), (0, 1))
+        self.assertEqual((by_ref[f"card-in-{c2.id}"].bal_before, by_ref[f"card-in-{c2.id}"].bal_after), (1, 2))
+        self.assertEqual((by_ref[f"card-out-{c1.id}"].bal_before, by_ref[f"card-out-{c1.id}"].bal_after), (2, 1))
+
 
 if __name__ == "__main__":
     unittest.main()

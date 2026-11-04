@@ -2180,6 +2180,21 @@ def member_ledger(uid: int, kind: str = "all", page: int = Query(1, ge=1),
         fail(e)
 
 
+@app.post("/api/admin/members/{uid}/backfill-flow-balances")
+def member_backfill_flow_balances(uid: int, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
+    """Boss-only: reconstruct card/shard 余额变化 on historical ledger rows for对账."""
+    if admin["role"] != "BOSS":
+        raise HTTPException(403, "仅老板可操作")
+    try:
+        result = L.backfill_member_flow_balances(db, uid)
+        L.log(db, "FLOW_BAL_BACKFILL",
+              f"回填流水余额 {result.get('nick')} {result.get('no')} · 卡券 {result['cards']['rows']} · 碎片 {result['shards']['rows']}",
+              uid, admin)
+        return result
+    except ValueError as e:
+        fail(e)
+
+
 @app.get("/api/admin/members/{uid}")
 def member_detail(uid: int, admin: dict = Depends(admin_user), db: Session = Depends(get_db)):
     try:
