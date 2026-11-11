@@ -124,5 +124,49 @@ class CreateStaffInactiveTests(unittest.TestCase):
         self.assertTrue(str(gone.phone).startswith("已注销-"))
 
 
+class GrantComboQtyTests(unittest.TestCase):
+    def test_multi_pack_order_multiplies_card_grants(self):
+        """一次下单多份套餐时，发卡数 = 套餐配置张数 × 订单行数量。"""
+        order = SimpleNamespace(
+            uid=1216,
+            no="DD2611112821",
+            items=[{"pid": 7, "name": "基础套餐", "qty": 2}],
+        )
+        product = SimpleNamespace(type="COMBO", combo=[{"tpl": 1, "qty": 2}])
+        tm = SimpleNamespace(id=1, name="游戏卡")
+        sess = MagicMock()
+        issued = []
+
+        def fake_issue(_sess, uid, card_tm, src, src_desc, op=""):
+            issued.append((uid, card_tm.id, src, src_desc, op))
+            return SimpleNamespace(id=len(issued))
+
+        with patch.object(L, "prod", return_value=product), patch.object(L, "tpl", return_value=tm), patch.object(
+            L, "issue_card", side_effect=fake_issue
+        ):
+            n = L.grant_combo(sess, order)
+
+        self.assertEqual(n, 4)
+        self.assertEqual(len(issued), 4)
+        self.assertTrue(all(row[2] == "ORDER_COMBO" for row in issued))
+        self.assertTrue(all("DD2611112821" in row[3] for row in issued))
+
+    def test_single_pack_unchanged(self):
+        order = SimpleNamespace(
+            uid=9,
+            no="DD1",
+            items=[{"pid": 7, "name": "基础套餐", "qty": 1}],
+        )
+        product = SimpleNamespace(type="COMBO", combo=[{"tpl": 1, "qty": 2}])
+        tm = SimpleNamespace(id=1, name="游戏卡")
+        sess = MagicMock()
+        with patch.object(L, "prod", return_value=product), patch.object(L, "tpl", return_value=tm), patch.object(
+            L, "issue_card"
+        ) as issue:
+            n = L.grant_combo(sess, order)
+        self.assertEqual(n, 2)
+        self.assertEqual(issue.call_count, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

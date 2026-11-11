@@ -1791,11 +1791,13 @@ def grant_combo(sess: Session, order: Order) -> int:
     for it in order.items or []:
         p = prod(sess, it["pid"]) if it.get("pid") is not None else sess.query(Product).filter_by(name=it["name"]).first()
         if p and p.type == "COMBO" and p.combo:
+            packs = max(1, int(it.get("qty") or 1))
             for c in p.combo:
                 tm = tpl(sess, c["tpl"])
                 if not tm:
                     continue
-                for _ in range(c["qty"]):
+                per = max(0, int(c.get("qty") or 0))
+                for _ in range(per * packs):
                     issue_card(sess, order.uid, tm, "ORDER_COMBO", f"套餐自动发放 · {order.no}", op="系统")
                     n += 1
     return n
