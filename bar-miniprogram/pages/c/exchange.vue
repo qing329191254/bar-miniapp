@@ -32,7 +32,8 @@ function tplsOf(cat) {
 const visibleGroups = computed(() => GROUPS.filter((g) => tplsOf(g.cat).length));
 
 function gotCount(tid) {
-  return cards.value.filter((c) => c.tpl === tid && c.src === "EXCHANGE").length;
+  // 与服务端 per_limit 一致：作废（店员扣减）不占用终身兑换额度
+  return cards.value.filter((c) => c.tpl === tid && c.src === "EXCHANGE" && c.status !== "VOID").length;
 }
 
 function tipOf(t) {

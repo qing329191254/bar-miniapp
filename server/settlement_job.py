@@ -107,6 +107,13 @@ def force_blocked_rewards(db: Session, week: str, reason: str, admin: dict) -> d
         user = db.get(User, row.uid) if row.uid else None
         if not tm or not user or user.role != "CUSTOMER" or user.status != "ACTIVE":
             continue
+        tm = db.query(CardTpl).filter_by(id=tm.id).with_for_update().first()
+        if not tm:
+            continue
+        try:
+            L.consume_card_tpl_stock(tm, 1)
+        except ValueError:
+            continue
         card = L.issue_card(db, user.id, tm, "SETTLE_REWARD", f"{target} · 强制发放：{reason}", op=admin.get("nick") or "")
         row.card_id, row.status, row.force_reason = card.id, "GRANTED", reason[:128]
         row.sub = L.reward_tpl_ref(tm)
@@ -300,11 +307,23 @@ def run_settlement(db: Session, week: str | None = None, admin: dict | None = No
         status = "SKIPPED"
         desc = item["reason"] or item["desc"]
         if item["eligible"]:
-            tm = db.get(CardTpl, int(item["tplId"])) if item.get("tplId") else L.resolve_reward_card_tpl(db, item.get("sub"))
+            tid = int(item["tplId"]) if item.get("tplId") else None
+            tm = (
+                db.query(CardTpl).filter_by(id=tid).with_for_update().first()
+                if tid
+                else L.resolve_reward_card_tpl(db, item.get("sub"))
+            )
+            if tm and tid is None:
+                tm = db.query(CardTpl).filter_by(id=tm.id).with_for_update().first()
             if tm:
-                card = L.issue_card(db, item["uid"], tm, "SETTLE_REWARD", f"{week} · {item['target']}", op="系统")
-                card_id, status, desc = card.id, "GRANTED", tm.name
-                granted += 1
+                try:
+                    L.consume_card_tpl_stock(tm, 1)
+                except ValueError:
+                    status, desc = "SKIPPED", f"{tm.name}库存不足"
+                else:
+                    card = L.issue_card(db, item["uid"], tm, "SETTLE_REWARD", f"{week} · {item['target']}", op="系统")
+                    card_id, status, desc = card.id, "GRANTED", tm.name
+                    granted += 1
         db.add(SettleLog(
             id=L.next_seq(db, "settle"), uid=item["uid"], week=week, type=item["type"], sub=item["sub"],
             target=item["target"], nick=item["nick"], sh=item["sh"], status=status,

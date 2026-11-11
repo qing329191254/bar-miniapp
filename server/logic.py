@@ -1397,12 +1397,17 @@ def do_sign(sess: Session, uid: int) -> dict:
             w.point_mg += r.pts
             extra_pts += r.pts
         for c in r.cards or []:
-            tm = tpl(sess, c["tpl"])
+            tid = int(c.get("tpl") or 0)
+            cq = max(0, int(c.get("qty") or 0))
+            if tid < 1 or cq < 1:
+                continue
+            tm = sess.query(CardTpl).filter_by(id=tid).with_for_update().first()
             if not tm:
                 continue
-            for _ in range(c["qty"]):
+            consume_card_tpl_stock(tm, cq)
+            for _ in range(cq):
                 issue_card(sess, uid, tm, "SIGN_IN_REWARD", f"连续签到 {r.days} 天奖励", op="系统")
-            names.append(f"{tm.name}×{c['qty']}")
+            names.append(f"{tm.name}×{cq}")
     sr = SignRecord(uid=uid, day=today, month=month, pts=sp, extra_pts=extra_pts)
     sess.add(sr)
     sess.flush()
@@ -1416,6 +1421,51 @@ def do_sign(sess: Session, uid: int) -> dict:
             bal_before=av_before, bal_after=int(w.point_av or 0), op="系统",
         )
     return {"points": sp, "extraPts": extra_pts, "cards": names, "streak": w.sign_streak}
+
+
+def card_tpl_stock(tm: CardTpl | None) -> int:
+    """Return remaining stock; -1 means unlimited."""
+    if tm is None or tm.stock is None:
+        return -1
+    return int(tm.stock)
+
+
+def consume_card_tpl_stock(tm: CardTpl, qty: int) -> None:
+    """Deduct tracked stock (no-op when unlimited)."""
+    qty = int(qty or 0)
+    if qty < 1:
+        return
+    stk = card_tpl_stock(tm)
+    if stk < 0:
+        return
+    if stk < qty:
+        err(f"「{tm.name}」库存不足（剩 {stk}，需要 {qty}）")
+    tm.stock = stk - qty
+
+
+def restore_card_tpl_stock(tm: CardTpl | None, qty: int = 1) -> None:
+    """Return stock when voiding an unused card that previously consumed inventory."""
+    qty = int(qty or 0)
+    if qty < 1 or tm is None:
+        return
+    stk = card_tpl_stock(tm)
+    if stk < 0:
+        return
+    tm.stock = stk + qty
+
+
+# Issuers that decrement CardTpl.stock when tracked (>=0); voiding unused should restore.
+STOCK_CONSUMING_CARD_SRCS = frozenset({
+    "EXCHANGE", "GAME_GIFT", "ORDER_COMBO", "SIGN_IN_REWARD",
+    "SETTLE_REWARD", "SETTLE_MANUAL", "MANUAL_GRANT",
+})
+
+
+def restore_stock_for_voided_card(sess: Session, card: Card) -> None:
+    if not card or card.src not in STOCK_CONSUMING_CARD_SRCS:
+        return
+    tm = sess.get(CardTpl, int(card.tpl))
+    restore_card_tpl_stock(tm, 1)
 
 
 def issue_card(sess: Session, uid: int, tm: CardTpl, src: str, src_desc: str, op: str = "") -> Card:
@@ -1525,6 +1575,30 @@ def normalize_settlement_cfg_refs(sess: Session, cfg: dict) -> dict:
     return out
 
 
+_ORDER_STATUSES_COUNT_TOWARD_DAILY_LIMIT = (
+    "PENDING_PAY", "PENDING_ACCEPT", "MAKING", "FINISHED",
+)
+
+
+def product_sold_qty_today(sess: Session, pid: int) -> int:
+    """Store-wide sold qty for a product on the business day (open/active orders only)."""
+    today = today_str()
+    sold = 0
+    rows = (
+        sess.query(Order)
+        .filter(
+            Order.status.in_(_ORDER_STATUSES_COUNT_TOWARD_DAILY_LIMIT),
+            Order.at.like(f"{today}%"),
+        )
+        .all()
+    )
+    for o in rows:
+        for it in o.items or []:
+            if int(it.get("pid") or 0) == int(pid):
+                sold += max(0, int(it.get("qty") or 0))
+    return sold
+
+
 def create_order(sess: Session, uid: int, items: list, pay_type: str, table_id, remark: str) -> dict:
     user = u(sess, uid)
     # Staff/manager/boss share one account: member portal can place orders for themselves.
@@ -1538,6 +1612,7 @@ def create_order(sess: Session, uid: int, items: list, pay_type: str, table_id, 
         err("购物车商品过多")
     lines = []
     total = 0
+    want_by_pid: dict[int, int] = {}
     for it in items:
         p = prod(sess, int(it["pid"]))
         if not p or p.offline or p.sold_out:
@@ -1555,12 +1630,22 @@ def create_order(sess: Session, uid: int, items: list, pay_type: str, table_id, 
             err("该商品只能选择一个规格")
         price = unit_price(p, spec_ids)
         total += price * qty
+        want_by_pid[p.id] = want_by_pid.get(p.id, 0) + qty
         lines.append({
             "pid": p.id, "name": p.name,
             "spec": "、".join(spec_name(p, s) for s in spec_ids if spec_name(p, s)),
             "specIds": spec_ids,
             "qty": qty, "price": price,
         })
+    for pid, want in want_by_pid.items():
+        p = prod(sess, pid)
+        limit = int(p.daily_limit if p and p.daily_limit is not None else -1)
+        if limit < 0:
+            continue
+        sold = product_sold_qty_today(sess, pid)
+        if sold + want > limit:
+            left = max(0, limit - sold)
+            err(f"「{p.name}」今日限量 {limit} 份，已售 {sold}，还可买 {left} 份")
     cfg = setting(sess, "config")
     timeout = int(cfg.get("offlineTimeout") or 30)
     tbl = sess.get(TableSeat, table_id) if table_id else None
@@ -1787,20 +1872,42 @@ def find_verify(sess: Session, code: str) -> VerifyCode | None:
 
 
 def grant_combo(sess: Session, order: Order) -> int:
-    n = 0
+    needs: dict[int, int] = {}
+    plan: list[tuple[int, int]] = []  # (tpl_id, count)
     for it in order.items or []:
         p = prod(sess, it["pid"]) if it.get("pid") is not None else sess.query(Product).filter_by(name=it["name"]).first()
-        if p and p.type == "COMBO" and p.combo:
-            packs = max(1, int(it.get("qty") or 1))
-            for c in p.combo:
-                tm = tpl(sess, c["tpl"])
-                if not tm:
-                    continue
-                per = max(0, int(c.get("qty") or 0))
-                for _ in range(per * packs):
-                    issue_card(sess, order.uid, tm, "ORDER_COMBO", f"套餐自动发放 · {order.no}", op="系统")
-                    n += 1
+        if not (p and p.type == "COMBO" and p.combo):
+            continue
+        packs = max(1, int(it.get("qty") or 1))
+        for c in p.combo:
+            tid = int(c.get("tpl") or 0)
+            per = max(0, int(c.get("qty") or 0))
+            count = per * packs
+            if tid < 1 or count < 1:
+                continue
+            needs[tid] = needs.get(tid, 0) + count
+            plan.append((tid, count))
+    locked: dict[int, CardTpl] = {}
+    for tid, need in needs.items():
+        tm = sess.query(CardTpl).filter_by(id=tid).with_for_update().first()
+        if not tm:
+            err("套餐卡券模板不存在或已删除")
+        consume_card_tpl_stock(tm, need)
+        locked[tid] = tm
+    n = 0
+    for tid, count in plan:
+        tm = locked[tid]
+        for _ in range(count):
+            issue_card(sess, order.uid, tm, "ORDER_COMBO", f"套餐自动发放 · {order.no}", op="系统")
+            n += 1
     return n
+
+
+def combo_cards_for_order(sess: Session, order: Order) -> list[Card]:
+    """Cards issued for this order's combo grant (exact order-no suffix match)."""
+    suffix = f" · {order.no}"
+    rows = sess.query(Card).filter_by(uid=order.uid, src="ORDER_COMBO").all()
+    return [c for c in rows if (c.src_desc or "").endswith(suffix)]
 
 
 def accept_order(sess: Session, oid: int, staff: dict) -> dict:
@@ -1863,6 +1970,11 @@ def refund_order(sess: Session, oid: int, reason: str, admin: dict) -> dict:
     if len(reason) < 2:
         err("请填写退款原因")
 
+    combo_cards = combo_cards_for_order(sess, o)
+    used_n = sum(1 for c in combo_cards if c.status in ("USED", "LOCKED"))
+    if used_n:
+        err(f"该订单发放的套餐卡券已有 {used_n} 张已使用或核销中，无法退款")
+
     if o.pay_type == "COIN":
         if o.status not in ("MAKING", "FINISHED"):
             err("金币订单须在接单扣款后才能退款")
@@ -1892,10 +2004,12 @@ def refund_order(sess: Session, oid: int, reason: str, admin: dict) -> dict:
         refund_type = "OFFLINE"
 
     voided = 0
-    for card in sess.query(Card).filter_by(uid=o.uid, src="ORDER_COMBO", status="UNUSED"):
-        if o.no in (card.src_desc or ""):
-            close_card(sess, card, "VOID", admin, f"订单退款 · {o.no}")
-            voided += 1
+    for card in combo_cards:
+        if card.status != "UNUSED":
+            continue
+        close_card(sess, card, "VOID", admin, f"订单退款 · {o.no}")
+        restore_stock_for_voided_card(sess, card)
+        voided += 1
 
     o.status = "REFUNDED"
     o.cancel_reason = f"退款：{reason}"[:128]
@@ -2854,6 +2968,7 @@ def void_game(sess: Session, gid: int, reason: str, void_cards: bool, admin: dic
             if w.point_av < 0 and void_cards:
                 for c in sess.query(Card).filter_by(uid=uid, status="UNUSED", src="EXCHANGE"):
                     close_card(sess, c, "VOID", admin, f"对局作废 · {reason}")
+                    restore_stock_for_voided_card(sess, c)
         if sh > 0:
             sh_before = int(w.shard_t or 0)
             w.shard_w = max(0, int(w.shard_w or 0) - sh)
@@ -2877,9 +2992,7 @@ def void_game(sess: Session, gid: int, reason: str, void_cards: bool, admin: dic
                 continue
             close_card(sess, c, "VOID", admin, f"对局作废 · {reason}")
             gift_voided += 1
-            tm = tpl(sess, c.tpl)
-            if tm and tm.stock >= 0:
-                tm.stock = int(tm.stock or 0) + 1
+            restore_stock_for_voided_card(sess, c)
     # Remove champion records for this game. Prefer game_id; legacy rows fall back to event+date+winners.
     champ_removed = 0
     q = sess.query(Champ).filter(Champ.game_id == g.id)
@@ -4139,9 +4252,13 @@ def member_grant_cards(sess: Session, uid: int, tpl_id: int, qty: int, reason: s
     user = sess.get(User, uid)
     if not user or user.role != "CUSTOMER" or user.status != "ACTIVE":
         raise ValueError("会员不存在")
-    tm = sess.get(CardTpl, tpl_id)
+    tm = sess.query(CardTpl).filter_by(id=tpl_id).with_for_update().first()
     if not tm:
         raise ValueError("卡券模板不存在")
+    try:
+        consume_card_tpl_stock(tm, qty)
+    except ValueError as e:
+        raise ValueError(str(e)) from e
     for _ in range(qty):
         issue_card(sess, uid, tm, "MANUAL_GRANT", f"店员补发 · {reason or '快速调整'}"[:128], op=admin.get("nick") or "")
     log(sess, "CARD_GRANT", f"快速补发 {user.nick} · {tm.name} ×{qty}{_reason_tail(reason)}", uid, admin)
@@ -4160,7 +4277,7 @@ def member_revoke_cards(sess: Session, uid: int, tpl_id: int, qty: int, reason: 
     user = sess.get(User, uid)
     if not user or user.role != "CUSTOMER" or user.status != "ACTIVE":
         raise ValueError("会员不存在")
-    tm = sess.get(CardTpl, tpl_id)
+    tm = sess.query(CardTpl).filter_by(id=tpl_id).with_for_update().first()
     if not tm:
         raise ValueError("卡券模板不存在")
     cards = (
@@ -4174,9 +4291,7 @@ def member_revoke_cards(sess: Session, uid: int, tpl_id: int, qty: int, reason: 
         raise ValueError(f"未使用「{tm.name}」仅剩 {len(cards)} 张，无法扣减 {qty} 张")
     for c in cards:
         close_card(sess, c, "VOID", admin, f"手动扣减 · {reason or '快速调整'}")
-        # Exchange stock was decremented on redeem; restore when unused exch cards are voided.
-        if c.src == "EXCHANGE" and tm.stock is not None and int(tm.stock) >= 0:
-            tm.stock = int(tm.stock or 0) + 1
+        restore_stock_for_voided_card(sess, c)
     log(sess, "CARD_REVOKE", f"快速扣减 {user.nick} · {tm.name} ×{qty}{_reason_tail(reason)}", uid, admin)
     sess.flush()
     return {"ok": True, "qty": qty}

@@ -124,6 +124,12 @@ class CreateStaffInactiveTests(unittest.TestCase):
         self.assertTrue(str(gone.phone).startswith("已注销-"))
 
 
+def _lock_tpl(sess, tm):
+    q = MagicMock()
+    q.filter_by.return_value.with_for_update.return_value.first.return_value = tm
+    sess.query.return_value = q
+
+
 class GrantComboQtyTests(unittest.TestCase):
     def test_multi_pack_order_multiplies_card_grants(self):
         """一次下单多份套餐时，发卡数 = 套餐配置张数 × 订单行数量。"""
@@ -133,17 +139,16 @@ class GrantComboQtyTests(unittest.TestCase):
             items=[{"pid": 7, "name": "基础套餐", "qty": 2}],
         )
         product = SimpleNamespace(type="COMBO", combo=[{"tpl": 1, "qty": 2}])
-        tm = SimpleNamespace(id=1, name="游戏卡")
+        tm = SimpleNamespace(id=1, name="游戏卡", stock=-1)
         sess = MagicMock()
+        _lock_tpl(sess, tm)
         issued = []
 
         def fake_issue(_sess, uid, card_tm, src, src_desc, op=""):
             issued.append((uid, card_tm.id, src, src_desc, op))
             return SimpleNamespace(id=len(issued))
 
-        with patch.object(L, "prod", return_value=product), patch.object(L, "tpl", return_value=tm), patch.object(
-            L, "issue_card", side_effect=fake_issue
-        ):
+        with patch.object(L, "prod", return_value=product), patch.object(L, "issue_card", side_effect=fake_issue):
             n = L.grant_combo(sess, order)
 
         self.assertEqual(n, 4)
@@ -158,14 +163,115 @@ class GrantComboQtyTests(unittest.TestCase):
             items=[{"pid": 7, "name": "基础套餐", "qty": 1}],
         )
         product = SimpleNamespace(type="COMBO", combo=[{"tpl": 1, "qty": 2}])
-        tm = SimpleNamespace(id=1, name="游戏卡")
+        tm = SimpleNamespace(id=1, name="游戏卡", stock=-1)
         sess = MagicMock()
-        with patch.object(L, "prod", return_value=product), patch.object(L, "tpl", return_value=tm), patch.object(
-            L, "issue_card"
-        ) as issue:
+        _lock_tpl(sess, tm)
+        with patch.object(L, "prod", return_value=product), patch.object(L, "issue_card") as issue:
             n = L.grant_combo(sess, order)
         self.assertEqual(n, 2)
         self.assertEqual(issue.call_count, 2)
+
+    def test_combo_grant_checks_stock(self):
+        order = SimpleNamespace(uid=9, no="DD2", items=[{"pid": 7, "qty": 2}])
+        product = SimpleNamespace(type="COMBO", combo=[{"tpl": 1, "qty": 2}])
+        tm = SimpleNamespace(id=1, name="游戏卡", stock=3)
+        sess = MagicMock()
+        _lock_tpl(sess, tm)
+        with patch.object(L, "prod", return_value=product), patch.object(L, "issue_card"):
+            with self.assertRaisesRegex(ValueError, "库存不足"):
+                L.grant_combo(sess, order)
+
+
+class RefundUsedComboTests(unittest.TestCase):
+    def test_refund_blocked_when_combo_card_used(self):
+        order = SimpleNamespace(
+            id=10, no="DD99", uid=9, status="FINISHED", pay_type="COIN",
+            paid_principal=98, paid_bonus=0, total=98, items=[],
+        )
+        used = SimpleNamespace(status="USED", src="ORDER_COMBO", src_desc="套餐自动发放 · DD99", tpl=1)
+        unused = SimpleNamespace(status="UNUSED", src="ORDER_COMBO", src_desc="套餐自动发放 · DD99", tpl=1)
+        sess = MagicMock()
+        sess.query.return_value.filter_by.return_value.with_for_update.return_value.first.return_value = order
+        with patch.object(L, "combo_cards_for_order", return_value=[used, unused]):
+            with self.assertRaisesRegex(ValueError, "已使用或核销中"):
+                L.refund_order(sess, 10, "客户要求退款", {"id": 1, "nick": "老板", "role": "BOSS"})
+
+
+class DailyLimitTests(unittest.TestCase):
+    def test_create_order_enforces_daily_limit(self):
+        user = SimpleNamespace(id=9, nick="测", role="CUSTOMER", status="ACTIVE")
+        product = SimpleNamespace(
+            id=2, name="基础套餐", offline=False, sold_out=False, daily_limit=2,
+            has_spec=False, spec_multi=False, specs=[], price=98, type="COMBO",
+        )
+        sess = MagicMock()
+        with patch.object(L, "u", return_value=user), patch.object(L, "can_use_member_commerce", return_value=True), patch.object(
+            L, "prod", return_value=product
+        ), patch.object(L, "unit_price", return_value=98), patch.object(
+            L, "product_sold_qty_today", return_value=1
+        ):
+            with self.assertRaisesRegex(ValueError, "今日限量"):
+                L.create_order(sess, 9, [{"pid": 2, "qty": 2, "specIds": []}], "COIN", None, "")
+
+
+class StockRestoreTests(unittest.TestCase):
+    def test_revoke_restores_game_gift_stock(self):
+        user = SimpleNamespace(id=9, role="CUSTOMER", status="ACTIVE", nick="测")
+        tm = SimpleNamespace(id=3, name="桌游卡", stock=0)
+        card = SimpleNamespace(id=1, uid=9, tpl=3, status="UNUSED", src="GAME_GIFT", void_reason=None)
+        sess = MagicMock()
+
+        def get_side(model, pk):
+            if model is L.User:
+                return user
+            if model is L.CardTpl:
+                return tm
+            return None
+
+        def query_side(model):
+            q = MagicMock()
+            if model is L.CardTpl:
+                q.filter_by.return_value.with_for_update.return_value.first.return_value = tm
+            elif model is L.Card:
+                q.filter_by.return_value.order_by.return_value.limit.return_value.all.return_value = [card]
+            return q
+
+        sess.get.side_effect = get_side
+        sess.query.side_effect = query_side
+        admin = {"id": 1, "role": "BOSS", "nick": "老板"}
+        with patch.object(L, "close_card"), patch.object(L, "log"):
+            out = L.member_revoke_cards(sess, 9, 3, 1, "测库存回滚", admin)
+        self.assertEqual(out["qty"], 1)
+        self.assertEqual(tm.stock, 1)
+
+    def test_existing_exchange_revoke_still_restores_stock(self):
+        user = SimpleNamespace(id=9, role="CUSTOMER", status="ACTIVE", nick="测")
+        tm = SimpleNamespace(id=3, name="桌游卡", stock=0)
+        card = SimpleNamespace(id=1, uid=9, tpl=3, status="UNUSED", src="EXCHANGE", void_reason=None)
+        sess = MagicMock()
+
+        def get_side(model, pk):
+            if model is L.User:
+                return user
+            if model is L.CardTpl:
+                return tm
+            return None
+
+        def query_side(model):
+            q = MagicMock()
+            if model is L.CardTpl:
+                q.filter_by.return_value.with_for_update.return_value.first.return_value = tm
+            elif model is L.Card:
+                q.filter_by.return_value.order_by.return_value.limit.return_value.all.return_value = [card]
+            return q
+
+        sess.get.side_effect = get_side
+        sess.query.side_effect = query_side
+        admin = {"id": 1, "role": "BOSS", "nick": "老板"}
+        with patch.object(L, "flow_card_out"), patch.object(L, "close_card"), patch.object(L, "log"):
+            out = L.member_revoke_cards(sess, 9, 3, 1, "测限额", admin)
+        self.assertEqual(out["qty"], 1)
+        self.assertEqual(tm.stock, 1)
 
 
 if __name__ == "__main__":
